@@ -1,6 +1,6 @@
 // src/pages/ReminderManager.js
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api'; // ✅ Use api instance instead of axios
 import 'bootstrap/dist/css/bootstrap.min.css';
 
 function ReminderManager() {
@@ -16,8 +16,8 @@ function ReminderManager() {
 
   const fetchStudentsWithPendingPayments = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:8000/api/students/');
-      // Filter students with pending payments (you'll need an API endpoint for this)
+      // ✅ FIXED: Using api instance
+      const response = await api.get('/students/');
       setStudents(response.data);
     } catch (err) {
       console.error('Error fetching students:', err);
@@ -50,8 +50,8 @@ function ReminderManager() {
     setSmsStatus('Sending reminders...');
 
     try {
-      // This would call your Django backend to send SMS
-      await axios.post('http://127.0.0.1:8000/api/send-reminders/', {
+      // ✅ FIXED: Using api instance
+      await api.post('/send-reminders/', {
         student_ids: selectedStudents,
         custom_message: message
       });
@@ -60,6 +60,7 @@ function ReminderManager() {
       setSelectedStudents([]);
       setMessage('');
     } catch (err) {
+      console.error('Error sending reminders:', err);
       setSmsStatus('Failed to send reminders');
     } finally {
       setLoading(false);
