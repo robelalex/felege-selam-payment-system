@@ -17,6 +17,7 @@ import {
 import axios from 'axios';
 import ClassCard from '../components/Admin/ClassCard';
 import ClassDetails from '../components/Admin/ClassDetails';
+import api from '../services/api'; // Add this at the top if not there
 
 function AdminDashboard() {
   const [selectedGrade, setSelectedGrade] = useState(null);
@@ -32,8 +33,8 @@ function AdminDashboard() {
   const fetchData = async () => {
     try {
       const [studentsRes, paymentsRes] = await Promise.all([
-        axios.get('http://127.0.0.1:8000/api/students/'),
-        axios.get('http://127.0.0.1:8000/api/payments/')
+         api.get('/students/'),
+         api.get('/payments/')
       ]);
 
       setStudents(studentsRes.data);

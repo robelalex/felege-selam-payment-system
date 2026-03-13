@@ -45,4 +45,5 @@ class AcademicYearService {
   }
 }
 
-export default new AcademicYearService();
+const academicYearService = new AcademicYearService();
+export default academicYearService;

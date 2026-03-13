@@ -12,8 +12,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
-import * as XLSX from 'xlsx';
-import axios from 'axios';
+import api from '../../services/api'; // ✅ ADD THIS IMPORT (remove axios import)
 
 function BulkImport({ onClose, onSuccess }) {
   const [file, setFile] = useState(null);
@@ -36,7 +35,8 @@ function BulkImport({ onClose, onSuccess }) {
 
   const downloadTemplate = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:8000/api/students/download_template/', {
+      // ✅ FIXED: Using api instance with responseType blob
+      const response = await api.get('/students/download_template/', {
         responseType: 'blob'
       });
       
@@ -63,8 +63,9 @@ function BulkImport({ onClose, onSuccess }) {
     formData.append('file', file);
 
     try {
-      const response = await axios.post(
-        'http://127.0.0.1:8000/api/students/bulk_import/',
+      // ✅ FIXED: Using api instance with custom headers for form data
+      const response = await api.post(
+        '/students/bulk_import/',
         formData,
         {
           headers: {

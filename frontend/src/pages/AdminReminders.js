@@ -18,6 +18,7 @@ import {
   X
 } from 'lucide-react';
 import axios from 'axios';
+import api from '../services/api'; // ✅ ADD THIS IMPORT
 
 function AdminReminders() {
   const [pendingData, setPendingData] = useState(null);
@@ -46,7 +47,8 @@ function AdminReminders() {
       if (selectedMonth !== 'all') params.append('month', selectedMonth);
       if (selectedGrade !== 'all') params.append('grade', selectedGrade);
       
-      const response = await axios.get(`http://127.0.0.1:8000/api/reminders/pending/?${params}`);
+      // ✅ FIXED: Use api instead of axios with hardcoded URL
+      const response = await api.get(`/reminders/pending/?${params}`);
       setPendingData(response.data);
     } catch (err) {
       console.error('Error fetching pending data:', err);
@@ -83,7 +85,8 @@ function AdminReminders() {
     setResult(null);
 
     try {
-      const response = await axios.post('http://127.0.0.1:8000/api/reminders/send/', {
+      // ✅ FIXED: Use api instead of axios with hardcoded URL
+      const response = await api.post('/reminders/send/', {
         student_ids: selectedStudents,
         month: selectedMonth !== 'all' ? selectedMonth : null,
         message: message
