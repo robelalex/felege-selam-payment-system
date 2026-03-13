@@ -12,11 +12,11 @@ import {
   ChevronRight,
   Users,
   RefreshCw,
-  Upload  // ← ADDED THIS IMPORT
+  Upload
 } from 'lucide-react';
-import axios from 'axios';
+import api from '../services/api'; // ✅ ADD THIS IMPORT (if not already there)
 import StudentRegistrationForm from '../components/Admin/StudentRegistrationForm';
-import BulkImport from '../components/Admin/BulkImport';  // ← ADDED THIS IMPORT
+import BulkImport from '../components/Admin/BulkImport';
 
 function AdminStudents() {
   const [students, setStudents] = useState([]);
@@ -26,7 +26,7 @@ function AdminStudents() {
   const [showRegistrationForm, setShowRegistrationForm] = useState(false);
   const [editStudent, setEditStudent] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [showBulkImport, setShowBulkImport] = useState(false);  // ← ADDED THIS STATE
+  const [showBulkImport, setShowBulkImport] = useState(false);
   const itemsPerPage = 10;
 
   useEffect(() => {
@@ -36,7 +36,8 @@ function AdminStudents() {
   const fetchStudents = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('http://127.0.0.1:8000/api/students/');
+      // ✅ FIXED: Using api instance
+      const response = await api.get('/students/');
       setStudents(response.data);
     } catch (err) {
       console.error('Error fetching students:', err);
@@ -48,8 +49,9 @@ function AdminStudents() {
   const handleDeleteStudent = async (studentId) => {
     if (window.confirm('Are you sure you want to delete this student?')) {
       try {
-        await axios.delete(`http://127.0.0.1:8000/api/students/${studentId}/`);
-        fetchStudents(); // Refresh the list
+        // ✅ FIXED: Using api instance instead of hardcoded URL
+        await api.delete(`/students/${studentId}/`);
+        fetchStudents();
       } catch (err) {
         console.error('Error deleting student:', err);
         alert('Failed to delete student. Please try again.');
@@ -58,24 +60,25 @@ function AdminStudents() {
   };
 
   const handleExport = async () => {
-  try {
-    const response = await axios.get('http://127.0.0.1:8000/api/students/export/', {
-      responseType: 'blob'
-    });
-    
-    // Create download link
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `students_export_${new Date().toISOString().slice(0,10)}.xlsx`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-  } catch (err) {
-    console.error('Export failed:', err);
-    alert('Failed to export students');
-  }
-};
+    try {
+      // ✅ FIXED: Using api instance with responseType blob
+      const response = await api.get('/students/export/', {
+        responseType: 'blob'
+      });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `students_export_${new Date().toISOString().slice(0,10)}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('Failed to export students');
+    }
+  };
 
   const filteredStudents = students.filter(student => {
     const matchesSearch = 
@@ -128,7 +131,7 @@ function AdminStudents() {
               Add Student
             </button>
             
-            {/* Bulk Import Button - NOW WORKING */}
+            {/* Bulk Import Button */}
             <button
               onClick={() => setShowBulkImport(true)}
               className="btn-outline flex items-center gap-2"
@@ -138,13 +141,13 @@ function AdminStudents() {
             </button>
             
             {/* Export Button */}
-<button 
-  onClick={handleExport}
-  className="btn-outline flex items-center gap-2"
->
-  <Download className="h-4 w-4" />
-  Export
-</button>
+            <button 
+              onClick={handleExport}
+              className="btn-outline flex items-center gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Export
+            </button>
           </div>
         </div>
 
@@ -312,7 +315,7 @@ function AdminStudents() {
         )}
       </AnimatePresence>
 
-      {/* Bulk Import Modal - THIS IS THE NEW PART */}
+      {/* Bulk Import Modal */}
       <AnimatePresence>
         {showBulkImport && (
           <BulkImport
