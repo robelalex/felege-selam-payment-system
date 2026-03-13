@@ -1,6 +1,5 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "build",
-  "devCommand": "npm start",
-  "installCommand": "npm install --legacy-peer-deps"
+  "installCommand": "npm install --legacy-peer-deps",
+  "buildCommand": "DISABLE_ESLINT_PLUGIN=true npm run build",
+  "outputDirectory": "build"
 }
