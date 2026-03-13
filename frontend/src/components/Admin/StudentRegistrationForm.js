@@ -16,7 +16,7 @@ import {
   Home,
   Calendar
 } from 'lucide-react';
-import axios from 'axios';
+import api from '../../services/api'; // ✅ ADD THIS IMPORT (remove axios import)
 import idGenerator from '../../utils/idGenerator';
 
 const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
@@ -46,14 +46,18 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
     status: editStudent?.status || 'active'
   });
 
+  const [schoolId, setSchoolId] = useState(null);
+
   // Fetch existing IDs for auto-generation
   useEffect(() => {
     fetchExistingIds();
+    fetchSchoolId();
   }, []);
 
   const fetchExistingIds = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:8000/api/students/');
+      // ✅ FIXED: Using api instance
+      const response = await api.get('/students/');
       const ids = response.data.map(s => s.student_id);
       setExistingIds(ids);
       
@@ -67,23 +71,18 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
     }
   };
 
-  const [schoolId, setSchoolId] = useState(null);
-
-// Fetch school ID
-useEffect(() => {
-  fetchSchoolId();
-}, []);
-
-const fetchSchoolId = async () => {
-  try {
-    const response = await axios.get('http://127.0.0.1:8000/api/schools/');
-    if (response.data && response.data.length > 0) {
-      setSchoolId(response.data[0].id);
+  // Fetch school ID
+  const fetchSchoolId = async () => {
+    try {
+      // ✅ FIXED: Using api instance
+      const response = await api.get('/schools/');
+      if (response.data && response.data.length > 0) {
+        setSchoolId(response.data[0].id);
+      }
+    } catch (err) {
+      console.error('Error fetching school:', err);
     }
-  } catch (err) {
-    console.error('Error fetching school:', err);
-  }
-};
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -94,92 +93,94 @@ const fetchSchoolId = async () => {
     setSuccess('');
   };
 
-const handleSubmit = async (e) => {
-  e.preventDefault();
-  setLoading(true);
-  setError('');
-  setSuccess('');
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setSuccess('');
 
-  // Validate required fields
-  if (!formData.first_name || !formData.last_name || !formData.parent_phone) {
-    setError('Please fill in all required fields');
-    setLoading(false);
-    return;
-  }
-
-  if (!schoolId) {
-    setError('No school found. Please add a school first.');
-    setLoading(false);
-    return;
-  }
-
-  try {
-    // Prepare the data for API - MATCHING DJANGO MODEL EXACTLY
-    const studentData = {
-      student_id: formData.student_id,
-      school: schoolId,  // THIS IS CRITICAL!
-      first_name: formData.first_name,
-      last_name: formData.last_name,
-      father_name: formData.father_name || '',
-      mother_name: formData.mother_name || '',
-      grade: parseInt(formData.grade),
-      section: formData.section || '',
-      academic_year: formData.academic_year || '2016 E.C.',
-      parent_full_name: formData.parent_full_name || `${formData.first_name} ${formData.last_name}'s Parent`,
-      parent_phone: formData.parent_phone,
-      parent_alternative_phone: formData.parent_alternative_phone || '',
-      parent_email: formData.parent_email || '',
-      monthly_fee: parseFloat(formData.monthly_fee),
-      city: formData.city || 'Jimma',
-      subcity: formData.subcity || '',
-      kebele: formData.kebele || '',
-      house_number: formData.house_number || '',
-      status: formData.status || 'active'
-    };
-
-    console.log('Sending data:', studentData);
-
-    let response;
-    if (editStudent) {
-      response = await axios.put(`http://127.0.0.1:8000/api/students/${editStudent.id}/`, studentData);
-    } else {
-      response = await axios.post('http://127.0.0.1:8000/api/students/', studentData);
+    // Validate required fields
+    if (!formData.first_name || !formData.last_name || !formData.parent_phone) {
+      setError('Please fill in all required fields');
+      setLoading(false);
+      return;
     }
-    
-    console.log('Response:', response.data);
-    
-    setSuccess(editStudent ? 'Student updated successfully!' : 'Student registered successfully!');
-    
-    setTimeout(() => {
-      onSuccess();
-      onClose();
-    }, 1500);
-    
-  } catch (err) {
-    console.error('Registration error:', err);
-    console.error('Error response:', err.response?.data);
-    
-    if (err.response?.data) {
-      // Format error message nicely
-      const errorData = err.response.data;
-      let errorMessage = '';
-      
-      if (typeof errorData === 'object') {
-        Object.keys(errorData).forEach(key => {
-          errorMessage += `${key}: ${errorData[key]}\n`;
-        });
+
+    if (!schoolId) {
+      setError('No school found. Please add a school first.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      // Prepare the data for API - MATCHING DJANGO MODEL EXACTLY
+      const studentData = {
+        student_id: formData.student_id,
+        school: schoolId,
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        father_name: formData.father_name || '',
+        mother_name: formData.mother_name || '',
+        grade: parseInt(formData.grade),
+        section: formData.section || '',
+        academic_year: formData.academic_year || '2016 E.C.',
+        parent_full_name: formData.parent_full_name || `${formData.first_name} ${formData.last_name}'s Parent`,
+        parent_phone: formData.parent_phone,
+        parent_alternative_phone: formData.parent_alternative_phone || '',
+        parent_email: formData.parent_email || '',
+        monthly_fee: parseFloat(formData.monthly_fee),
+        city: formData.city || 'Jimma',
+        subcity: formData.subcity || '',
+        kebele: formData.kebele || '',
+        house_number: formData.house_number || '',
+        status: formData.status || 'active'
+      };
+
+      console.log('Sending data:', studentData);
+
+      let response;
+      if (editStudent) {
+        // ✅ FIXED: Using api instance
+        response = await api.put(`/students/${editStudent.id}/`, studentData);
       } else {
-        errorMessage = errorData;
+        // ✅ FIXED: Using api instance
+        response = await api.post('/students/', studentData);
       }
       
-      setError(errorMessage);
-    } else {
-      setError('Failed to connect to server. Make sure Django is running.');
+      console.log('Response:', response.data);
+      
+      setSuccess(editStudent ? 'Student updated successfully!' : 'Student registered successfully!');
+      
+      setTimeout(() => {
+        onSuccess();
+        onClose();
+      }, 1500);
+      
+    } catch (err) {
+      console.error('Registration error:', err);
+      console.error('Error response:', err.response?.data);
+      
+      if (err.response?.data) {
+        // Format error message nicely
+        const errorData = err.response.data;
+        let errorMessage = '';
+        
+        if (typeof errorData === 'object') {
+          Object.keys(errorData).forEach(key => {
+            errorMessage += `${key}: ${errorData[key]}\n`;
+          });
+        } else {
+          errorMessage = errorData;
+        }
+        
+        setError(errorMessage);
+      } else {
+        setError('Failed to connect to server. Make sure Django is running.');
+      }
+    } finally {
+      setLoading(false);
     }
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const generateNewId = () => {
     const newId = idGenerator.generateStudentID(existingIds);

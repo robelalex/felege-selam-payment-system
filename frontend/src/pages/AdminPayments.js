@@ -12,13 +12,15 @@ import {
   ChevronRight,
   CreditCard
 } from 'lucide-react';
-import axios from 'axios';
+import api from '../services/api'; // ✅ ADD THIS IMPORT
 
 function AdminPayments() {
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   useEffect(() => {
     fetchPayments();
@@ -26,7 +28,8 @@ function AdminPayments() {
 
   const fetchPayments = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:8000/api/payments/');
+      // ✅ FIXED: Using api instance instead of hardcoded URL
+      const response = await api.get('/payments/');
       setPayments(response.data);
     } catch (err) {
       console.error('Error fetching payments:', err);
@@ -37,10 +40,12 @@ function AdminPayments() {
 
   const verifyPayment = async (paymentId) => {
     try {
-      await axios.post(`http://127.0.0.1:8000/api/payments/${paymentId}/verify_payment/`);
+      // ✅ FIXED: Using api instance instead of hardcoded URL
+      await api.post(`/payments/${paymentId}/verify_payment/`);
       fetchPayments(); // Refresh the list
     } catch (err) {
       console.error('Error verifying payment:', err);
+      alert('Failed to verify payment. Please try again.');
     }
   };
 
@@ -54,6 +59,13 @@ function AdminPayments() {
     return matchesSearch && matchesStatus;
   });
 
+  // Pagination
+  const totalPages = Math.ceil(filteredPayments.length / itemsPerPage);
+  const paginatedPayments = filteredPayments.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
   const getStatusIcon = (status) => {
     switch(status) {
       case 'verified':
@@ -64,6 +76,25 @@ function AdminPayments() {
         return <XCircle className="h-4 w-4 text-red-600" />;
       default:
         return null;
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      const response = await api.get('/payments/export/', {
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `payments_export_${new Date().toISOString().slice(0,10)}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('Failed to export payments');
     }
   };
 
@@ -86,7 +117,10 @@ function AdminPayments() {
           </p>
         </div>
         
-        <button className="btn-outline flex items-center gap-2 self-start">
+        <button 
+          onClick={handleExport}
+          className="btn-outline flex items-center gap-2 self-start"
+        >
           <Download className="h-4 w-4" />
           Export Report
         </button>
@@ -141,7 +175,7 @@ function AdminPayments() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredPayments.map((payment) => (
+              {paginatedPayments.map((payment) => (
                 <tr key={payment.id} className="table-row">
                   <td className="table-cell font-medium">{payment.student_name}</td>
                   <td className="table-cell font-semibold">{payment.amount} Birr</td>
@@ -177,30 +211,50 @@ function AdminPayments() {
         </div>
 
         {/* Pagination */}
-        <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-600">
-              Showing 1 to {filteredPayments.length} of {payments.length} payments
-            </p>
-            <div className="flex gap-2">
-              <button className="p-2 bg-white rounded border hover:bg-gray-50">
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <button className="px-3 py-1 bg-primary-600 text-white rounded hover:bg-primary-700">
-                1
-              </button>
-              <button className="px-3 py-1 bg-white rounded border hover:bg-gray-50">
-                2
-              </button>
-              <button className="px-3 py-1 bg-white rounded border hover:bg-gray-50">
-                3
-              </button>
-              <button className="p-2 bg-white rounded border hover:bg-gray-50">
-                <ChevronRight className="h-4 w-4" />
-              </button>
+        {filteredPayments.length > 0 && (
+          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-600">
+                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredPayments.length)} of {filteredPayments.length} payments
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className={`p-2 bg-white rounded border hover:bg-gray-50 ${
+                    currentPage === 1 ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                
+                {[...Array(totalPages)].map((_, i) => (
+                  <button
+                    key={i + 1}
+                    onClick={() => setCurrentPage(i + 1)}
+                    className={`px-3 py-1 rounded ${
+                      currentPage === i + 1
+                        ? 'bg-primary-600 text-white'
+                        : 'bg-white border hover:bg-gray-50'
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+                
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className={`p-2 bg-white rounded border hover:bg-gray-50 ${
+                    currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

@@ -18,14 +18,7 @@ import {
   ChevronUp,
   Printer
 } from 'lucide-react';
-import axios from 'axios';
-
-// Add this function to get the auth token
-const getAuthToken = () => {
-  // For development, we'll use a simple token
-  // In production, you'd use proper JWT tokens
-  return localStorage.getItem('authToken') || '';
-};
+import api from '../services/api'; // ✅ ADD THIS IMPORT (remove axios import)
 
 function Reports() {
   const [reportType, setReportType] = useState('monthly');
@@ -59,47 +52,44 @@ function Reports() {
     '2016 E.C.'
   ];
 
-const fetchReport = async () => {
-  setLoading(true);
-  setError('');
-  
-  try {
-    let url = '';
-    if (reportType === 'monthly') {
-      url = `http://127.0.0.1:8000/api/reports/monthly/?year=${selectedYear}&month=${selectedMonth}`;
-    } else if (reportType === 'annual') {
-      url = `http://127.0.0.1:8000/api/reports/annual/?year=${selectedYear}`;
-    } else if (reportType === 'student' && selectedStudent) {
-      url = `http://127.0.0.1:8000/api/reports/student/${selectedStudent}/`;
-    }
+  const fetchReport = async () => {
+    setLoading(true);
+    setError('');
     
-    console.log('Fetching URL:', url); // Debug log
-    
-    const response = await axios.get(url, {
-      withCredentials: false, // Change to false temporarily
-      headers: {
-        'Content-Type': 'application/json',
+    try {
+      let endpoint = '';
+      if (reportType === 'monthly') {
+        endpoint = `/reports/monthly/?year=${selectedYear}&month=${selectedMonth}`;
+      } else if (reportType === 'annual') {
+        endpoint = `/reports/annual/?year=${selectedYear}`;
+      } else if (reportType === 'student' && selectedStudent) {
+        endpoint = `/reports/student/${selectedStudent}/`;
       }
-    });
-    
-    console.log('Response:', response.data); // Debug log
-    setReportData(response.data);
-  } catch (err) {
-    console.error('Error fetching report:', err);
-    if (err.response) {
-      console.error('Error response:', err.response.data);
-      console.error('Error status:', err.response.status);
-      setError(`Server error: ${err.response.status} - ${err.response.data.error || 'Unknown error'}`);
-    } else if (err.request) {
-      console.error('No response received:', err.request);
-      setError('No response from server. Is Django running?');
-    } else {
-      setError('Failed to load report. Please try again.');
+      
+      console.log('Fetching endpoint:', endpoint); // Debug log
+      
+      // ✅ FIXED: Using api instance instead of hardcoded URL
+      const response = await api.get(endpoint);
+      
+      console.log('Response:', response.data); // Debug log
+      setReportData(response.data);
+    } catch (err) {
+      console.error('Error fetching report:', err);
+      if (err.response) {
+        console.error('Error response:', err.response.data);
+        console.error('Error status:', err.response.status);
+        setError(`Server error: ${err.response.status} - ${err.response.data.error || 'Unknown error'}`);
+      } else if (err.request) {
+        console.error('No response received:', err.request);
+        setError('No response from server. Is Django running?');
+      } else {
+        setError('Failed to load report. Please try again.');
+      }
+    } finally {
+      setLoading(false);
     }
-  } finally {
-    setLoading(false);
-  }
-};
+  };
+
   const downloadCSV = () => {
     if (!reportData) return;
     
