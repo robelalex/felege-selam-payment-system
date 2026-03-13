@@ -73,14 +73,11 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database Configuration - PostgreSQL
 # Database Configuration - PostgreSQL
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'felege_selam_db',
-        'USER': 'felege_user',
-        'PASSWORD': '4178',  # Changed to your password
-        'HOST': 'localhost',
-        'PORT': '5432',
-    }
+    'default': dj_database_url.config(
+        default=os.getenv('DATABASE_URL'),
+        conn_max_age=600,
+        conn_health_checks=True,
+    )
 }
 
 # Password validation
