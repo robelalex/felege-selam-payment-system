@@ -15,7 +15,7 @@ SECRET_KEY = 'django-insecure-your-secret-key-here-change-in-production'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']  # Added localhost
+ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 # Application definition
 INSTALLED_APPS = [
@@ -70,8 +70,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
-# ===== DATABASE CONFIGURATION - SINGLE VERSION =====
-# This ONE configuration works for both local and production
+# ===== DATABASE CONFIGURATION =====
 DATABASES = {
     'default': dj_database_url.config(
         default=os.getenv('DATABASE_URL', 'postgresql://postgres:4178@localhost:5432/felege_selam_db'),
@@ -79,7 +78,6 @@ DATABASES = {
         conn_health_checks=True,
     )
 }
-# ===== END DATABASE CONFIGURATION =====
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -103,12 +101,12 @@ TIME_ZONE = 'Africa/Addis_Ababa'
 USE_I18N = True
 USE_TZ = True
 
-# Static files (CSS, JavaScript, Images)
+# Static files
 STATIC_URL = 'static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')  # Fixed: changed from 'static' to 'staticfiles'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Media files (Uploaded files)
+# Media files
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
@@ -126,14 +124,15 @@ REST_FRAMEWORK = {
     ],
 }
 
-# CORS settings (for React frontend)
+# CORS settings
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://felege-selam-payment-system.vercel.app",  # ✅ ADD YOUR VERCEL URL
 ]
 
 CORS_ALLOW_CREDENTIALS = True
-CORS_ORIGIN_ALLOW_ALL = True  # For development only
+CORS_ORIGIN_ALLOW_ALL = False  # ❌ Changed to False for security
 
 CORS_ALLOW_METHODS = [
     'DELETE',
@@ -157,12 +156,10 @@ CORS_ALLOW_HEADERS = [
 ]
 
 # ===== PRODUCTION SETTINGS =====
-# Allow Render host
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
 if RENDER_EXTERNAL_HOSTNAME:
     ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
-# Security settings for production
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
@@ -170,7 +167,12 @@ if not DEBUG:
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
 
-# SMS settings
-SMS_BACKEND = 'console'
-AFRICASTALKING_USERNAME = 'sandbox'
-AFRICASTALKING_API_KEY = 'your_api_key_here'
+# ===== SMS CONFIGURATION - UPDATED =====
+# Africa's Talking Settings
+AFRICASTALKING_USERNAME = os.getenv('AFRICASTALKING_USERNAME', 'sandbox')
+AFRICASTALKING_API_KEY = os.getenv('AFRICASTALKING_API_KEY', '')
+SMS_SANDBOX = os.getenv('SMS_SANDBOX', 'True') == 'True'
+SMS_SENDER_ID = os.getenv('SMS_SENDER_ID', 'FELEGE-SELAM')
+
+# Remove the duplicate SMS_BACKEND line below
+# SMS_BACKEND = 'console'  # ❌ REMOVE THIS LINE

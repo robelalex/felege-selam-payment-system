@@ -8,3 +8,4 @@ openpyxl==3.1.5
 gunicorn==21.2.0
 whitenoise==6.7.0
 dj-database-url==2.2.0
+africastalking==3.0.0
