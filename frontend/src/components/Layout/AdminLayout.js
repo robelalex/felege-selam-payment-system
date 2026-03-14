@@ -17,7 +17,7 @@ import {
   ChevronRight,
   Calendar
 } from 'lucide-react';
-
+import { MessageSquare } from 'lucide-react';
 const AdminLayout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -38,6 +38,7 @@ const AdminLayout = ({ children }) => {
     { path: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/admin/academic-years', label: 'Academic Years', icon: Calendar },
     { path: '/admin/reminders', label: 'Reminders', icon: Bell },
+    { path: '/admin/sms', label: 'SMS Dashboard', icon: MessageSquare },
     { path: '/admin/reports', label: 'Reports', icon: BarChart3 },
     { path: '/admin/students', label: 'Students', icon: Users },
     { path: '/admin/payments', label: 'Payments', icon: CreditCard },

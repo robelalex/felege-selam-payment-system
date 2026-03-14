@@ -118,3 +118,27 @@ class PaymentReminder(models.Model):
     
     class Meta:
         ordering = ['-sent_at']
+
+class SMSHistory(models.Model):
+    """Track all sent SMS messages"""
+    
+    STATUS_CHOICES = [
+        ('sent', 'Sent'),
+        ('delivered', 'Delivered'),
+        ('failed', 'Failed'),
+    ]
+    
+    recipient = models.CharField(max_length=20)
+    message = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='sent')
+    message_id = models.CharField(max_length=100, blank=True)
+    related_to = models.CharField(max_length=50, blank=True, help_text="e.g., payment_123, reminder_bulk")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"SMS to {self.recipient} - {self.status}"

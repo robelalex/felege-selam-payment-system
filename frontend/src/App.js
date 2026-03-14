@@ -19,6 +19,7 @@ import Reports from './pages/Reports';
 import AdminStudents from './pages/AdminStudents';
 import AdminPayments from './pages/AdminPayments';
 import AdminAcademicYears from './pages/AdminAcademicYears';
+import SMSDashboard from './pages/SMSDashboard';
 // Styles
 import './index.css';
 
@@ -129,6 +130,17 @@ function App() {
     <ProtectedRoute>
       <AdminLayout>
         <AdminAcademicYears />
+      </AdminLayout>
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/admin/sms"
+  element={
+    <ProtectedRoute>
+      <AdminLayout>
+        <SMSDashboard />
       </AdminLayout>
     </ProtectedRoute>
   }
