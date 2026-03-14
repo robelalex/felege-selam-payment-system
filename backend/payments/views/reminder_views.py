@@ -37,3 +37,18 @@ class ReminderViewSet(viewsets.ViewSet):
             'failed': len([r for r in results if not r['success']]),
             'results': results
         })
+
+# 👇 ADD THIS FUNCTION - It's missing!
+def send_reminders(request):
+    """Legacy function for sending reminders"""
+    service = ReminderService()
+    student_ids = request.data.get('student_ids', [])
+    month = request.data.get('month')
+    custom_message = request.data.get('message', '')
+    results = service.send_reminders(student_ids, month, custom_message)
+    return Response(results)
+
+def send_payment_confirmation(request, payment_id):
+    """Send payment confirmation SMS"""
+    from .sms_views import send_payment_confirmation as sms_confirmation
+    return sms_confirmation(request, payment_id)
