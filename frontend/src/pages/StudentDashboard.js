@@ -229,6 +229,19 @@ function StudentDashboard() {
         )}
       </div>
 
+      {/* Upload Bank Slip Button */}
+{pendingPayments.length > 0 && (
+  <div className="mt-4">
+    <button
+      onClick={() => {/* We'll add state management later */}}
+      className="btn-primary flex items-center gap-2"
+    >
+      <Upload className="h-4 w-4" />
+      Upload Bank Slip
+    </button>
+  </div>
+)}
+
       {/* Payment History Card */}
       <div className="card">
         <div className="flex items-center gap-2 mb-4">
