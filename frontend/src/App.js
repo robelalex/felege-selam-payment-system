@@ -20,6 +20,7 @@ import AdminStudents from './pages/AdminStudents';
 import AdminPayments from './pages/AdminPayments';
 import AdminAcademicYears from './pages/AdminAcademicYears';
 import SMSDashboard from './pages/SMSDashboard';
+import AdminSlips from './pages/AdminSlips';
 // Styles
 import './index.css';
 
@@ -141,6 +142,17 @@ function App() {
     <ProtectedRoute>
       <AdminLayout>
         <SMSDashboard />
+      </AdminLayout>
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/admin/slips"
+  element={
+    <ProtectedRoute>
+      <AdminLayout>
+        <AdminSlips />
       </AdminLayout>
     </ProtectedRoute>
   }
