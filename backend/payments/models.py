@@ -142,3 +142,27 @@ class SMSHistory(models.Model):
     
     def __str__(self):
         return f"SMS to {self.recipient} - {self.status}"
+class PaymentSlip(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending Verification'),
+        ('verified', 'Verified'),
+        ('rejected', 'Rejected'),
+    ]
+    
+    student = models.ForeignKey('students.Student', on_delete=models.CASCADE, related_name='slips')
+    deadline = models.ForeignKey('payments.PaymentDeadline', on_delete=models.CASCADE)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    slip_image = models.ImageField(upload_to='slips/%Y/%m/')
+    bank_name = models.CharField(max_length=100, blank=True)
+    transaction_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    uploaded_by = models.CharField(max_length=200)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    verified_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        ordering = ['-uploaded_at']
+    
+    def __str__(self):
+        return f"Slip for {self.student.full_name} - {self.amount} Birr"
