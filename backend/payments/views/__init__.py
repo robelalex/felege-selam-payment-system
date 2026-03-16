@@ -5,7 +5,7 @@ from .sms_views import (
 )
 from .reminder_views import ReminderViewSet, send_reminders, send_payment_confirmation
 from .report_views import monthly_report, student_report, annual_summary
-
+from .slip_views import upload_slip, pending_slips, verify_slip, ai_stats
 __all__ = [
     'PaymentViewSet',
     'PaymentDeadlineViewSet',

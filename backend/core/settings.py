@@ -124,15 +124,14 @@ REST_FRAMEWORK = {
     ],
 }
 
-# CORS settings
+# ===== CORS SETTINGS - UPDATED =====
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "https://felege-selam-payment-system.vercel.app",  # ✅ ADD YOUR VERCEL URL
+    "https://felege-selam-payment-system.vercel.app",
 ]
 
-CORS_ALLOW_CREDENTIALS = True
-CORS_ORIGIN_ALLOW_ALL = False  # ❌ Changed to False for security
+CORS_ALLOW_CREDENTIALS = True  # THIS IS CRITICAL for authentication
 
 CORS_ALLOW_METHODS = [
     'DELETE',
@@ -155,6 +154,16 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
 ]
 
+# ===== SESSION SETTINGS - ADD THESE =====
+SESSION_COOKIE_AGE = 1209600  # 2 weeks in seconds
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'  # THIS IS CRITICAL for cross-origin requests
+SESSION_COOKIE_SECURE = False  # Set to True only in production with HTTPS
+
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF token
+CSRF_COOKIE_SECURE = False
+
 # ===== PRODUCTION SETTINGS =====
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
 if RENDER_EXTERNAL_HOSTNAME:
@@ -167,12 +176,8 @@ if not DEBUG:
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
 
-# ===== SMS CONFIGURATION - UPDATED =====
-# Africa's Talking Settings
+# ===== SMS CONFIGURATION =====
 AFRICASTALKING_USERNAME = os.getenv('AFRICASTALKING_USERNAME', 'sandbox')
 AFRICASTALKING_API_KEY = os.getenv('AFRICASTALKING_API_KEY', '')
 SMS_SANDBOX = os.getenv('SMS_SANDBOX', 'True') == 'True'
 SMS_SENDER_ID = os.getenv('SMS_SENDER_ID', 'FELEGE-SELAM')
-
-# Remove the duplicate SMS_BACKEND line below
-# SMS_BACKEND = 'console'  # ❌ REMOVE THIS LINE

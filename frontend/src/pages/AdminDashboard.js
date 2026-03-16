@@ -12,12 +12,18 @@ import {
   Download,
   Filter,
   RefreshCw,
-  BarChart3
+  BarChart3,
+  DollarSign,
+  Activity,
+  ArrowRight,
+  PieChart,
+  School,
+  Bell
 } from 'lucide-react';
-import axios from 'axios';
+import { Link } from 'react-router-dom';
+import api from '../services/api';
 import ClassCard from '../components/Admin/ClassCard';
 import ClassDetails from '../components/Admin/ClassDetails';
-import api from '../services/api'; // Add this at the top if not there
 
 function AdminDashboard() {
   const [selectedGrade, setSelectedGrade] = useState(null);
@@ -25,6 +31,7 @@ function AdminDashboard() {
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState('month');
+  const [recentPayments, setRecentPayments] = useState([]);
 
   useEffect(() => {
     fetchData();
@@ -32,13 +39,15 @@ function AdminDashboard() {
 
   const fetchData = async () => {
     try {
-      const [studentsRes, paymentsRes] = await Promise.all([
-         api.get('/students/'),
-         api.get('/payments/')
+      const [studentsRes, paymentsRes, pendingRes] = await Promise.all([
+        api.get('/students/'),
+        api.get('/payments/'),
+        api.get('/reminders/pending/')
       ]);
 
       setStudents(studentsRes.data);
-      calculateStats(studentsRes.data, paymentsRes.data);
+      setRecentPayments(paymentsRes.data.slice(0, 5));
+      calculateStats(studentsRes.data, paymentsRes.data, pendingRes.data);
     } catch (err) {
       console.error('Error fetching data:', err);
     } finally {
@@ -46,8 +55,7 @@ function AdminDashboard() {
     }
   };
 
-  const calculateStats = (studentsData, paymentsData) => {
-    // Group students by grade
+  const calculateStats = (studentsData, paymentsData, pendingData) => {
     const byGrade = {};
     
     for (let grade = 1; grade <= 8; grade++) {
@@ -57,10 +65,15 @@ function AdminDashboard() {
         gradeStudents.some(s => s.id === p.student)
       ).length;
       
+      const gradePending = pendingData?.students?.filter(s => s.grade === grade) || [];
+      
       byGrade[grade] = {
         total: gradeStudents.length,
         paid: paid,
-        pending: gradeStudents.length - paid
+        pending: gradeStudents.length - paid,
+        collectionRate: gradeStudents.length > 0 
+          ? Math.round((paid / gradeStudents.length) * 100)
+          : 0
       };
     }
 
@@ -72,8 +85,9 @@ function AdminDashboard() {
     const paid = Object.values(stats).reduce((sum, g) => sum + g.paid, 0);
     const pending = Object.values(stats).reduce((sum, g) => sum + g.pending, 0);
     const collection = total > 0 ? ((paid / total) * 100).toFixed(1) : 0;
+    const totalCollected = paid * 200;
 
-    return { total, paid, pending, collection };
+    return { total, paid, pending, collection, totalCollected };
   };
 
   const overall = getOverallStats();
@@ -87,160 +101,266 @@ function AdminDashboard() {
   }
 
   return (
-  <div className="space-y-6 admin-content">
-    {/* Header */}
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-sm md:text-base text-gray-600 mt-1">Welcome back! Here's what's happening today.</p>
-      </div>
-      
-      <div className="flex items-center gap-2">
-        <select
-          value={dateRange}
-          onChange={(e) => setDateRange(e.target.value)}
-          className="input-field w-32 md:w-40 text-sm"
-        >
-          <option value="today">Today</option>
-          <option value="week">This Week</option>
-          <option value="month">This Month</option>
-          <option value="year">This Year</option>
-        </select>
-        
-        <button className="p-2 bg-white rounded-lg shadow-sm hover:shadow transition-all border border-gray-200">
-          <Download className="h-4 w-4 md:h-5 md:w-5 text-gray-600" />
-        </button>
-        
-        <button 
-          onClick={fetchData}
-          className="p-2 bg-white rounded-lg shadow-sm hover:shadow transition-all border border-gray-200"
-        >
-          <RefreshCw className="h-4 w-4 md:h-5 md:w-5 text-gray-600" />
-        </button>
-      </div>
-    </div>
-
-    {/* Stats Grid */}
-    <div className="stats-grid">
-      <div className="stat-card bg-gradient-to-br from-blue-500 to-blue-600">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-blue-100 text-sm">Total Students</p>
-            <p className="text-2xl md:text-3xl font-bold mt-2">{overall.total}</p>
-            <p className="text-xs text-blue-200 mt-2">↑ 12% from last month</p>
-          </div>
-          <Users className="stat-icon" />
+    <div className="space-y-8">
+      {/* Header with Date */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-gray-500 mt-1">
+            {new Date().toLocaleDateString('en-US', { 
+              weekday: 'long', 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric' 
+            })}
+          </p>
         </div>
-      </div>
-
-      <div className="stat-card bg-gradient-to-br from-green-500 to-green-600">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-green-100 text-sm">Total Collected</p>
-            <p className="text-2xl md:text-3xl font-bold mt-2">{overall.paid * 200} ETB</p>
-            <p className="text-xs text-green-200 mt-2">↑ 8% from last month</p>
-          </div>
-          <CreditCard className="stat-icon" />
-        </div>
-      </div>
-
-      <div className="stat-card bg-gradient-to-br from-yellow-500 to-yellow-600">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-yellow-100 text-sm">Collection Rate</p>
-            <p className="text-2xl md:text-3xl font-bold mt-2">{overall.collection}%</p>
-            <p className="text-xs text-yellow-200 mt-2">{overall.paid} of {overall.total} paid</p>
-          </div>
-          <TrendingUp className="stat-icon" />
-        </div>
-      </div>
-
-      <div className="stat-card bg-gradient-to-br from-purple-500 to-purple-600">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-purple-100 text-sm">Pending Payments</p>
-            <p className="text-2xl md:text-3xl font-bold mt-2">{overall.pending}</p>
-            <p className="text-xs text-purple-200 mt-2">Need attention</p>
-          </div>
-          <Clock className="stat-icon" />
-        </div>
-      </div>
-    </div>
-
-    {/* Quick Actions */}
-    <div className="actions-grid">
-      <div className="action-card">
-        <div className="flex items-center gap-4">
-          <div className="action-icon bg-blue-100">
-            <Users className="h-5 w-5 md:h-6 md:w-6 text-blue-600" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-gray-900">Send Reminders</h3>
-            <p className="text-xs md:text-sm text-gray-600 mt-1">SMS to {overall.pending} parents</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="action-card">
-        <div className="flex items-center gap-4">
-          <div className="action-icon bg-green-100">
-            <CreditCard className="h-5 w-5 md:h-6 md:w-6 text-green-600" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-gray-900">Bulk Import</h3>
-            <p className="text-xs md:text-sm text-gray-600 mt-1">Add students from Excel</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="action-card">
-        <div className="flex items-center gap-4">
-          <div className="action-icon bg-yellow-100">
-            <BarChart3 className="h-5 w-5 md:h-6 md:w-6 text-yellow-600" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-gray-900">Generate Report</h3>
-            <p className="text-xs md:text-sm text-gray-600 mt-1">Monthly collection summary</p>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    {/* Classes Overview */}
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg md:text-xl font-semibold text-gray-900">Classes Overview</h2>
-        <p className="text-xs md:text-sm text-gray-600">Click on a class to view details</p>
-      </div>
-      
-      <AnimatePresence mode="wait">
-        {selectedGrade ? (
-          <ClassDetails
-            grade={selectedGrade}
-            students={students.filter(s => s.grade === selectedGrade)}
-            onBack={() => setSelectedGrade(null)}
-          />
-        ) : (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="classes-grid"
+        <div className="flex gap-3">
+          <select
+            value={dateRange}
+            onChange={(e) => setDateRange(e.target.value)}
+            className="px-4 py-2 border border-gray-200 rounded-lg bg-white text-sm"
           >
-            {[1,2,3,4,5,6,7,8].map(grade => (
-              <ClassCard
-                key={grade}
-                grade={grade}
-                stats={stats[grade] || { total: 0, paid: 0, pending: 0 }}
-                onClick={() => setSelectedGrade(grade)}
-              />
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <option value="today">Today</option>
+            <option value="week">This Week</option>
+            <option value="month">This Month</option>
+            <option value="year">This Year</option>
+          </select>
+          <button className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium flex items-center gap-2">
+            <Download className="h-4 w-4" />
+            Export Report
+          </button>
+          <button 
+            onClick={fetchData}
+            className="p-2 bg-white rounded-lg shadow-sm hover:shadow transition-all border border-gray-200"
+            title="Refresh"
+          >
+            <RefreshCw className="h-4 w-4 text-gray-600" />
+          </button>
+        </div>
+      </div>
+
+      {/* Key Metrics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 hover:shadow-xl transition-all"
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-500">Total Students</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{overall.total}</p>
+              <p className="text-sm text-green-600 mt-2 flex items-center gap-1">
+                <TrendingUp className="h-4 w-4" />
+                +12% from last month
+              </p>
+            </div>
+            <div className="p-3 bg-blue-100 rounded-xl">
+              <Users className="h-6 w-6 text-blue-600" />
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 hover:shadow-xl transition-all"
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-500">Total Collected</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{overall.totalCollected.toLocaleString()} ETB</p>
+              <p className="text-sm text-green-600 mt-2 flex items-center gap-1">
+                <TrendingUp className="h-4 w-4" />
+                +8% from last month
+              </p>
+            </div>
+            <div className="p-3 bg-green-100 rounded-xl">
+              <DollarSign className="h-6 w-6 text-green-600" />
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 hover:shadow-xl transition-all"
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-500">Collection Rate</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{overall.collection}%</p>
+              <p className="text-sm text-gray-500 mt-2">
+                {overall.paid} of {overall.total} paid
+              </p>
+            </div>
+            <div className="p-3 bg-purple-100 rounded-xl">
+              <Activity className="h-6 w-6 text-purple-600" />
+            </div>
+          </div>
+          <div className="mt-4 h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-purple-600 rounded-full transition-all duration-500"
+              style={{ width: `${overall.collection}%` }}
+            />
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 hover:shadow-xl transition-all"
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-500">Pending Payments</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{overall.pending}</p>
+              <p className="text-sm text-orange-600 mt-2 flex items-center gap-1">
+                <Clock className="h-4 w-4" />
+                Need attention
+              </p>
+            </div>
+            <div className="p-3 bg-orange-100 rounded-xl">
+              <Clock className="h-6 w-6 text-orange-600" />
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Quick Actions Row */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Link to="/admin/students" className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-all group">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-blue-100 rounded-xl group-hover:bg-blue-200 transition-colors">
+              <Users className="h-5 w-5 text-blue-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-gray-900">Students</h3>
+              <p className="text-sm text-gray-500">Manage enrollment</p>
+            </div>
+            <ArrowRight className="h-5 w-5 text-gray-400 group-hover:text-blue-600 transition-colors" />
+          </div>
+        </Link>
+
+        <Link to="/admin/payments" className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-all group">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-green-100 rounded-xl group-hover:bg-green-200 transition-colors">
+              <CreditCard className="h-5 w-5 text-green-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-gray-900">Payments</h3>
+              <p className="text-sm text-gray-500">Verify & track</p>
+            </div>
+            <ArrowRight className="h-5 w-5 text-gray-400 group-hover:text-green-600 transition-colors" />
+          </div>
+        </Link>
+
+        <Link to="/admin/slips" className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-all group">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-purple-100 rounded-xl group-hover:bg-purple-200 transition-colors">
+              <CheckCircle className="h-5 w-5 text-purple-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-gray-900">Bank Slips</h3>
+              <p className="text-sm text-gray-500">Verify uploads</p>
+            </div>
+            <ArrowRight className="h-5 w-5 text-gray-400 group-hover:text-purple-600 transition-colors" />
+          </div>
+        </Link>
+
+        <Link to="/admin/sms" className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-all group">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-yellow-100 rounded-xl group-hover:bg-yellow-200 transition-colors">
+              <Bell className="h-5 w-5 text-yellow-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-gray-900">SMS</h3>
+              <p className="text-sm text-gray-500">Send reminders</p>
+            </div>
+            <ArrowRight className="h-5 w-5 text-gray-400 group-hover:text-yellow-600 transition-colors" />
+          </div>
+        </Link>
+      </div>
+
+      {/* Classes Overview - EXACTLY like your first code but with better styling */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg md:text-xl font-semibold text-gray-900">Classes Overview</h2>
+          <p className="text-xs md:text-sm text-gray-600">Click on a class to view details</p>
+        </div>
+        
+        <AnimatePresence mode="wait">
+          {selectedGrade ? (
+            <ClassDetails
+              grade={selectedGrade}
+              students={students.filter(s => s.grade === selectedGrade)}
+              onBack={() => setSelectedGrade(null)}
+            />
+          ) : (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+            >
+              {[1,2,3,4,5,6,7,8].map(grade => (
+                <ClassCard
+                  key={grade}
+                  grade={grade}
+                  stats={stats[grade] || { total: 0, paid: 0, pending: 0, collectionRate: 0 }}
+                  onClick={() => setSelectedGrade(grade)}
+                />
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Recent Payments */}
+      <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">Recent Payments</h2>
+          <Link to="/admin/payments" className="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1">
+            View All
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+        
+        <div className="space-y-3">
+          {recentPayments.length === 0 ? (
+            <p className="text-gray-500 text-center py-4">No recent payments</p>
+          ) : (
+            recentPayments.map((payment, idx) => (
+              <div key={idx} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
+                    <span className="text-sm font-medium text-gray-600">
+                      {payment.student_name?.charAt(0) || '?'}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">{payment.student_name || 'Unknown'}</p>
+                    <p className="text-xs text-gray-500">{payment.deadline_month || 'N/A'}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="font-bold text-gray-900">{payment.amount || 0} Birr</p>
+                  <p className="text-xs text-gray-500">
+                    {payment.created_at ? new Date(payment.created_at).toLocaleDateString() : 'N/A'}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </div>
-  </div>
-);
+  );
 }
 
 export default AdminDashboard;

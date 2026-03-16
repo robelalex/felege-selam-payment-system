@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Mail, ArrowRight, AlertCircle, Loader } from 'lucide-react';
-import axios from 'axios';
+import api from '../services/api';
 
 function AdminLogin() {
   const [username, setUsername] = useState('');
@@ -17,15 +17,24 @@ function AdminLogin() {
     setError('');
 
     try {
-      // For development, use simple admin check
-      if (username === 'admin' && password === 'admin123') {
+      // First get CSRF token
+      await api.get('/admin/csrf/');
+      
+      // Then login
+      const response = await api.post('/admin/login/', {
+        username: username,
+        password: password
+      });
+
+      if (response.data.success) {
         localStorage.setItem('isAdmin', 'true');
         navigate('/admin/dashboard');
       } else {
         setError('Invalid username or password');
       }
     } catch (err) {
-      setError('Login failed. Please try again.');
+      console.error('Login error:', err);
+      setError('Login failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }

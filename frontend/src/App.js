@@ -21,6 +21,9 @@ import AdminPayments from './pages/AdminPayments';
 import AdminAcademicYears from './pages/AdminAcademicYears';
 import SMSDashboard from './pages/SMSDashboard';
 import AdminSlips from './pages/AdminSlips';
+import TestDashboard from './pages/TestDashboard';
+import LoginTest from './pages/LoginTest';
+import SimpleTest from './pages/SimpleTest';
 // Styles
 import './index.css';
 
@@ -157,6 +160,21 @@ function App() {
     </ProtectedRoute>
   }
 />
+
+
+<Route
+  path="/admin/test"
+  element={
+    <ProtectedRoute>
+      <AdminLayout>
+        <TestDashboard />
+      </AdminLayout>
+    </ProtectedRoute>
+  }
+/>
+
+<Route path="/login-test" element={<LoginTest />} />
+<Route path="/simple-test" element={<SimpleTest />} />
         </Routes>
       </Router>
     </QueryClientProvider>

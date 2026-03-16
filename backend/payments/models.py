@@ -161,6 +161,13 @@ class PaymentSlip(models.Model):
     verified_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
     verified_at = models.DateTimeField(null=True, blank=True)
     
+    # ✅ These fields are now properly indented inside the class
+    ai_confidence = models.IntegerField(default=0, help_text="AI confidence score (0-100)")
+    ai_extracted_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    ai_message = models.TextField(blank=True)
+    ai_reviewed = models.BooleanField(default=False, help_text="Whether AI has reviewed this slip")
+    auto_verified = models.BooleanField(default=False, help_text="Whether AI auto-verified this slip")
+
     class Meta:
         ordering = ['-uploaded_at']
     
