@@ -4,7 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import PaymentViewSet, PaymentDeadlineViewSet, ReminderViewSet
 from .views import send_reminders, send_payment_confirmation
 from .views.report_views import monthly_report, student_report, annual_summary
-from .views.slip_views import upload_slip, pending_slips, verify_slip
+from .views.slip_views import upload_slip, pending_slips, verify_slip, ai_stats
 # IMPORT SMS VIEWS
 from .views.sms_views import (
     sms_balance, send_test_sms, sms_history,
@@ -23,7 +23,7 @@ urlpatterns = [
     path('payment-confirmation/<int:payment_id>/', send_payment_confirmation, name='payment-confirmation'),
 ]
 
-# SMS API URLs - Make sure these are INCLUDED
+# SMS API URLs
 urlpatterns += [
     path('sms/balance/', sms_balance, name='sms-balance'),
     path('sms/send-test/', send_test_sms, name='send-test-sms'),
@@ -38,9 +38,11 @@ urlpatterns += [
     path('reports/student/<str:student_id>/', student_report, name='student-report'),
     path('reports/annual/', annual_summary, name='annual-summary'),
 ]
+
 # Slip API URLs
 urlpatterns += [
     path('slips/upload/', upload_slip, name='upload-slip'),
     path('slips/pending/', pending_slips, name='pending-slips'),
     path('slips/<int:slip_id>/verify/', verify_slip, name='verify-slip'),
+    path('slips/ai-stats/', ai_stats, name='ai-stats'),
 ]

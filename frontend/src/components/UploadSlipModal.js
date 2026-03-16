@@ -35,7 +35,7 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
     formData.append('slip_image', file);
 
     try {
-      await api.post('/payments/slips/upload/', formData, {
+      const response = await api.post('/slips/upload/', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       

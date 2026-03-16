@@ -1,10 +1,8 @@
-// frontend/src/pages/AdminSlips.js
+// src/pages/AdminSlips.js
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
 import { 
   CheckCircle, 
   XCircle, 
-  Clock, 
   Eye,
   Download,
   RefreshCw,
@@ -17,6 +15,7 @@ function AdminSlips() {
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     fetchPendingSlips();
@@ -24,11 +23,15 @@ function AdminSlips() {
 
   const fetchPendingSlips = async () => {
     setLoading(true);
+    setError('');
     try {
+      console.log('Fetching slips...');
       const response = await api.get('/slips/pending/');
+      console.log('Slips received:', response.data);
       setSlips(response.data);
     } catch (err) {
       console.error('Error fetching slips:', err);
+      setError('Failed to load pending slips');
     } finally {
       setLoading(false);
     }
@@ -40,6 +43,7 @@ function AdminSlips() {
       await api.post(`/slips/${slipId}/verify/`, { action });
       await fetchPendingSlips();
     } catch (err) {
+      console.error('Error verifying slip:', err);
       alert('Failed to verify slip');
     } finally {
       setProcessing(null);
@@ -50,6 +54,23 @@ function AdminSlips() {
     return (
       <div className="flex justify-center items-center h-64">
         <RefreshCw className="h-8 w-8 animate-spin text-primary-600" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 p-4 rounded-lg">
+        <div className="flex items-center gap-2">
+          <AlertCircle className="h-5 w-5 text-red-500" />
+          <p className="text-red-700">{error}</p>
+        </div>
+        <button
+          onClick={fetchPendingSlips}
+          className="mt-4 btn-primary"
+        >
+          Try Again
+        </button>
       </div>
     );
   }
@@ -76,11 +97,9 @@ function AdminSlips() {
       ) : (
         <div className="grid gap-4">
           {slips.map((slip) => (
-            <motion.div
+            <div
               key={slip.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-xl shadow-lg p-6"
+              className="bg-white rounded-xl shadow-lg p-6 border border-gray-100"
             >
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex-1">
@@ -89,6 +108,13 @@ function AdminSlips() {
                     <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs">
                       Grade {slip.grade}
                     </span>
+                    {slip.ai_confidence > 0 && (
+                      <span className={`px-2 py-1 rounded-full text-xs ${
+                        slip.ai_confidence >= 85 ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                      }`}>
+                        AI: {slip.ai_confidence}%
+                      </span>
+                    )}
                   </div>
                   <p className="text-sm text-gray-600">ID: {slip.student_id}</p>
                   <p className="text-sm text-gray-600">Month: {slip.month}</p>
@@ -97,19 +123,24 @@ function AdminSlips() {
                   <p className="text-xs text-gray-400 mt-1">
                     Uploaded: {new Date(slip.uploaded_at).toLocaleString()}
                   </p>
+                  {slip.ai_message && (
+                    <p className="text-xs text-gray-500 mt-1 italic">{slip.ai_message}</p>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setSelectedImage(slip.slip_image)}
+                    onClick={() => setSelectedImage(`http://127.0.0.1:8000${slip.slip_image}`)}
                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                     title="View Slip"
                   >
                     <Eye className="h-5 w-5 text-gray-600" />
                   </button>
                   <a
-                    href={slip.slip_image}
+                    href={`http://127.0.0.1:8000${slip.slip_image}`}
                     download
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                     title="Download Slip"
                   >
@@ -137,7 +168,7 @@ function AdminSlips() {
                   </button>
                 </div>
               </div>
-            </motion.div>
+            </div>
           ))}
         </div>
       )}

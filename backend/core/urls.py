@@ -14,6 +14,7 @@ urlpatterns = [
     path('api-auth/', include('rest_framework.urls')),
     path('api/admin/login/', auth_views.admin_login),
     path('api/admin/logout/', auth_views.admin_logout),
+    path('api/admin/', include('authentication.urls')),
 ]
 
 if settings.DEBUG:

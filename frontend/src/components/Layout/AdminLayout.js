@@ -4,8 +4,6 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   LayoutDashboard, 
-  Bell, 
-  Settings,
   LogOut,
   School,
   Menu,
@@ -15,16 +13,23 @@ import {
   BarChart3,
   ChevronLeft,
   ChevronRight,
-  Calendar
+  Calendar,
+  FileText,
+  MessageSquare,
+  Bell,
+  Settings,
+  Eye,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
-import { MessageSquare } from 'lucide-react';
+
 const AdminLayout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Close sidebar on mobile when route changes
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
@@ -34,15 +39,21 @@ const AdminLayout = ({ children }) => {
     navigate('/admin/login');
   };
 
-  const navItems = [
+  // Main navigation - things used daily
+  const mainNavItems = [
     { path: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/admin/academic-years', label: 'Academic Years', icon: Calendar },
-    { path: '/admin/reminders', label: 'Reminders', icon: Bell },
-    { path: '/admin/sms', label: 'SMS Dashboard', icon: MessageSquare },
-    { path: '/admin/reports', label: 'Reports', icon: BarChart3 },
     { path: '/admin/students', label: 'Students', icon: Users },
     { path: '/admin/payments', label: 'Payments', icon: CreditCard },
-    { path: '/admin/slips', label: 'Bank Slips', icon: FileText }
+    { path: '/admin/slips', label: 'Bank Slips', icon: Eye },
+    { path: '/admin/sms', label: 'Send SMS', icon: MessageSquare },
+  ];
+
+  // Advanced settings - things used weekly/monthly
+  const advancedNavItems = [
+    { path: '/admin/academic-years', label: 'Academic Years', icon: Calendar },
+    { path: '/admin/reports', label: 'Reports', icon: BarChart3 },
+    { path: '/admin/reminders', label: 'Reminders', icon: Bell },
+    { path: '/admin/settings', label: 'Settings', icon: Settings },
   ];
 
   return (
@@ -60,19 +71,19 @@ const AdminLayout = ({ children }) => {
         )}
       </AnimatePresence>
 
-      {/* Sidebar - Fixed, no scroll */}
+      {/* Sidebar */}
       <motion.aside
         initial={false}
         animate={{ 
           width: isCollapsed ? '80px' : '256px',
           transition: { duration: 0.3 }
         }}
-        className={`fixed lg:static inset-y-0 left-0 z-50 bg-white shadow-xl h-screen ${
+        className={`fixed lg:static inset-y-0 left-0 z-50 bg-white shadow-xl h-screen overflow-hidden ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
         <div className="flex flex-col h-full">
-          {/* Logo - Fixed at top */}
+          {/* Logo */}
           <div className={`flex-shrink-0 p-6 border-b border-gray-200 flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
             {!isCollapsed ? (
               <>
@@ -95,7 +106,7 @@ const AdminLayout = ({ children }) => {
             )}
           </div>
 
-          {/* Collapse Toggle (Desktop) */}
+          {/* Collapse Toggle */}
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
             className="hidden lg:flex absolute -right-3 top-20 w-6 h-6 bg-white rounded-full shadow-md border border-gray-200 items-center justify-center hover:bg-gray-50 z-50"
@@ -106,30 +117,86 @@ const AdminLayout = ({ children }) => {
             }
           </button>
 
-          {/* Navigation - Scrollable area */}
+          {/* Navigation */}
           <nav className="flex-1 overflow-y-auto p-4 space-y-1 scrollbar-hide">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = location.pathname === item.path;
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-3'} px-4 py-3 rounded-lg transition-all duration-200 ${
-                    isActive
-                      ? 'bg-primary-50 text-primary-600'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                  title={isCollapsed ? item.label : ''}
+            {/* Main Navigation */}
+            <div className="mb-4">
+              {!isCollapsed && (
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-4">
+                  Main
+                </p>
+              )}
+              {mainNavItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = location.pathname === item.path;
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-3'} px-4 py-3 rounded-lg transition-all duration-200 mb-1 ${
+                      isActive
+                        ? 'bg-primary-50 text-primary-600'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                    title={isCollapsed ? item.label : ''}
+                  >
+                    <Icon className="h-5 w-5 flex-shrink-0" />
+                    {!isCollapsed && <span className="font-medium">{item.label}</span>}
+                  </Link>
+                );
+              })}
+            </div>
+
+            {/* Advanced Section (Collapsible) */}
+            <div>
+              {!isCollapsed && (
+                <button
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                  className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600"
                 >
-                  <Icon className="h-5 w-5 flex-shrink-0" />
-                  {!isCollapsed && <span className="font-medium">{item.label}</span>}
-                </Link>
-              );
-            })}
+                  <span>Advanced</span>
+                  {showAdvanced ? (
+                    <ChevronUp className="h-4 w-4" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
+                </button>
+              )}
+              
+              <AnimatePresence>
+                {(showAdvanced || isCollapsed) && (
+                  <motion.div
+                    initial={!isCollapsed ? { opacity: 0, height: 0 } : false}
+                    animate={!isCollapsed ? { opacity: 1, height: 'auto' } : false}
+                    exit={!isCollapsed ? { opacity: 0, height: 0 } : false}
+                    className="overflow-hidden"
+                  >
+                    {advancedNavItems.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = location.pathname === item.path;
+                      return (
+                        <Link
+                          key={item.path}
+                          to={item.path}
+                          className={`flex items-center ${isCollapsed ? 'justify-center' : 'space-x-3'} px-4 py-3 rounded-lg transition-all duration-200 mb-1 ${
+                            isActive
+                              ? 'bg-primary-50 text-primary-600'
+                              : 'text-gray-600 hover:bg-gray-100'
+                          }`}
+                          title={isCollapsed ? item.label : ''}
+                        >
+                          <Icon className="h-5 w-5 flex-shrink-0" />
+                          {!isCollapsed && <span className="font-medium">{item.label}</span>}
+                        </Link>
+                      );
+                    })}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </nav>
 
-          {/* Logout - Fixed at bottom */}
+          {/* Logout */}
           <div className="flex-shrink-0 p-4 border-t border-gray-200">
             <button
               onClick={handleLogout}
@@ -157,9 +224,9 @@ const AdminLayout = ({ children }) => {
         </div>
       </div>
 
-      {/* Main Content - Scrollable area */}
+      {/* Main Content */}
       <main className="flex-1 overflow-y-auto bg-gray-50">
-        <div className="lg:hidden h-14" /> {/* Mobile spacer */}
+        <div className="lg:hidden h-14" />
         <div className="p-4 md:p-6 lg:p-8">
           {children}
         </div>

@@ -10,3 +10,5 @@ whitenoise==6.7.0
 dj-database-url==2.2.0
 africastalking==2.0.2
 Pillow==12.1.1
+pytesseract==0.3.10
+opencv-python==4.8.1.78
