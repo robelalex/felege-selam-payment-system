@@ -10,6 +10,9 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 
+// Get the base URL from environment or use default
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://felege-selam-payment-system.onrender.com';
+
 function AdminSlips() {
   const [slips, setSlips] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -48,6 +51,13 @@ function AdminSlips() {
     } finally {
       setProcessing(null);
     }
+  };
+
+  // Helper function to get full image URL
+  const getFullImageUrl = (imagePath) => {
+    if (!imagePath) return null;
+    if (imagePath.startsWith('http')) return imagePath;
+    return `${API_BASE_URL}${imagePath}`;
   };
 
   if (loading) {
@@ -130,14 +140,14 @@ function AdminSlips() {
 
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setSelectedImage(`http://127.0.0.1:8000${slip.slip_image}`)}
+                    onClick={() => setSelectedImage(getFullImageUrl(slip.slip_image))}
                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                     title="View Slip"
                   >
                     <Eye className="h-5 w-5 text-gray-600" />
                   </button>
                   <a
-                    href={`http://127.0.0.1:8000${slip.slip_image}`}
+                    href={getFullImageUrl(slip.slip_image)}
                     download
                     target="_blank"
                     rel="noopener noreferrer"
