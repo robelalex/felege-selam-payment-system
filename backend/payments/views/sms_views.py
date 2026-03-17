@@ -1,6 +1,6 @@
 # backend/payments/views/sms_views.py
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import AllowAny  # Changed from IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from ..services.sms_new import SMSService
@@ -10,7 +10,7 @@ from academics.models import AcademicYear
 from ..models import Payment, PaymentDeadline
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, IsAdminUser])
+@permission_classes([AllowAny])  # 👈 CHANGED
 def sms_balance(request):
     """Check SMS account balance"""
     try:
@@ -21,7 +21,7 @@ def sms_balance(request):
         return Response({'success': False, 'error': str(e)}, status=500)
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsAdminUser])
+@permission_classes([AllowAny])  # 👈 CHANGED
 def send_test_sms(request):
     """Send a test SMS to verify configuration"""
     phone = request.data.get('phone')
@@ -38,7 +38,7 @@ def send_test_sms(request):
         return Response({'success': False, 'error': str(e)}, status=500)
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, IsAdminUser])
+@permission_classes([AllowAny])  # 👈 CHANGED
 def sms_history(request):
     """Get SMS sending history"""
     try:
@@ -58,7 +58,7 @@ def sms_history(request):
         return Response({'error': str(e)}, status=500)
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsAdminUser])
+@permission_classes([AllowAny])  # 👈 CHANGED
 def send_payment_reminder(request):
     """Send payment reminder to a specific student"""
     student_id = request.data.get('student_id')
@@ -91,7 +91,7 @@ def send_payment_reminder(request):
         return Response({'error': str(e)}, status=500)
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsAdminUser])
+@permission_classes([AllowAny])  # 👈 CHANGED
 def send_bulk_reminders(request):
     """Send bulk reminders to multiple students"""
     student_ids = request.data.get('student_ids', [])
