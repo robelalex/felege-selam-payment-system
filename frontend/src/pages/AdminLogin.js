@@ -17,10 +17,7 @@ function AdminLogin() {
     setError('');
 
     try {
-      // First get CSRF token
-      await api.get('/admin/csrf/');
-      
-      // Then login
+      // Direct login - no CSRF token needed
       const response = await api.post('/admin/login/', {
         username: username,
         password: password
@@ -114,14 +111,6 @@ function AdminLogin() {
               )}
             </button>
           </form>
-
-          <div className="mt-6 text-center text-sm text-gray-600">
-            <p>Demo credentials:</p>
-            <p className="font-mono bg-gray-100 p-2 rounded mt-2">
-              Username: admin<br />
-              Password: admin123
-            </p>
-          </div>
         </div>
       </div>
     </div>
