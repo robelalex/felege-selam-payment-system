@@ -1,4 +1,4 @@
-# students/views.py
+# students/views.py - COMPLETE UPDATED with multi-school support
 from django.http import HttpResponse
 from .services.bulk_import import BulkImportService
 import json
@@ -9,16 +9,83 @@ from .models import Student
 from .serializers import StudentSerializer
 from payments.models import Payment, PaymentDeadline
 import pandas as pd
-from django.http import HttpResponse
 from io import BytesIO
 from datetime import datetime
-from schools.models import School  # Add this import
+from schools.models import School
+from academics.models import AcademicYear
+
+# ✅ NEW: Import helper functions
+from common.utils import get_school_id_from_request, is_super_admin, get_user_school
+
 
 class StudentViewSet(viewsets.ModelViewSet):
-    queryset = Student.objects.all()
     serializer_class = StudentSerializer
     
-    @action(detail=False, methods=['get'])
+    def get_queryset(self):
+        """Filter students by school (super admin sees all, school admin sees only their school)"""
+        queryset = Student.objects.all()
+        
+        # ✅ Get school ID from request (header or user profile)
+        school_id = get_school_id_from_request(self.request)
+        user = self.request.user
+        
+        print(f"📚 StudentViewSet - User: {user.username}, is_super_admin: {is_super_admin(user)}")
+        print(f"📚 StudentViewSet - school_id from request: {school_id}")
+        
+        # ✅ Super admins see all, school admins see only their school
+        if not is_super_admin(user) and school_id:
+            queryset = queryset.filter(school_id=school_id)
+            print(f"📚 Filtered students by school ID (school admin): {school_id}")
+        elif school_id:
+            queryset = queryset.filter(school_id=school_id)
+            print(f"📚 Filtered students by school ID (with filter): {school_id}")
+        
+        # Filter by academic year
+        year_id = self.request.query_params.get('academic_year_id')
+        year_param = self.request.query_params.get('academic_year')
+        year_alt = self.request.query_params.get('year')
+        year_id_alt = self.request.query_params.get('year_id')
+        
+        year_value = year_id or year_id_alt or year_alt or year_param
+        
+        if year_value:
+            try:
+                try:
+                    year = AcademicYear.objects.get(id=int(year_value))
+                    queryset = queryset.filter(academic_year=year.name)
+                    print(f"📚 Filtered by AcademicYear ID {year_value}: {year.name}")
+                except (ValueError, AcademicYear.DoesNotExist):
+                    try:
+                        year = AcademicYear.objects.get(year_ec=int(year_value))
+                        queryset = queryset.filter(academic_year=year.name)
+                        print(f"📚 Filtered by AcademicYear year_ec {year_value}: {year.name}")
+                    except (ValueError, AcademicYear.DoesNotExist):
+                        queryset = queryset.filter(academic_year=year_value)
+                        print(f"📚 Filtered by AcademicYear string: {year_value}")
+            except Exception as e:
+                print(f"📚 Error filtering by year: {e}")
+        
+        # Filter by date range if provided
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+        
+        if start_date:
+            queryset = queryset.filter(enrollment_date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(enrollment_date__lte=end_date)
+        
+        queryset = queryset.order_by('grade', 'first_name')
+        print(f"📚 Total students after filtering: {queryset.count()}")
+        
+        return queryset
+    
+    def list(self, request, *args, **kwargs):
+        """Override list to ensure school filtering is applied"""
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='search_by_id')
     def search_by_id(self, request):
         """Search student by their unique ID"""
         student_id = request.query_params.get('student_id', None)
@@ -31,11 +98,15 @@ class StudentViewSet(viewsets.ModelViewSet):
                 return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
         return Response({'error': 'Please provide student_id'}, status=status.HTTP_400_BAD_REQUEST)
     
-    @action(detail=True, methods=['get'])
+    @action(detail=True, methods=['get'], url_path='payment_history')
     def payment_history(self, request, pk=None):
-        """Get payment history for a specific student"""
+        """Get payment history for a specific student - ONLY for their academic year"""
         student = self.get_object()
-        payments = Payment.objects.filter(student=student).order_by('-created_at')
+        
+        payments = Payment.objects.filter(
+            student=student,
+            deadline__academic_year=student.academic_year
+        ).order_by('-created_at')
         
         data = []
         for payment in payments:
@@ -52,12 +123,11 @@ class StudentViewSet(viewsets.ModelViewSet):
         
         return Response(data)
     
-    @action(detail=True, methods=['get'])
+    @action(detail=True, methods=['get'], url_path='pending_payments')
     def pending_payments(self, request, pk=None):
-        """Get all pending payments for a student"""
+        """Get all pending payments for a student - ONLY for their academic year"""
         student = self.get_object()
         
-        # Get all active deadlines that the student hasn't paid yet
         paid_deadlines = Payment.objects.filter(
             student=student, 
             status='verified'
@@ -65,6 +135,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         
         pending_deadlines = PaymentDeadline.objects.filter(
             school=student.school,
+            academic_year=student.academic_year,
             is_active=True
         ).exclude(id__in=paid_deadlines)
         
@@ -72,14 +143,17 @@ class StudentViewSet(viewsets.ModelViewSet):
         serializer = PaymentDeadlineSerializer(pending_deadlines, many=True)
         return Response(serializer.data)
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], url_path='download_template')
     def download_template(self, request):
         """Download Excel template for bulk import"""
         try:
-            # Get school (you might want to get this from user's profile)
-            school = School.objects.first()
-            if not school:
-                return Response({'error': 'No school found'}, status=404)
+            # ✅ Get school from user profile or header
+            school_id = get_school_id_from_request(request)
+            
+            if school_id:
+                school = School.objects.get(id=school_id)
+            else:
+                return Response({'error': 'School not identified. Please contact administrator.'}, status=400)
             
             service = BulkImportService(school.id)
             excel_file = service.download_template()
@@ -91,10 +165,12 @@ class StudentViewSet(viewsets.ModelViewSet):
             response['Content-Disposition'] = 'attachment; filename="student_import_template.xlsx"'
             return response
             
+        except School.DoesNotExist:
+            return Response({'error': 'School not found'}, status=404)
         except Exception as e:
             return Response({'error': str(e)}, status=500)
 
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], url_path='bulk_import')
     def bulk_import(self, request):
         """Import students from uploaded Excel file"""
         try:
@@ -103,26 +179,30 @@ class StudentViewSet(viewsets.ModelViewSet):
             
             file = request.FILES['file']
             
-            # Get school (you might want to get this from user's profile)
-            school = School.objects.first()
-            if not school:
-                return Response({'error': 'No school found'}, status=404)
+            # ✅ Get school from user profile or header
+            school_id = get_school_id_from_request(request)
+            
+            if school_id:
+                school = School.objects.get(id=school_id)
+            else:
+                return Response({'error': 'School not identified. Please contact administrator.'}, status=400)
             
             service = BulkImportService(school.id)
             results = service.process_file(file)
             
             return Response(results)
             
+        except School.DoesNotExist:
+            return Response({'error': 'School not found'}, status=404)
         except Exception as e:
             return Response({'error': str(e)}, status=500)
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], url_path='export_students')
     def export_students(self, request):
         """Export all students to Excel"""
         try:
-            students = Student.objects.all()
+            students = self.get_queryset()
             
-            # Create DataFrame
             data = []
             for student in students:
                 data.append({
@@ -142,7 +222,6 @@ class StudentViewSet(viewsets.ModelViewSet):
             
             df = pd.DataFrame(data)
             
-            # Save to BytesIO
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df.to_excel(writer, sheet_name='Students', index=False)
@@ -159,13 +238,12 @@ class StudentViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=500)
         
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], url_path='export')
     def export(self, request):
-        """Export all students to Excel"""
+        """Export all students to Excel with full details"""
         try:
-            students = Student.objects.all()
+            students = self.get_queryset()
             
-            # Create data for Excel
             data = []
             for student in students:
                 data.append({
@@ -190,17 +268,14 @@ class StudentViewSet(viewsets.ModelViewSet):
                     'Enrollment Date': student.enrollment_date
                 })
             
-            # Create DataFrame
             df = pd.DataFrame(data)
             
-            # Create Excel file in memory
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df.to_excel(writer, sheet_name='Students', index=False)
             
             output.seek(0)
             
-            # Create response
             response = HttpResponse(
                 output.read(),
                 content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'

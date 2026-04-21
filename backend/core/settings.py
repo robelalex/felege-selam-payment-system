@@ -1,9 +1,12 @@
 # core/settings.py
 import dj_database_url
 import os
+
 from pathlib import Path
 from dotenv import load_dotenv
-
+# ===== DEBUG LOGGING =====
+import logging
+logging.basicConfig(level=logging.DEBUG)
 load_dotenv()  # Load environment variables
 
 # Build paths inside the project
@@ -48,6 +51,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'common.middleware.SchoolMiddleware', 
 ]
 
 ROOT_URLCONF = 'core.urls'
@@ -131,7 +135,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://felege-selam-payment-system.vercel.app",
 ]
 
-CORS_ALLOW_CREDENTIALS = True  # THIS IS CRITICAL for authentication
+CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOW_METHODS = [
     'DELETE',
@@ -142,6 +146,7 @@ CORS_ALLOW_METHODS = [
     'PUT',
 ]
 
+# ✅ ADDED x-school-id to allowed headers
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -152,16 +157,17 @@ CORS_ALLOW_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
+    'x-school-id',  # ✅ THIS IS THE FIX
 ]
 
-# ===== SESSION SETTINGS - ADD THESE =====
+# ===== SESSION SETTINGS =====
 SESSION_COOKIE_AGE = 1209600  # 2 weeks in seconds
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'Lax'  # THIS IS CRITICAL for cross-origin requests
-SESSION_COOKIE_SECURE = False  # Set to True only in production with HTTPS
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = False
 
 CSRF_COOKIE_SAMESITE = 'Lax'
-CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF token
+CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SECURE = False
 
 # ===== PRODUCTION SETTINGS =====
@@ -181,3 +187,6 @@ AFRICASTALKING_USERNAME = os.getenv('AFRICASTALKING_USERNAME', 'sandbox')
 AFRICASTALKING_API_KEY = os.getenv('AFRICASTALKING_API_KEY', '')
 SMS_SANDBOX = os.getenv('SMS_SANDBOX', 'True') == 'True'
 SMS_SENDER_ID = os.getenv('SMS_SENDER_ID', 'FELEGE-SELAM')
+
+# ===== CHAPA SETTINGS =====
+CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY', '')

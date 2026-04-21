@@ -12,12 +12,12 @@ import {
   AlertCircle,
   Loader,
   Upload,
-  Smartphone,
+  CreditCard,
+  Wallet,
   Check,
   ChevronDown,
-  CreditCard,
-  Banknote,
-  Info
+  Info,
+  Banknote
 } from 'lucide-react';
 import api from '../services/api';
 import UploadSlipModal from '../components/UploadSlipModal';
@@ -35,19 +35,22 @@ function StudentDashboard() {
   const [selectedDeadline, setSelectedDeadline] = useState(null);
   const [expandedSection, setExpandedSection] = useState('pending');
   const [showPaymentInfo, setShowPaymentInfo] = useState(null);
+  const [processingPaymentId, setProcessingPaymentId] = useState(null);
 
   const fetchStudentData = useCallback(async () => {
     try {
       setLoading(true);
       
-      const studentResponse = await api.get(`/students/search_by_id/?student_id=${studentId}`);
+      // ✅ FIXED: No leading slash - api.js already has base URL
+      const studentResponse = await api.get(`students/search_by_id/?student_id=${studentId}`);
       setStudent(studentResponse.data);
       
       const studentDbId = studentResponse.data.id;
       
+      // ✅ FIXED: No leading slash
       const [historyResponse, pendingResponse] = await Promise.all([
-        api.get(`/students/${studentDbId}/payment_history/`),
-        api.get(`/students/${studentDbId}/pending_payments/`)
+        api.get(`students/${studentDbId}/payment_history/`),
+        api.get(`students/${studentDbId}/pending_payments/`)
       ]);
       
       const allPayments = historyResponse.data || [];
@@ -70,54 +73,79 @@ function StudentDashboard() {
     }
   }, [studentId, fetchStudentData]);
 
-  const handleTelebirrPayment = (deadline) => {
-    // Show payment instructions modal
-    setShowPaymentInfo({
-      method: 'Telebirr',
-      amount: deadline.amount,
-      reference: student?.student_id,
-      instructions: [
-        'Dial *127# on your phone',
-        'Select "Payment"',
-        'Enter Merchant ID: 123456',
-        `Enter Amount: ${deadline.amount} Birr`,
-        `Enter Reference: ${student?.student_id}`,
-        'Confirm and complete payment',
-        'Payment will be auto-verified within 5 minutes'
-      ]
-    });
+  const handleChapaPayment = async (payment) => {
+    setProcessingPaymentId(payment.id);
+    
+    try {
+      console.log(`Processing payment for: ${payment.month_name}`);
+      
+      const timestamp = Date.now();
+      const randomStr = Math.random().toString(36).substring(2, 8);
+      const tx_ref = `tx-${student.student_id}-${payment.id}-${timestamp}-${randomStr}`;
+      
+      const parentName = student.parent_full_name || 'Parent';
+      const firstName = parentName.split(' ')[0] || 'Parent';
+      const lastName = parentName.split(' ').slice(1).join(' ') || student.student_id;
+      const email = student.parent_email || `${student.student_id}@parent.com`;
+      
+      const requestData = {
+        student_id: student.student_id,
+        deadline_id: payment.id,
+        amount: payment.amount,
+        email: email,
+        first_name: firstName,
+        last_name: lastName,
+        tx_ref: tx_ref,
+        title: `${payment.month_name} Fee`,
+        description: `${payment.month_name} ${payment.academic_year} - Grade ${student.grade}`
+      };
+      
+      console.log('Sending payment request:', requestData);
+      
+      // ✅ FIXED: No leading slash
+      const response = await api.post('chapa/initiate/', requestData);
+      
+      console.log('Chapa response:', response.data);
+      
+      if (response.data.success && response.data.checkout_url) {
+        sessionStorage.setItem('pendingPayment', JSON.stringify({
+          tx_ref: tx_ref,
+          student_id: student.student_id,
+          deadline_id: payment.id,
+          amount: payment.amount,
+          month_name: payment.month_name,
+          academic_year: payment.academic_year,
+          student_name: student.full_name,
+          grade: student.grade,
+          section: student.section
+        }));
+        
+        window.location.href = response.data.checkout_url;
+      } else {
+        alert(`Payment initiation failed for ${payment.month_name}. Please try again.`);
+        setProcessingPaymentId(null);
+      }
+    } catch (err) {
+      console.error(`Chapa error for month: ${payment.month_name}`, err);
+      alert(`Payment failed for ${payment.month_name}. Please try again.`);
+      setProcessingPaymentId(null);
+    }
   };
 
-  const handleCbeBirrPayment = (deadline) => {
-    setShowPaymentInfo({
-      method: 'CBE Birr',
-      amount: deadline.amount,
-      reference: student?.student_id,
-      instructions: [
-        'Open CBE Birr app',
-        'Select "Payment"',
-        'Choose "Merchant Payment"',
-        'Enter Merchant Code: 789012',
-        `Enter Amount: ${deadline.amount} Birr`,
-        `Enter Reference: ${student?.student_id}`,
-        'Confirm with your PIN',
-        'Payment will be auto-verified within 10 minutes'
-      ]
-    });
-  };
-
-  const handleBankTransfer = (deadline) => {
+  const handleBankTransfer = (payment) => {
     setShowPaymentInfo({
       method: 'Bank Transfer',
-      amount: deadline.amount,
+      payment: payment,
+      amount: payment.amount,
       reference: student?.student_id,
       instructions: [
         'Bank: Commercial Bank of Ethiopia',
         'Account Name: Felege Selam School',
         'Account Number: 10000001234567',
-        `Amount: ${deadline.amount} Birr`,
+        `Amount: ${payment.amount} Birr`,
         `Reference: Use Student ID: ${student?.student_id}`,
-        'After transfer, upload the bank slip using the "Upload Bank Slip" button',
+        `Month: ${payment.month_name} ${payment.academic_year}`,
+        'After transfer, upload the bank slip using the "Upload Slip" button',
         'Payment will be verified within 24 hours'
       ],
       showUploadButton: true
@@ -213,7 +241,6 @@ function StudentDashboard() {
           </div>
         </div>
         
-        {/* Balance Alert */}
         {totalOverdue > 0 && (
           <div className="mt-4 bg-red-500/20 rounded-lg p-3 flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-white" />
@@ -258,6 +285,8 @@ function StudentDashboard() {
                 pendingPayments.map((payment) => {
                   const status = getStatusBadge(payment.due_date);
                   const StatusIcon = status.icon;
+                  const isProcessing = processingPaymentId === payment.id;
+                  
                   return (
                     <div key={payment.id} className="p-6 hover:bg-gray-50 transition-colors">
                       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -277,33 +306,34 @@ function StudentDashboard() {
                         
                         <div className="flex flex-col sm:flex-row gap-2">
                           <button
-                            onClick={() => handleTelebirrPayment(payment)}
-                            className="btn-primary flex items-center justify-center gap-2 px-4 py-2"
-                            title="Pay with Telebirr"
+                            onClick={() => handleChapaPayment(payment)}
+                            disabled={isProcessing}
+                            className="btn-primary flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 min-w-[140px]"
                           >
-                            <Smartphone className="h-4 w-4" />
-                            Telebirr
+                            {isProcessing ? (
+                              <>
+                                <Loader className="h-4 w-4 animate-spin" />
+                                Processing...
+                              </>
+                            ) : (
+                              <>
+                                <Wallet className="h-4 w-4" />
+                                Pay {payment.month_name}
+                              </>
+                            )}
                           </button>
-                          <button
-                            onClick={() => handleCbeBirrPayment(payment)}
-                            className="btn-primary flex items-center justify-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700"
-                            title="Pay with CBE Birr"
-                          >
-                            <Banknote className="h-4 w-4" />
-                            CBE Birr
-                          </button>
+
                           <button
                             onClick={() => handleBankTransfer(payment)}
-                            className="btn-secondary flex items-center justify-center gap-2 px-4 py-2"
-                            title="Pay via Bank Transfer"
+                            className="btn-secondary flex items-center justify-center gap-2 px-4 py-2 min-w-[140px]"
                           >
-                            <CreditCard className="h-4 w-4" />
+                            <Banknote className="h-4 w-4" />
                             Bank Transfer
                           </button>
+                          
                           <button
                             onClick={() => handleUploadClick(payment)}
-                            className="btn-outline flex items-center justify-center gap-2 px-4 py-2"
-                            title="Upload bank slip after transfer"
+                            className="btn-outline flex items-center justify-center gap-2 px-4 py-2 min-w-[140px]"
                           >
                             <Upload className="h-4 w-4" />
                             Upload Slip
@@ -339,11 +369,13 @@ function StudentDashboard() {
                 <div className="p-2 bg-primary-100 rounded-full">
                   <Info className="h-6 w-6 text-primary-600" />
                 </div>
-                <h2 className="text-xl font-bold">{showPaymentInfo.method} Payment</h2>
+                <h2 className="text-xl font-bold">{showPaymentInfo.method}</h2>
               </div>
 
               <div className="bg-primary-50 rounded-lg p-4 mb-4">
-                <p className="text-sm text-gray-600">Amount</p>
+                <p className="text-sm text-gray-600">Month</p>
+                <p className="text-lg font-semibold">{showPaymentInfo.payment?.month_name} {showPaymentInfo.payment?.academic_year}</p>
+                <p className="text-sm text-gray-600 mt-2">Amount</p>
                 <p className="text-2xl font-bold text-primary-600">{showPaymentInfo.amount} Birr</p>
                 <p className="text-sm text-gray-600 mt-1">Reference: {showPaymentInfo.reference}</p>
               </div>
@@ -364,7 +396,7 @@ function StudentDashboard() {
                 <button
                   onClick={() => {
                     setShowPaymentInfo(null);
-                    handleUploadClick(selectedDeadline || pendingPayments[0]);
+                    handleUploadClick(showPaymentInfo.payment);
                   }}
                   className="btn-primary w-full mb-3"
                 >

@@ -1,14 +1,19 @@
-// frontend/src/services/academicYearService.js
-import api from './api'; // ✅ Use the api instance instead of axios
+// src/services/academicYearService.js
+import api from './api';
 
 class AcademicYearService {
   async getAllYears() {
-    const response = await api.get('/academic-years/');
+    // Don't add year filter to this endpoint
+    const response = await api.get('/academic-years/', {
+      params: {} // Empty params to avoid interceptor adding year
+    });
     return response.data;
   }
 
   async getCurrentYear() {
-    const response = await api.get('/academic-years/current/');
+    const response = await api.get('/academic-years/current/', {
+      params: {}
+    });
     return response.data;
   }
 

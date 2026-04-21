@@ -1,14 +1,24 @@
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from datetime import date
+from schools.models import School  # ✅ Add this import
 
 class AcademicYear(models.Model):
     """Academic Year Management"""
     
+    # ✅ Add school relationship
+    school = models.ForeignKey(
+        School,
+        on_delete=models.CASCADE,
+        related_name='academic_years',
+        null=True,
+        blank=True,
+        help_text="School this academic year belongs to"
+    )
+    
     # Year identification
     year_ec = models.IntegerField(
         validators=[MinValueValidator(2000), MaxValueValidator(2100)],
-        unique=True,
         help_text="Ethiopian Calendar year (e.g., 2016)"
     )
     
@@ -48,18 +58,18 @@ class AcademicYear(models.Model):
         ordering = ['-year_ec']
         verbose_name = "Academic Year"
         verbose_name_plural = "Academic Years"
+        unique_together = ['school', 'year_ec']
     
     def __str__(self):
-        return f"{self.name} {'(Current)' if self.is_current else ''}"
+        school_name = f"{self.school.name} - " if self.school else ""
+        return f"{school_name}{self.name} {'(Current)' if self.is_current else ''}"
     
     def save(self, *args, **kwargs):
-        # Auto-generate name if not provided
         if not self.name:
             self.name = f"{self.year_ec} E.C."
         
-        # Ensure only one current academic year
-        if self.is_current:
-            AcademicYear.objects.filter(is_current=True).update(is_current=False)
+        if self.is_current and self.school:
+            AcademicYear.objects.filter(school=self.school, is_current=True).update(is_current=False)
         
         super().save(*args, **kwargs)
     
@@ -76,7 +86,6 @@ class AcademicYear(models.Model):
                 student.save()
                 promoted_count += 1
             else:
-                # Grade 8 students graduate
                 student.status = 'graduated'
                 student.save()
         

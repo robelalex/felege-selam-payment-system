@@ -9,6 +9,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import api from '../services/api';
+import { useYear } from '../context/YearContext';
 
 // Get the base URL from environment or use default
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://felege-selam-payment-system.onrender.com';
@@ -19,17 +20,35 @@ function AdminSlips() {
   const [processing, setProcessing] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
   const [error, setError] = useState('');
+  
+  // Get selected year from context
+  const { selectedYear } = useYear();
 
+  // Fetch slips when year changes
   useEffect(() => {
     fetchPendingSlips();
-  }, []);
+  }, [selectedYear]);
 
   const fetchPendingSlips = async () => {
     setLoading(true);
     setError('');
     try {
-      console.log('Fetching slips...');
-      const response = await api.get('/slips/pending/');
+      // ✅ FIXED: Add academic year filter to API call
+      const params = new URLSearchParams();
+      
+      if (selectedYear && selectedYear.id) {
+        params.append('academic_year_id', selectedYear.id);
+        params.append('academic_year', selectedYear.year_ec);
+        params.append('year_id', selectedYear.id);
+      }
+      
+      const queryString = params.toString();
+      const url = queryString ? `/slips/pending/?${queryString}` : '/slips/pending/';
+      
+      console.log('📄 Fetching slips for year:', selectedYear?.name);
+      console.log('🔗 URL:', url);
+      
+      const response = await api.get(url);
       console.log('Slips received:', response.data);
       setSlips(response.data);
     } catch (err) {
@@ -87,8 +106,18 @@ function AdminSlips() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold">Bank Slip Verification</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Bank Slip Verification</h1>
+          {selectedYear && (
+            <p className="text-sm text-primary-600 mt-1 font-medium">
+              📅 Academic Year: {selectedYear.name || selectedYear.year_ec + ' E.C.'}
+            </p>
+          )}
+          <p className="text-sm text-gray-500">
+            {slips.length} pending {slips.length === 1 ? 'slip' : 'slips'} waiting for verification
+          </p>
+        </div>
         <button
           onClick={fetchPendingSlips}
           className="btn-outline flex items-center gap-2"
@@ -102,18 +131,20 @@ function AdminSlips() {
         <div className="bg-white rounded-xl shadow-lg p-12 text-center">
           <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-gray-700">No Pending Slips</h2>
-          <p className="text-gray-500 mt-2">All bank slips have been verified.</p>
+          <p className="text-gray-500 mt-2">
+            All bank slips for {selectedYear?.name || 'selected academic year'} have been verified.
+          </p>
         </div>
       ) : (
         <div className="grid gap-4">
           {slips.map((slip) => (
             <div
               key={slip.id}
-              className="bg-white rounded-xl shadow-lg p-6 border border-gray-100"
+              className="bg-white rounded-xl shadow-lg p-6 border border-gray-100 hover:shadow-xl transition-shadow"
             >
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
+                  <div className="flex flex-wrap items-center gap-3 mb-2">
                     <h3 className="font-semibold text-lg">{slip.student_name}</h3>
                     <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs">
                       Grade {slip.grade}
@@ -125,16 +156,21 @@ function AdminSlips() {
                         AI: {slip.ai_confidence}%
                       </span>
                     )}
+                    {slip.auto_verified && (
+                      <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">
+                        Auto-verified by AI
+                      </span>
+                    )}
                   </div>
                   <p className="text-sm text-gray-600">ID: {slip.student_id}</p>
                   <p className="text-sm text-gray-600">Month: {slip.month}</p>
                   <p className="text-sm text-gray-600">Bank: {slip.bank_name || 'Not specified'}</p>
-                  <p className="text-lg font-bold text-primary-600 mt-2">{slip.amount} Birr</p>
+                  <p className="text-lg font-bold text-primary-600 mt-2">{parseFloat(slip.amount).toLocaleString()} Birr</p>
                   <p className="text-xs text-gray-400 mt-1">
                     Uploaded: {new Date(slip.uploaded_at).toLocaleString()}
                   </p>
                   {slip.ai_message && (
-                    <p className="text-xs text-gray-500 mt-1 italic">{slip.ai_message}</p>
+                    <p className="text-xs text-gray-500 mt-1 italic">🤖 {slip.ai_message}</p>
                   )}
                 </div>
 
@@ -171,7 +207,7 @@ function AdminSlips() {
                   <button
                     onClick={() => handleVerify(slip.id, 'reject')}
                     disabled={processing === slip.id}
-                    className="btn-secondary flex items-center gap-2 text-red-600"
+                    className="btn-secondary flex items-center gap-2 text-red-600 border-red-200 hover:bg-red-50"
                   >
                     <XCircle className="h-4 w-4" />
                     Reject
@@ -197,7 +233,7 @@ function AdminSlips() {
             />
             <button
               onClick={() => setSelectedImage(null)}
-              className="absolute top-2 right-2 p-2 bg-white rounded-full shadow-lg"
+              className="absolute top-2 right-2 p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
             >
               <XCircle className="h-6 w-6 text-gray-600" />
             </button>
