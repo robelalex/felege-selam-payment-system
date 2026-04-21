@@ -13,9 +13,11 @@ import {
   MessageSquare,
   ChevronUp,
   ChevronDown,
-  AlertTriangle
+  AlertTriangle,
+  Calendar
 } from 'lucide-react';
 import api from '../services/api';
+import { useYear } from '../context/YearContext';
 
 function SMSDashboard() {
   const [balance, setBalance] = useState(null);
@@ -26,7 +28,6 @@ function SMSDashboard() {
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState(null);
   
-  // For bulk SMS - only students with pending payments
   const [pendingStudents, setPendingStudents] = useState([]);
   const [selectedStudents, setSelectedStudents] = useState([]);
   const [bulkMessage, setBulkMessage] = useState('');
@@ -42,17 +43,26 @@ function SMSDashboard() {
     'Megabit', 'Miazia', 'Ginbot', 'Sene', 'Hamle', 'Nehase', 'Pagume'
   ];
 
+  const { selectedYear } = useYear();
+
   useEffect(() => {
     fetchData();
     fetchPendingStudents();
-  }, []);
+  }, [selectedYear]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
+      const params = new URLSearchParams();
+      if (selectedYear && selectedYear.id) {
+        params.append('academic_year_id', selectedYear.id);
+      }
+      
+      const queryString = params.toString();
+      
       const [balanceRes, historyRes] = await Promise.all([
         api.get('/sms/balance/'),
-        api.get('/sms/history/?limit=50')
+        api.get(`/sms/history/?limit=50${queryString ? '&' + queryString : ''}`)
       ]);
       setBalance(balanceRes.data);
       setHistory(historyRes.data);
@@ -65,17 +75,37 @@ function SMSDashboard() {
 
   const fetchPendingStudents = async () => {
     try {
-      // Fetch pending reminders data which contains students with unpaid fees
-      const response = await api.get('/reminders/pending/');
-      setPendingStats(response.data);
+      const params = new URLSearchParams();
+      if (selectedYear && selectedYear.id) {
+        params.append('academic_year_id', selectedYear.id);
+      }
       
-      // Transform the data to get students with pending payments
-      const students = response.data?.students || [];
+      const queryString = params.toString();
+      // ✅ USE THE NEW STANDALONE ENDPOINT
+      const url = queryString ? `/reminders-filtered/?${queryString}` : '/reminders-filtered/';
+      
+      console.log('📱 Fetching pending students URL:', url);
+      
+      const response = await api.get(url);
+      console.log('📱 API Response:', response.data);
+      
+      const data = response.data;
+      const students = data.students || [];
+      
       setPendingStudents(students);
+      setPendingStats({
+        total_pending: data.total_pending || 0,
+        total_pending_months: data.total_pending_months || 0,
+        by_month: data.by_month || {}
+      });
       
-      console.log('Pending students:', students); // Debug log
+      // Reset selected students when data changes
+      setSelectedStudents([]);
+      
     } catch (err) {
       console.error('Error fetching pending students:', err);
+      setPendingStudents([]);
+      setPendingStats(null);
     }
   };
 
@@ -131,24 +161,31 @@ function SMSDashboard() {
     setBulkResult(null);
 
     try {
-      const response = await api.post('/sms/send-bulk/', {
+      const requestData = {
         student_ids: selectedStudents,
         month: filterMonth !== 'all' ? filterMonth : null,
         message: bulkMessage
-      });
+      };
+      
+      if (selectedYear && selectedYear.id) {
+        requestData.academic_year_id = selectedYear.id;
+        requestData.academic_year = selectedYear.year_ec;
+      }
+      
+      const response = await api.post('/sms/send-bulk/', requestData);
 
       setBulkResult({
         success: true,
-        sent: response.data.successful,
-        failed: response.data.failed,
-        total: response.data.total_processed,
-        message: `Successfully sent ${response.data.successful} messages!`
+        sent: response.data.successful || response.data.sent || 0,
+        failed: response.data.failed || 0,
+        total: response.data.total_processed || selectedStudents.length,
+        message: `Successfully sent ${response.data.successful || response.data.sent || 0} messages!`
       });
 
       setSelectedStudents([]);
       setBulkMessage('');
       fetchData();
-      fetchPendingStudents(); // Refresh pending list
+      fetchPendingStudents();
     } catch (err) {
       console.error('Error sending bulk SMS:', err);
       setBulkResult({
@@ -176,7 +213,6 @@ function SMSDashboard() {
     }
   };
 
-  // Filter only students with pending payments
   const filteredStudents = pendingStudents.filter(student => {
     const matchesGrade = filterGrade === 'all' || student.grade === parseInt(filterGrade);
     return matchesGrade;
@@ -201,16 +237,17 @@ function SMSDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Header with Pending Summary */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-gray-900">SMS Dashboard</h1>
-          {pendingStats && (
-            <p className="text-sm text-gray-600 mt-1">
-              {pendingStats.total_pending || 0} students with pending payments
-              ({pendingStats.total_pending_months || 0} unpaid months)
+          {selectedYear && (
+            <p className="text-sm text-primary-600 mt-1 font-medium">
+              📅 Academic Year: {selectedYear.name || selectedYear.year_ec + ' E.C.'}
             </p>
           )}
+          <p className="text-sm text-gray-500 mt-1">
+            {pendingStudents.length} students with overdue payments
+          </p>
         </div>
         <button
           onClick={() => {
@@ -232,26 +269,26 @@ function SMSDashboard() {
               {balance?.success ? balance.balance : 'N/A'}
             </p>
             <p className="text-primary-200 text-sm mt-2">
-              {balance?.success ? 'Live account - messages will be sent' : 'Connect Africa\'s Talking to get balance'}
+              {balance?.success ? 'Live account - messages will be sent' : 'Configure SMS provider'}
             </p>
           </div>
           <DollarSign className="h-12 w-12 text-white/30" />
         </div>
       </div>
 
-      {/* Pending Summary Cards */}
-      {pendingStats && pendingStats.by_month && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Overdue Summary Cards */}
+      {pendingStats && pendingStats.by_month && Object.keys(pendingStats.by_month).length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {Object.entries(pendingStats.by_month).map(([month, data]) => (
-            <div key={month} className="bg-white rounded-xl shadow-lg p-4">
+            <div key={month} className="bg-white rounded-xl shadow-lg p-4 border-l-4 border-red-500">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold text-gray-900">{data.month_name}</h3>
-                <span className="text-sm bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
-                  {data.count} pending
+                <span className="text-sm bg-red-100 text-red-800 px-2 py-1 rounded-full">
+                  {data.count} overdue
                 </span>
               </div>
               <p className="text-sm text-gray-600">
-                Total: {data.total_amount} Birr
+                Total: {data.total_amount.toLocaleString()} Birr
               </p>
             </div>
           ))}
@@ -358,7 +395,7 @@ function SMSDashboard() {
         </AnimatePresence>
       </div>
 
-      {/* Bulk SMS Section - Only Shows Students with Pending Payments */}
+      {/* Bulk SMS Section */}
       <div className="bg-white rounded-xl shadow-lg overflow-hidden">
         <button
           onClick={() => setExpandedSection(expandedSection === 'bulk' ? null : 'bulk')}
@@ -367,7 +404,7 @@ function SMSDashboard() {
           <div className="flex items-center gap-3">
             <Users className="h-5 w-5 text-primary-600" />
             <h2 className="text-lg font-semibold text-gray-900">
-              Send Bulk SMS ({pendingStudents.length} with pending payments)
+              Send Bulk SMS ({pendingStudents.length} with overdue payments)
             </h2>
           </div>
           {expandedSection === 'bulk' ? (
@@ -386,17 +423,17 @@ function SMSDashboard() {
               className="px-6 pb-6"
             >
               <div className="pt-4 space-y-4">
-                {/* Warning if no pending students */}
                 {pendingStudents.length === 0 && (
                   <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                     <div className="flex items-center gap-2">
                       <CheckCircle className="h-5 w-5 text-green-600" />
-                      <p className="text-green-700">No pending payments! All students are up to date.</p>
+                      <p className="text-green-700">
+                        No overdue payments for {selectedYear?.name || 'selected academic year'}!
+                      </p>
                     </div>
                   </div>
                 )}
 
-                {/* Filters */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -443,11 +480,10 @@ function SMSDashboard() {
                     placeholder="Enter your message or leave blank for default reminder..."
                   />
                   <p className="text-xs text-gray-500 mt-2">
-                    Default message will include student name and pending months
+                    Default message will include student name and overdue months
                   </p>
                 </div>
 
-                {/* Students List - Only Showing Those with Pending Payments */}
                 {pendingStudents.length > 0 && (
                   <div className="border border-gray-200 rounded-lg overflow-hidden">
                     <div className="bg-gray-50 px-4 py-3 flex items-center justify-between">
@@ -478,8 +514,20 @@ function SMSDashboard() {
                             <p className="text-sm text-gray-500">
                               Grade {student.grade} • {student.parent_phone}
                             </p>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {student.pending_months?.slice(0, 3).map((month, idx) => (
+                                <span key={idx} className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
+                                  {month.month_name} ({month.days_overdue} days)
+                                </span>
+                              ))}
+                              {student.pending_months?.length > 3 && (
+                                <span className="text-xs text-gray-500">
+                                  +{student.pending_months.length - 3} more
+                                </span>
+                              )}
+                            </div>
                             <p className="text-xs text-orange-600 mt-1">
-                              {student.pending_months?.length || 0} months unpaid • {student.total_due} Birr due
+                              {student.pending_months?.length || 0} months overdue • {student.total_due.toLocaleString()} Birr due
                             </p>
                           </div>
                         </div>

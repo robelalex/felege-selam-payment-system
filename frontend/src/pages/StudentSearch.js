@@ -1,7 +1,7 @@
 // src/pages/StudentSearch.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getStudentById } from '../services/api';
+import { getStudentById, getSchoolInfo } from '../services/api';
 import { 
   Search, 
   User, 
@@ -15,7 +15,39 @@ function StudentSearch() {
   const [studentId, setStudentId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [schoolInfo, setSchoolInfo] = useState(null);
+  const [loadingSchool, setLoadingSchool] = useState(true);
   const navigate = useNavigate();
+
+  // ✅ Fetch school info when component loads
+  useEffect(() => {
+    const fetchSchoolInfo = async () => {
+      try {
+        // Try to get school from localStorage first
+        const savedSchool = localStorage.getItem('selectedSchool');
+        if (savedSchool) {
+          setSchoolInfo(JSON.parse(savedSchool));
+          setLoadingSchool(false);
+          return;
+        }
+        
+        // If not in localStorage, fetch from API
+        const response = await getSchoolInfo();
+        if (response.data && response.data.length > 0) {
+          const school = response.data[0];
+          setSchoolInfo(school);
+          // Store for future use
+          localStorage.setItem('selectedSchool', JSON.stringify(school));
+        }
+      } catch (err) {
+        console.error('Error fetching school info:', err);
+      } finally {
+        setLoadingSchool(false);
+      }
+    };
+    
+    fetchSchoolInfo();
+  }, []);
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -43,15 +75,32 @@ function StudentSearch() {
     }
   };
 
+  // Show loading state
+  if (loadingSchool) {
+    return (
+      <div className="max-w-4xl mx-auto flex items-center justify-center min-h-[60vh]">
+        <Loader className="h-8 w-8 animate-spin text-primary-600" />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-4xl mx-auto">
-      {/* Hero Section */}
+      {/* Hero Section - Dynamic School Name */}
       <div className="text-center mb-12 animate-slide-up">
         <div className="inline-flex items-center justify-center p-2 bg-primary-100 rounded-full mb-4">
-          <School className="h-8 w-8 text-primary-600" />
+          {schoolInfo?.logo ? (
+            <img 
+              src={schoolInfo.logo} 
+              alt={schoolInfo.name} 
+              className="h-8 w-8 rounded-full object-cover"
+            />
+          ) : (
+            <School className="h-8 w-8 text-primary-600" />
+          )}
         </div>
         <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          Felege Selam School
+          {schoolInfo?.name || 'School Payment Portal'}
         </h1>
         <p className="text-xl text-gray-600">
           Secure Online Payment Portal
@@ -83,13 +132,13 @@ function StudentSearch() {
                 type="text"
                 id="studentId"
                 className="input-field pl-10"
-                placeholder="e.g., FS-2024-1001"
+                placeholder={`e.g., ${schoolInfo?.code || 'SCH'}-2024-1001`}
                 value={studentId}
                 onChange={(e) => setStudentId(e.target.value.toUpperCase())}
               />
             </div>
             <p className="text-sm text-gray-500 mt-1">
-              Format: SchoolCode-Year-Number (e.g., FS-2024-1001)
+              Format: {schoolInfo?.code || 'SchoolCode'}-Year-Number (e.g., {schoolInfo?.code || 'FS'}-2024-1001)
             </p>
           </div>
 

@@ -16,14 +16,15 @@ import {
   Home,
   Calendar
 } from 'lucide-react';
-import api from '../../services/api'; // ✅ ADD THIS IMPORT (remove axios import)
-import idGenerator from '../../utils/idGenerator';
+import api from '../../services/api';
 
 const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [existingIds, setExistingIds] = useState([]);
+  const [schoolId, setSchoolId] = useState(null);
+  const [availableYears, setAvailableYears] = useState([]);
+  const [generatedId, setGeneratedId] = useState('');
   
   const [formData, setFormData] = useState({
     student_id: editStudent?.student_id || '',
@@ -33,7 +34,7 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
     mother_name: editStudent?.mother_name || '',
     grade: editStudent?.grade || 1,
     section: editStudent?.section || 'A',
-    academic_year: editStudent?.academic_year || '2016 E.C.',
+    academic_year: editStudent?.academic_year || '',
     parent_full_name: editStudent?.parent_full_name || '',
     parent_phone: editStudent?.parent_phone || '',
     parent_alternative_phone: editStudent?.parent_alternative_phone || '',
@@ -46,35 +47,28 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
     status: editStudent?.status || 'active'
   });
 
-  const [schoolId, setSchoolId] = useState(null);
-
-  // Fetch existing IDs for auto-generation
+  // Fetch available academic years
   useEffect(() => {
-    fetchExistingIds();
+    fetchAcademicYears();
     fetchSchoolId();
   }, []);
 
-  const fetchExistingIds = async () => {
+  const fetchAcademicYears = async () => {
     try {
-      // ✅ FIXED: Using api instance
-      const response = await api.get('/students/');
-      const ids = response.data.map(s => s.student_id);
-      setExistingIds(ids);
-      
-      // Auto-generate ID if this is a new student
-      if (!editStudent) {
-        const newId = idGenerator.generateStudentID(ids);
-        setFormData(prev => ({ ...prev, student_id: newId }));
+      const response = await api.get('/academic-years/');
+      setAvailableYears(response.data);
+      // Set default academic year if not editing
+      if (!editStudent && response.data.length > 0) {
+        const currentYear = response.data.find(y => y.is_current) || response.data[0];
+        setFormData(prev => ({ ...prev, academic_year: currentYear.name }));
       }
     } catch (err) {
-      console.error('Error fetching existing IDs:', err);
+      console.error('Error fetching academic years:', err);
     }
   };
 
-  // Fetch school ID
   const fetchSchoolId = async () => {
     try {
-      // ✅ FIXED: Using api instance
       const response = await api.get('/schools/');
       if (response.data && response.data.length > 0) {
         setSchoolId(response.data[0].id);
@@ -106,6 +100,12 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
       return;
     }
 
+    if (!formData.academic_year) {
+      setError('Please select an academic year');
+      setLoading(false);
+      return;
+    }
+
     if (!schoolId) {
       setError('No school found. Please add a school first.');
       setLoading(false);
@@ -113,9 +113,8 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
     }
 
     try {
-      // Prepare the data for API - MATCHING DJANGO MODEL EXACTLY
       const studentData = {
-        student_id: formData.student_id,
+        student_id: '', // Send empty to let backend generate
         school: schoolId,
         first_name: formData.first_name,
         last_name: formData.last_name,
@@ -123,7 +122,7 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
         mother_name: formData.mother_name || '',
         grade: parseInt(formData.grade),
         section: formData.section || '',
-        academic_year: formData.academic_year || '2016 E.C.',
+        academic_year: formData.academic_year,
         parent_full_name: formData.parent_full_name || `${formData.first_name} ${formData.last_name}'s Parent`,
         parent_phone: formData.parent_phone,
         parent_alternative_phone: formData.parent_alternative_phone || '',
@@ -140,28 +139,30 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
 
       let response;
       if (editStudent) {
-        // ✅ FIXED: Using api instance
         response = await api.put(`/students/${editStudent.id}/`, studentData);
       } else {
-        // ✅ FIXED: Using api instance
         response = await api.post('/students/', studentData);
       }
       
       console.log('Response:', response.data);
       
-      setSuccess(editStudent ? 'Student updated successfully!' : 'Student registered successfully!');
+      // ✅ Store the generated ID
+      if (response.data && response.data.student_id) {
+        setGeneratedId(response.data.student_id);
+      }
+      
+      setSuccess(editStudent ? 'Student updated successfully!' : `Student registered successfully! ID: ${response.data.student_id}`);
       
       setTimeout(() => {
         onSuccess();
         onClose();
-      }, 1500);
+      }, 2000);
       
     } catch (err) {
       console.error('Registration error:', err);
       console.error('Error response:', err.response?.data);
       
       if (err.response?.data) {
-        // Format error message nicely
         const errorData = err.response.data;
         let errorMessage = '';
         
@@ -180,11 +181,6 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const generateNewId = () => {
-    const newId = idGenerator.generateStudentID(existingIds);
-    setFormData(prev => ({ ...prev, student_id: newId }));
   };
 
   return (
@@ -221,34 +217,20 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
             {/* Student ID Section */}
             <div className="bg-primary-50 rounded-lg p-4 border border-primary-100">
               <div className="flex items-center justify-between">
-                <div>
+                <div className="flex-1">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Student ID (Auto-generated)
+                    Student ID
                   </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      name="student_id"
-                      value={formData.student_id}
-                      onChange={handleChange}
-                      className="input-field font-mono bg-white w-64"
-                      readOnly={!editStudent}
-                      required
-                    />
-                    {!editStudent && (
-                      <button
-                        type="button"
-                        onClick={generateNewId}
-                        className="px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm"
-                      >
-                        Generate New
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-gray-500">Format: FS-YEAR-00001</p>
-                  <p className="text-xs text-gray-500 mt-1">Permanent ID (never changes)</p>
+                  <input
+                    type="text"
+                    value={generatedId || (editStudent ? formData.student_id : 'Will be generated after save')}
+                    className="input-field font-mono bg-gray-100 w-64"
+                    readOnly
+                    disabled
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    ID will be generated automatically based on selected academic year
+                  </p>
                 </div>
               </div>
             </div>
@@ -360,16 +342,22 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Academic Year
+                    Academic Year *
                   </label>
-                  <input
-                    type="text"
+                  <select
                     name="academic_year"
                     value={formData.academic_year}
                     onChange={handleChange}
                     className="input-field"
-                    placeholder="e.g., 2016 E.C."
-                  />
+                    required
+                  >
+                    <option value="">Select Academic Year</option>
+                    {availableYears.map(year => (
+                      <option key={year.id} value={year.name}>
+                        {year.name} {year.is_current && '(Current)'}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 
                 <div>
@@ -535,7 +523,7 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
                 >
                   <div className="flex items-center gap-2">
                     <AlertCircle className="h-5 w-5 text-red-500" />
-                    <p className="text-red-700">{error}</p>
+                    <p className="text-red-700 whitespace-pre-wrap">{error}</p>
                   </div>
                 </motion.div>
               )}

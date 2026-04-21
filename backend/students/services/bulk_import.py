@@ -108,74 +108,96 @@ class BulkImportService:
         
         return errors, fixed_phone
     
-    def process_file(self, file):
-        """Process uploaded Excel file"""
-        try:
-            # Read Excel file
-            df = pd.read_excel(file, sheet_name='Students')
+def process_file(self, file):
+    """Process uploaded Excel file"""
+    try:
+        # Read Excel file
+        df = pd.read_excel(file, sheet_name='Students')
+        
+        # Convert to list of dictionaries
+        records = df.to_dict('records')
+        self.results['total'] = len(records)
+        
+        for idx, record in enumerate(records, start=2):
+            # Get academic year from Excel
+            academic_year = record.get('Academic Year', '')
             
-            # Convert to list of dictionaries
-            records = df.to_dict('records')
-            self.results['total'] = len(records)
+            # Format academic year
+            if academic_year:
+                academic_year = self.format_academic_year(str(academic_year))
+            else:
+                # Use current academic year as fallback
+                from academics.models import AcademicYear
+                current = AcademicYear.objects.filter(is_current=True).first()
+                academic_year = current.name if current else '2018 E.C.'
             
-            # Get existing student IDs for ID generation
-            existing_ids = list(Student.objects.values_list('student_id', flat=True))
+            # Validate and get fixed phone number
+            errors, fixed_phone = self.validate_row(record, idx)
             
-            from students.utils.id_generator import StudentIDGenerator
-            id_generator = StudentIDGenerator()
+            if errors:
+                self.results['errors'].extend(errors)
+                continue
             
-            for idx, record in enumerate(records, start=2):
-                # Validate and get fixed phone number
-                errors, fixed_phone = self.validate_row(record, idx)
+            try:
+                # Create student - let backend generate ID based on academic_year
+                student = Student.objects.create(
+                    student_id='',  # Leave empty for auto-generation
+                    school=self.school,
+                    first_name=record['First Name'],
+                    last_name=record['Last Name'],
+                    father_name=record.get('Father Name', ''),
+                    mother_name=record.get('Mother Name', ''),
+                    grade=int(record['Grade']),
+                    section=record.get('Section', 'A'),
+                    academic_year=academic_year,  # Use formatted academic year
+                    parent_full_name=record.get('Parent Full Name', ''),
+                    parent_phone=fixed_phone,
+                    parent_alternative_phone=str(record.get('Alternative Phone', '')),
+                    parent_email=record.get('Parent Email', ''),
+                    monthly_fee=float(record.get('Monthly Fee', 200)),
+                    city=record.get('City', 'Jimma'),
+                    subcity=record.get('Subcity', ''),
+                    kebele=record.get('Kebele', ''),
+                    house_number=record.get('House Number', ''),
+                    status='active'
+                )
                 
-                if errors:
-                    self.results['errors'].extend(errors)
-                    continue
+                self.results['success'] += 1
+                self.results['students'].append({
+                    'id': student.id,
+                    'student_id': student.student_id,
+                    'name': f"{student.first_name} {student.last_name}"
+                })
                 
-                try:
-                    # Generate student ID
-                    student_id = id_generator.generate_student_id(existing_ids)
-                    existing_ids.append(student_id)
-                    
-                    # Create student
-                    student = Student.objects.create(
-                        student_id=student_id,
-                        school=self.school,
-                        first_name=record['First Name'],
-                        last_name=record['Last Name'],
-                        father_name=record.get('Father Name', ''),
-                        mother_name=record.get('Mother Name', ''),
-                        grade=int(record['Grade']),
-                        section=record.get('Section', 'A'),
-                        academic_year=record.get('Academic Year', '2016 E.C.'),
-                        parent_full_name=record.get('Parent Full Name', ''),
-                        parent_phone=fixed_phone,
-                        parent_alternative_phone=str(record.get('Alternative Phone', '')),
-                        parent_email=record.get('Parent Email', ''),
-                        monthly_fee=float(record.get('Monthly Fee', 200)),
-                        city=record.get('City', 'Jimma'),
-                        subcity=record.get('Subcity', ''),
-                        kebele=record.get('Kebele', ''),
-                        house_number=record.get('House Number', ''),
-                        status='active'
-                    )
-                    
-                    self.results['success'] += 1
-                    self.results['students'].append({
-                        'id': student.id,
-                        'student_id': student.student_id,
-                        'name': f"{student.first_name} {student.last_name}"
-                    })
-                    
-                except Exception as e:
-                    self.results['errors'].append(f"Row {idx}: Failed to create student - {str(e)}")
-            
-            return self.results
-            
-        except Exception as e:
-            return {
-                'error': f"Failed to process file: {str(e)}",
-                'total': 0,
-                'success': 0,
-                'errors': [str(e)]
-            }
+            except Exception as e:
+                self.results['errors'].append(f"Row {idx}: Failed to create student - {str(e)}")
+        
+        return self.results
+        
+    except Exception as e:
+        return {
+            'error': f"Failed to process file: {str(e)}",
+            'total': 0,
+            'success': 0,
+            'errors': [str(e)]
+        }
+
+def format_academic_year(self, year_str):
+    """Convert any academic year format to standard format"""
+    import re
+    
+    year_str = str(year_str).strip()
+    
+    # If already correct format
+    if re.match(r'^\d{4}\s+E\.C\.$', year_str):
+        return year_str
+    
+    # If missing dot
+    if re.match(r'^\d{4}\s+E\.C$', year_str):
+        return year_str.replace('E.C', 'E.C.')
+    
+    # If just number
+    if re.match(r'^\d{4}$', year_str):
+        return f"{year_str} E.C."
+    
+    return year_str

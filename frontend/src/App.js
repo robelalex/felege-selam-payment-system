@@ -7,12 +7,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 // Layouts
 import ParentLayout from './components/Layout/ParentLayout';
 import AdminLayout from './components/Layout/AdminLayout';
-
+//Context 
+import { YearProvider } from './context/YearContext';
 // Pages
+import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import StudentSearch from './pages/StudentSearch';
 import StudentDashboard from './pages/StudentDashboard';
 import PaymentPage from './pages/PaymentPage';
 import AdminLogin from './pages/AdminLogin';
+import AdminRegister from './pages/AdminRegister';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminReminders from './pages/AdminReminders';
 import Reports from './pages/Reports';
@@ -24,6 +29,8 @@ import AdminSlips from './pages/AdminSlips';
 import TestDashboard from './pages/TestDashboard';
 import LoginTest from './pages/LoginTest';
 import SimpleTest from './pages/SimpleTest';
+import PaymentSuccess from './pages/PaymentSuccess';
+import AdminDeadlines from './pages/AdminDeadlines';
 // Styles
 import './index.css';
 
@@ -45,6 +52,7 @@ const ProtectedRoute = ({ children }) => {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <YearProvider>
       <Router>
         <Toaster position="top-right" />
         <Routes>
@@ -74,10 +82,13 @@ function App() {
             }
           />
 
-          {/* Admin Login - No Layout (centered form) */}
+          {/* Admin Authentication Routes - No Layout */}
           <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin/register" element={<AdminRegister />} />
+          <Route path="/admin/forgot-password" element={<ForgotPassword />} />
+          <Route path="/admin/reset-password" element={<ResetPassword />} />
 
-          {/* Admin Routes - Using AdminLayout */}
+          {/* Admin Routes - Using AdminLayout (Protected) */}
           <Route
             path="/admin/dashboard"
             element={
@@ -109,77 +120,90 @@ function App() {
             }
           />
           <Route
-  path="/admin/students"
-  element={
-    <ProtectedRoute>
-      <AdminLayout>
-        <AdminStudents />
-      </AdminLayout>
-    </ProtectedRoute>
-  }
-/>
-<Route
-  path="/admin/payments"
-  element={
-    <ProtectedRoute>
-      <AdminLayout>
-        <AdminPayments />
-      </AdminLayout>
-    </ProtectedRoute>
-  }
-/>
-<Route
-  path="/admin/academic-years"
-  element={
-    <ProtectedRoute>
-      <AdminLayout>
-        <AdminAcademicYears />
-      </AdminLayout>
-    </ProtectedRoute>
-  }
-/>
+            path="/admin/students"
+            element={
+              <ProtectedRoute>
+                <AdminLayout>
+                  <AdminStudents />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/payments"
+            element={
+              <ProtectedRoute>
+                <AdminLayout>
+                  <AdminPayments />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/academic-years"
+            element={
+              <ProtectedRoute>
+                <AdminLayout>
+                  <AdminAcademicYears />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/sms"
+            element={
+              <ProtectedRoute>
+                <AdminLayout>
+                  <SMSDashboard />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/slips"
+            element={
+              <ProtectedRoute>
+                <AdminLayout>
+                  <AdminSlips />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/test"
+            element={
+              <ProtectedRoute>
+                <AdminLayout>
+                  <TestDashboard />
+                </AdminLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+              path="/superadmin/dashboard"
+              element={
+                <ProtectedRoute>
+                  <SuperAdminDashboard />
+              </ProtectedRoute>
+            }
+          />
 
-<Route
-  path="/admin/sms"
-  element={
-    <ProtectedRoute>
-      <AdminLayout>
-        <SMSDashboard />
-      </AdminLayout>
-    </ProtectedRoute>
-  }
-/>
+          <Route path="/admin/deadlines" element={
+  <ProtectedRoute>
+    <AdminLayout>
+      <AdminDeadlines />
+    </AdminLayout>
+  </ProtectedRoute>
+} />
 
-<Route
-  path="/admin/slips"
-  element={
-    <ProtectedRoute>
-      <AdminLayout>
-        <AdminSlips />
-      </AdminLayout>
-    </ProtectedRoute>
-  }
-/>
-
-
-<Route
-  path="/admin/test"
-  element={
-    <ProtectedRoute>
-      <AdminLayout>
-        <TestDashboard />
-      </AdminLayout>
-    </ProtectedRoute>
-  }
-/>
-
-<Route path="/login-test" element={<LoginTest />} />
-<Route path="/simple-test" element={<SimpleTest />} />
+          {/* Test Routes */}
+          <Route path="/login-test" element={<LoginTest />} />
+          <Route path="/simple-test" element={<SimpleTest />} />
+          <Route path="/payment/success" element={<PaymentSuccess />} />
         </Routes>
       </Router>
+      </YearProvider>
     </QueryClientProvider>
-
-    
   );
 }
 

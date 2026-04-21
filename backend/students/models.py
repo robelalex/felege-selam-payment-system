@@ -1,6 +1,9 @@
+# students/models.py
 from django.db import models
 from django.core.validators import MinValueValidator
 from schools.models import School
+import re
+from datetime import datetime
 
 class Student(models.Model):
     STATUS_CHOICES = [
@@ -15,7 +18,9 @@ class Student(models.Model):
     student_id = models.CharField(
         max_length=50, 
         unique=True, 
-        help_text="Format: SCHOOLCODE-YEAR-SEQUENCE (e.g., FS-2024-1001)"
+        blank=True, 
+        null=True,  # ✅ Allow null temporarily
+        help_text="Format: SCHOOLCODE-YEAR-SEQUENCE (e.g., FS-2024-1001). Auto-generated if left blank."
     )
     
     school = models.ForeignKey(
@@ -68,3 +73,68 @@ class Student(models.Model):
     @property
     def full_name(self):
         return f"{self.first_name} {self.last_name}"
+    
+    def _format_academic_year(self, year_str):
+        """Convert any format to 'YYYY E.C.' format"""
+        year_str = str(year_str).strip()
+        
+        if re.match(r'^\d{4}\s+E\.C\.$', year_str):
+            return year_str
+        if re.match(r'^\d{4}\s+E\.C$', year_str):
+            return year_str.replace('E.C', 'E.C.')
+        if re.match(r'^\d{4}\s+EC$', year_str):
+            return year_str.replace('EC', 'E.C.')
+        if re.match(r'^\d{4}$', year_str):
+            return f"{year_str} E.C."
+        if re.match(r'^\d{4}\s+E\s+C$', year_str):
+            return year_str.replace('E C', 'E.C.')
+        if re.match(r'^\d{4}E\.C\.$', year_str):
+            return f"{year_str[:4]} E.C."
+        
+        return year_str
+    
+    def _generate_student_id(self):
+        """Auto-generate student ID based on school code and academic year"""
+        if not self.academic_year:
+            return None
+            
+        school_code = self.school.code if self.school.code else self.school.name[:2].upper()
+        
+        # Extract year from academic_year
+        year_match = re.search(r'(\d{4})', self.academic_year)
+        year = year_match.group(1) if year_match else str(datetime.now().year)
+        
+        # Get the next sequence number for this school and year
+        last_student = Student.objects.filter(
+            school=self.school,
+            student_id__startswith=f"{school_code}-{year}-"
+        ).order_by('-student_id').first()
+        
+        if last_student and last_student.student_id:
+            try:
+                last_seq = int(last_student.student_id.split('-')[-1])
+                next_seq = last_seq + 1
+            except (ValueError, IndexError):
+                next_seq = 1
+        else:
+            next_seq = 1
+        
+        return f"{school_code}-{year}-{next_seq:04d}"
+    
+    def clean(self):
+        """Auto-format academic_year to standard format"""
+        if self.academic_year:
+            self.academic_year = self._format_academic_year(self.academic_year)
+    
+    def save(self, *args, **kwargs):
+        """Auto-format academic_year and auto-generate student_id before saving"""
+        self.clean()
+        
+        # ✅ Generate ID if not exists
+        if not self.student_id or self.student_id == '':
+            new_id = self._generate_student_id()
+            if new_id:
+                self.student_id = new_id
+                print(f"Generated ID for {self.first_name}: {self.student_id}")
+        
+        super().save(*args, **kwargs)

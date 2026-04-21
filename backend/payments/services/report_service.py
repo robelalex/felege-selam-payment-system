@@ -1,4 +1,4 @@
-# backend/payments/services/report_service.py
+# backend/payments/services/report_service.py - UPDATED with School Filtering
 from students.models import Student
 from payments.models import Payment, PaymentDeadline
 from academics.models import AcademicYear
@@ -7,31 +7,52 @@ from datetime import datetime
 import calendar
 
 class ReportService:
-    """Service to generate financial reports"""
+    """Service to generate financial reports with multi-school support"""
     
     def __init__(self):
         self.results = {}
     
-    def get_monthly_report(self, year=None, month=None):
+    def get_monthly_report(self, year=None, month=None, school_id=None):
         """
-        Generate monthly collection report
-        If no year/month provided, use current
+        Generate monthly collection report for a specific school
+        ✅ Added school_id parameter for multi-school filtering
         """
+        print(f"📊 get_monthly_report - school_id: {school_id}")
+        
         # Get academic year
         if not year:
-            current = AcademicYear.objects.filter(is_current=True).first()
+            if school_id:
+                current = AcademicYear.objects.filter(
+                    school_id=int(school_id),
+                    is_current=True
+                ).first()
+            else:
+                current = AcademicYear.objects.filter(is_current=True).first()
+            
             if not current:
                 return {'error': 'No current academic year set'}
             year = current.name
         
-        # Get all students
+        # ✅ Get all students for this school
         students = Student.objects.filter(status='active')
+        if school_id:
+            try:
+                students = students.filter(school_id=int(school_id))
+                print(f"📊 Students filtered by school ID: {school_id}")
+            except ValueError:
+                pass
         
-        # Get all payments for this year
+        # ✅ Get all payments for this school
         payments = Payment.objects.filter(
             deadline__academic_year=year,
             status='verified'
         )
+        if school_id:
+            try:
+                payments = payments.filter(student__school_id=int(school_id))
+                print(f"📊 Payments filtered by school ID: {school_id}")
+            except ValueError:
+                pass
         
         if month:
             payments = payments.filter(deadline__month=month)
@@ -45,6 +66,13 @@ class ReportService:
                 academic_year=year,
                 is_active=True
             )
+        
+        # ✅ Filter deadlines by school
+        if school_id:
+            try:
+                deadlines = deadlines.filter(school_id=int(school_id))
+            except ValueError:
+                pass
         
         # Calculate by grade
         by_grade = {}
@@ -106,10 +134,15 @@ class ReportService:
             'monthly_breakdown': monthly_data
         }
     
-    def get_student_report(self, student_id):
-        """Generate report for a single student"""
+    def get_student_report(self, student_id, school_id=None):
+        """Generate report for a single student with school verification"""
         try:
             student = Student.objects.get(student_id=student_id)
+            
+            # ✅ Verify student belongs to this school
+            if school_id and str(student.school_id) != str(school_id):
+                return {'error': 'Access denied - Student does not belong to your school'}
+                
         except Student.DoesNotExist:
             return {'error': 'Student not found'}
         
@@ -118,8 +151,9 @@ class ReportService:
             student=student
         ).order_by('-created_at')
         
-        # Get all deadlines
+        # Get all deadlines for this student's school and academic year
         deadlines = PaymentDeadline.objects.filter(
+            school=student.school,
             academic_year=student.academic_year,
             is_active=True
         ).order_by('month')
@@ -156,7 +190,8 @@ class ReportService:
                 'grade': student.grade,
                 'section': student.section,
                 'parent_phone': student.parent_phone,
-                'monthly_fee': float(student.monthly_fee)
+                'monthly_fee': float(student.monthly_fee),
+                'school_id': student.school_id
             },
             'summary': {
                 'total_paid': float(total_paid),
@@ -167,10 +202,19 @@ class ReportService:
             'pending': pending
         }
     
-    def get_annual_summary(self, year=None):
-        """Get annual summary report"""
+    def get_annual_summary(self, year=None, school_id=None):
+        """Get annual summary report for a specific school"""
+        print(f"📊 get_annual_summary - school_id: {school_id}")
+        
         if not year:
-            current = AcademicYear.objects.filter(is_current=True).first()
+            if school_id:
+                current = AcademicYear.objects.filter(
+                    school_id=int(school_id),
+                    is_current=True
+                ).first()
+            else:
+                current = AcademicYear.objects.filter(is_current=True).first()
+            
             if not current:
                 return {'error': 'No current academic year set'}
             year = current.name
@@ -179,16 +223,49 @@ class ReportService:
         total_year = 0
         
         for month in range(1, 14):
-            report = self.get_monthly_report(year, month)
-            monthly_data.append({
-                'month': report['monthly_breakdown'][month]['month'],
-                'collected': report['monthly_breakdown'][month]['total'],
-                'paid_count': report['monthly_breakdown'][month]['count']
-            })
-            total_year += report['monthly_breakdown'][month]['total']
+            report = self.get_monthly_report(year, month, school_id)
+            if 'error' not in report:
+                monthly_data.append({
+                    'month': report['monthly_breakdown'][month]['month'],
+                    'collected': report['monthly_breakdown'][month]['total'],
+                    'paid_count': report['monthly_breakdown'][month]['count']
+                })
+                total_year += report['monthly_breakdown'][month]['total']
         
         return {
             'year': year,
             'total_collected': float(total_year),
             'monthly_data': monthly_data
+        }
+    
+    def get_school_summary(self, school_id):
+        """Get complete summary for a school"""
+        print(f"📊 get_school_summary - school_id: {school_id}")
+        
+        # Get current academic year
+        current_year = AcademicYear.objects.filter(
+            school_id=int(school_id),
+            is_current=True
+        ).first()
+        
+        if not current_year:
+            return {'error': 'No current academic year set for this school'}
+        
+        # Get monthly report
+        monthly = self.get_monthly_report(
+            year=current_year.name,
+            school_id=school_id
+        )
+        
+        # Get annual summary
+        annual = self.get_annual_summary(
+            year=current_year.name,
+            school_id=school_id
+        )
+        
+        return {
+            'school_id': school_id,
+            'academic_year': current_year.name,
+            'current_month': monthly,
+            'year_to_date': annual
         }

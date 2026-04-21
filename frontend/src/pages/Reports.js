@@ -18,17 +18,20 @@ import {
   ChevronUp,
   Printer
 } from 'lucide-react';
-import api from '../services/api'; // ✅ ADD THIS IMPORT (remove axios import)
+import api from '../services/api';
+import { useYear } from '../context/YearContext';
 
 function Reports() {
   const [reportType, setReportType] = useState('monthly');
-  const [selectedYear, setSelectedYear] = useState('2018 E.C.');
   const [selectedMonth, setSelectedMonth] = useState('7');
   const [selectedStudent, setSelectedStudent] = useState('');
   const [reportData, setReportData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [expandedGrade, setExpandedGrade] = useState(null);
+  
+  // Get selected year from context
+  const { selectedYear } = useYear();
 
   const months = [
     { value: '1', name: 'Meskerem' },
@@ -46,49 +49,51 @@ function Reports() {
     { value: '13', name: 'Pagume' }
   ];
 
-  const years = [
-    '2018 E.C.',
-    '2017 E.C.',
-    '2016 E.C.'
-  ];
-
-  const fetchReport = async () => {
-    setLoading(true);
-    setError('');
-    
-    try {
-      let endpoint = '';
-      if (reportType === 'monthly') {
-        endpoint = `/reports/monthly/?year=${selectedYear}&month=${selectedMonth}`;
-      } else if (reportType === 'annual') {
-        endpoint = `/reports/annual/?year=${selectedYear}`;
-      } else if (reportType === 'student' && selectedStudent) {
-        endpoint = `/reports/student/${selectedStudent}/`;
-      }
-      
-      console.log('Fetching endpoint:', endpoint); // Debug log
-      
-      // ✅ FIXED: Using api instance instead of hardcoded URL
-      const response = await api.get(endpoint);
-      
-      console.log('Response:', response.data); // Debug log
-      setReportData(response.data);
-    } catch (err) {
-      console.error('Error fetching report:', err);
-      if (err.response) {
-        console.error('Error response:', err.response.data);
-        console.error('Error status:', err.response.status);
-        setError(`Server error: ${err.response.status} - ${err.response.data.error || 'Unknown error'}`);
-      } else if (err.request) {
-        console.error('No response received:', err.request);
-        setError('No response from server. Is Django running?');
-      } else {
-        setError('Failed to load report. Please try again.');
-      }
-    } finally {
-      setLoading(false);
+const fetchReport = async () => {
+  setLoading(true);
+  setError('');
+  
+  try {
+    // Build query parameters with academic year
+    const params = new URLSearchParams();
+    if (selectedYear && selectedYear.id) {
+      params.append('academic_year_id', selectedYear.id);
     }
-  };
+    
+    const queryString = params.toString();
+    const queryPrefix = queryString ? '?' + queryString : '';
+    
+    let endpoint = '';
+    
+if (reportType === 'monthly') {
+  const params = new URLSearchParams();
+  if (selectedYear && selectedYear.id) {
+    params.append('academic_year_id', selectedYear.id);
+  }
+  params.append('month', selectedMonth);
+  endpoint = `/reports/monthly-filtered/?${params.toString()}`;
+} else if (reportType === 'annual') {
+  const params = new URLSearchParams();
+  if (selectedYear && selectedYear.id) {
+    params.append('academic_year_id', selectedYear.id);
+  }
+  endpoint = `/reports/annual/${params.toString() ? '?' + params.toString() : ''}`;
+}
+    
+    console.log('Fetching report endpoint:', endpoint);
+    console.log('Selected Year:', selectedYear);
+    
+    const response = await api.get(endpoint);
+    console.log('Report response:', response.data);
+    
+    setReportData(response.data);
+  } catch (err) {
+    console.error('Error fetching report:', err);
+    setError('Failed to load report. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const downloadCSV = () => {
     if (!reportData) return;
@@ -96,7 +101,6 @@ function Reports() {
     let csvContent = '';
     
     if (reportType === 'monthly' && reportData.by_grade) {
-      // Create CSV for monthly report
       csvContent = 'Grade,Total Students,Paid,Pending,Collected (Birr),Collection Rate %\n';
       
       Object.entries(reportData.by_grade).forEach(([grade, data]) => {
@@ -104,6 +108,7 @@ function Reports() {
       });
       
       csvContent += `\nSummary,,,,\n`;
+      csvContent += `Academic Year,${selectedYear?.name || 'N/A'}\n`;
       csvContent += `Total Students,${reportData.summary.total_students}\n`;
       csvContent += `Total Paid,${reportData.summary.total_paid}\n`;
       csvContent += `Total Pending,${reportData.summary.total_pending}\n`;
@@ -111,7 +116,6 @@ function Reports() {
       csvContent += `Collection Rate,${reportData.summary.collection_rate}%\n`;
       
     } else if (reportType === 'student' && reportData.payment_history) {
-      // Create CSV for student report
       csvContent = 'Month,Amount (Birr),Date,Method,Reference\n';
       
       reportData.payment_history.forEach(p => {
@@ -124,12 +128,11 @@ function Reports() {
       csvContent += `Pending Amount,${reportData.summary.pending_amount} Birr\n`;
     }
     
-    // Download file
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `${reportType}_report_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute('download', `${reportType}_report_${selectedYear?.name || 'all'}_${new Date().toISOString().slice(0,10)}.csv`);
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -149,13 +152,18 @@ function Reports() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header with Academic Year Info */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Reports & Analytics</h1>
           <p className="text-sm md:text-base text-gray-600 mt-1">
             View and export payment reports
           </p>
+          {selectedYear && (
+            <p className="text-sm text-primary-600 mt-1 font-medium">
+              📅 Academic Year: {selectedYear.name || selectedYear.year_ec + ' E.C.'}
+            </p>
+          )}
         </div>
       </div>
 
@@ -186,15 +194,12 @@ function Reports() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Academic Year
                 </label>
-                <select
-                  value={selectedYear}
-                  onChange={(e) => setSelectedYear(e.target.value)}
-                  className="input-field"
-                >
-                  {years.map(year => (
-                    <option key={year} value={year}>{year}</option>
-                  ))}
-                </select>
+                <div className="input-field bg-gray-100">
+                  {selectedYear?.name || selectedYear?.year_ec + ' E.C.' || 'Not selected'}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Using selected year from dashboard
+                </p>
               </div>
 
               {reportType === 'monthly' && (
@@ -296,7 +301,7 @@ function Reports() {
                         Monthly Collection Report
                       </h2>
                       <p className="text-gray-600 mt-1">
-                        {months.find(m => m.value === selectedMonth)?.name} {reportData.year}
+                        {months.find(m => m.value === selectedMonth)?.name} {selectedYear?.name || ''}
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -469,7 +474,7 @@ function Reports() {
                               <td className="table-cell">{payment.date}</td>
                               <td className="table-cell capitalize">{payment.method}</td>
                               <td className="table-cell font-mono text-sm">{payment.reference || '—'}</td>
-                            </tr>
+                             </tr>
                           ))}
                         </tbody>
                       </table>

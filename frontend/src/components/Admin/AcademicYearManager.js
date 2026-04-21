@@ -8,26 +8,22 @@ import {
   AlertCircle,
   Loader,
   TrendingUp,
-  //Users,
-  //CreditCard,
-  ArrowRight,
-  //RefreshCw,
-  //X
+  ArrowRight
 } from 'lucide-react';
 import academicYearService from '../../services/academicYearService';
+import { useYear } from '../../context/YearContext';
 
 function AcademicYearManager() {
   const [years, setYears] = useState([]);
   const [currentYear, setCurrentYear] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [showCreateForm, setShowCreateForm] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  const { refreshYears, switchYear } = useYear();
 
-useEffect(() => {
-  fetchData();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
+  useEffect(() => {
+    fetchData();
+  }, []);
 
   const fetchData = async () => {
     setLoading(true);
@@ -55,6 +51,14 @@ useEffect(() => {
     try {
       await academicYearService.setCurrentYear(yearId);
       await fetchData();
+      await refreshYears(); // Refresh the context
+      
+      // Get the newly set current year
+      const newCurrentYear = years.find(y => y.id === yearId);
+      if (newCurrentYear) {
+        switchYear(newCurrentYear); // Switch selected year to the new current year
+      }
+      
       showMessage('success', 'Current academic year updated');
     } catch (err) {
       showMessage('error', 'Failed to update current year');
@@ -85,6 +89,7 @@ useEffect(() => {
     try {
       await academicYearService.createNextYear();
       await fetchData();
+      await refreshYears(); // Refresh the context
       showMessage('success', 'Next academic year created successfully');
     } catch (err) {
       showMessage('error', err.response?.data?.error || 'Failed to create next year');

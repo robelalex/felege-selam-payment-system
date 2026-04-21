@@ -1,6 +1,6 @@
-# backend/payments/views/slip_views.py
+# backend/payments/views/slip_views.py - UPDATED with School Filtering
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny  # Changed to AllowAny
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from django.core.files.storage import default_storage
@@ -10,11 +10,13 @@ from ..models import PaymentSlip, Student, PaymentDeadline, Payment
 import os
 from django.conf import settings
 from ..services.ocr_service import OCRService
+from academics.models import AcademicYear
+from schools.models import School  # ✅ Added
+
 
 @api_view(['POST'])
-@permission_classes([AllowAny])  # 👈 CHANGED
+@permission_classes([AllowAny])
 def upload_slip(request):
-    # ... (keep your existing code, just change the decorator line above)
     try:
         student_id = request.data.get('student_id')
         deadline_id = request.data.get('deadline_id')
@@ -27,6 +29,15 @@ def upload_slip(request):
         
         student = Student.objects.get(student_id=student_id)
         deadline = PaymentDeadline.objects.get(id=deadline_id)
+        
+        # ✅ Verify student belongs to the school from header
+        school_id = request.headers.get('X-School-ID')
+        if school_id:
+            try:
+                if str(student.school_id) != school_id:
+                    return Response({'error': 'Student does not belong to your school'}, status=403)
+            except:
+                pass
         
         file_path = default_storage.save(
             f'slips/{student.student_id}_{deadline.id}_{slip_image.name}',
@@ -90,10 +101,51 @@ def upload_slip(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])  # 👈 CHANGED
+@permission_classes([AllowAny])
 def pending_slips(request):
-    """Get all pending slips for admin"""
-    slips = PaymentSlip.objects.filter(status='pending').select_related('student', 'deadline')
+    """Get all pending slips for admin, filtered by school and academic year"""
+    
+    # ✅ FILTER BY SCHOOL FROM HEADER
+    school_id = request.headers.get('X-School-ID')
+    print(f"📱 pending_slips - X-School-ID: {school_id}")
+    
+    slips = PaymentSlip.objects.filter(status='pending')
+    
+    # ✅ Filter by school
+    if school_id:
+        try:
+            slips = slips.filter(student__school_id=int(school_id))
+            print(f"📱 Filtered slips by school ID: {school_id}")
+        except ValueError:
+            print(f"📱 Invalid school ID: {school_id}")
+    else:
+        # If no school header, return empty (security)
+        return Response([], status=200)
+    
+    # Filter by academic year
+    year_id = request.query_params.get('academic_year_id')
+    year_param = request.query_params.get('academic_year')
+    year_alt = request.query_params.get('year')
+    
+    year_value = year_id or year_alt or year_param
+    
+    if year_value:
+        try:
+            year = AcademicYear.objects.get(id=int(year_value))
+            slips = slips.filter(student__academic_year=year.name)
+            print(f"📱 Filtering slips by year: {year.name}")
+        except (ValueError, AcademicYear.DoesNotExist):
+            try:
+                year = AcademicYear.objects.get(year_ec=int(year_value))
+                slips = slips.filter(student__academic_year=year.name)
+                print(f"📱 Filtering slips by year_ec: {year.name}")
+            except (ValueError, AcademicYear.DoesNotExist):
+                slips = slips.filter(student__academic_year=year_value)
+                print(f"📱 Filtering slips by string: {year_value}")
+    
+    slips = slips.select_related('student', 'deadline').order_by('-uploaded_at')
+    
+    # Build full image URLs
     data = [{
         'id': s.id,
         'student_id': s.student.student_id,
@@ -102,7 +154,7 @@ def pending_slips(request):
         'month': s.deadline.get_month_display(),
         'amount': float(s.amount),
         'bank_name': s.bank_name,
-        'slip_image': s.slip_image.url if s.slip_image else None,
+        'slip_image': request.build_absolute_uri(s.slip_image.url) if s.slip_image else None,
         'uploaded_by': s.uploaded_by,
         'uploaded_at': s.uploaded_at,
         'ai_confidence': s.ai_confidence,
@@ -111,20 +163,31 @@ def pending_slips(request):
         'auto_verified': s.auto_verified
     } for s in slips]
     
+    print(f"📱 Returning {len(data)} pending slips")
     return Response(data)
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])  # 👈 CHANGED
+@permission_classes([AllowAny])
 def verify_slip(request, slip_id):
     """Verify or reject a slip"""
     try:
         slip = PaymentSlip.objects.get(id=slip_id)
+        
+        # ✅ Verify slip belongs to the school from header
+        school_id = request.headers.get('X-School-ID')
+        if school_id:
+            try:
+                if str(slip.student.school_id) != school_id:
+                    return Response({'error': 'Slip does not belong to your school'}, status=403)
+            except:
+                pass
+        
         action = request.data.get('action')
         
         if action == 'verify':
             slip.status = 'verified'
-            slip.verified_by = None  # No user for now
+            slip.verified_by = None
             slip.verified_at = timezone.now()
             
             Payment.objects.create(
@@ -153,13 +216,27 @@ def verify_slip(request, slip_id):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])  # 👈 CHANGED
+@permission_classes([AllowAny])
 def ai_stats(request):
-    """Get AI verification statistics"""
-    total = PaymentSlip.objects.count()
-    auto_verified = PaymentSlip.objects.filter(auto_verified=True).count()
-    pending_ai = PaymentSlip.objects.filter(ai_reviewed=False).count()
-    high_confidence = PaymentSlip.objects.filter(ai_confidence__gte=85).count()
+    """Get AI verification statistics for the current school"""
+    
+    # ✅ FILTER BY SCHOOL FROM HEADER
+    school_id = request.headers.get('X-School-ID')
+    print(f"📊 ai_stats - X-School-ID: {school_id}")
+    
+    slips = PaymentSlip.objects.all()
+    
+    if school_id:
+        try:
+            slips = slips.filter(student__school_id=int(school_id))
+            print(f"📊 Filtered stats by school ID: {school_id}")
+        except ValueError:
+            pass
+    
+    total = slips.count()
+    auto_verified = slips.filter(auto_verified=True).count()
+    pending_ai = slips.filter(ai_reviewed=False).count()
+    high_confidence = slips.filter(ai_confidence__gte=85).count()
     
     return Response({
         'total_slips': total,

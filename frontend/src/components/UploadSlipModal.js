@@ -1,19 +1,30 @@
 // frontend/src/components/UploadSlipModal.js
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { X, Upload, CheckCircle, AlertCircle, Loader } from 'lucide-react';
+import { X, Upload, CheckCircle, AlertCircle, Loader, Building2, Calendar, User, DollarSign, CreditCard, Camera } from 'lucide-react';
 import api from '../services/api';
 
 function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
   const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
   const [bankName, setBankName] = useState('');
   const [amount, setAmount] = useState(deadline?.amount || '');
+  const [transactionDate, setTransactionDate] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [aiResult, setAiResult] = useState(null);
 
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+    const selectedFile = e.target.files[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreview(reader.result);
+      };
+      reader.readAsDataURL(selectedFile);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -26,26 +37,42 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
 
     setLoading(true);
     setError('');
+    setAiResult(null);
 
     const formData = new FormData();
     formData.append('student_id', student.student_id);
     formData.append('deadline_id', deadline.id);
     formData.append('amount', amount);
     formData.append('bank_name', bankName);
+    formData.append('transaction_date', transactionDate);
     formData.append('slip_image', file);
+    formData.append('uploaded_by', student.parent_full_name || student.full_name);
 
     try {
-      const response = await api.post('/slips/upload/', formData, {
+      // ✅ CORRECT ENDPOINT - matches your Django URL pattern
+      const response = await api.post('slips/upload/', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       
-      setSuccess(true);
-      setTimeout(() => {
-        onSuccess();
-        onClose();
-      }, 2000);
+      console.log('Upload response:', response.data);
+      
+      if (response.data.success) {
+        setAiResult({
+          confidence: response.data.ai_confidence,
+          autoVerified: response.data.auto_verified,
+          message: response.data.ai_message
+        });
+        setSuccess(true);
+        setTimeout(() => {
+          if (onSuccess) onSuccess(response.data);
+          onClose();
+        }, 2000);
+      } else {
+        setError(response.data.error || 'Upload failed');
+      }
     } catch (err) {
-      setError(err.response?.data?.error || 'Upload failed');
+      console.error('Upload error:', err);
+      setError(err.response?.data?.error || 'Upload failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -56,75 +83,199 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
       onClick={onClose}
     >
       <motion.div
-        initial={{ scale: 0.9 }}
-        animate={{ scale: 1 }}
-        className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6"
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold">Upload Bank Slip</h2>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
-            <X className="h-5 w-5" />
-          </button>
+        {/* Header */}
+        <div className="sticky top-0 bg-primary-600 px-5 py-4">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <Upload className="h-5 w-5 text-white" />
+              <h2 className="text-lg font-bold text-white">Upload Bank Slip</h2>
+            </div>
+            <button 
+              onClick={onClose} 
+              className="p-1 hover:bg-white/20 rounded-lg transition-colors"
+            >
+              <X className="h-5 w-5 text-white" />
+            </button>
+          </div>
         </div>
 
-        {success ? (
-          <div className="text-center py-8">
-            <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
-            <p className="text-lg font-medium text-green-700">Slip uploaded!</p>
-            <p className="text-sm text-gray-600 mt-2">Admin will verify soon.</p>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit}>
-            <div className="space-y-4">
+        {/* Body */}
+        <div className="p-5">
+          {success ? (
+            <div className="text-center py-6">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <CheckCircle className="h-8 w-8 text-green-600" />
+              </div>
+              <p className="text-lg font-semibold text-green-700">Uploaded Successfully!</p>
+              {aiResult && (
+                <div className="mt-3 p-2 bg-gray-50 rounded-lg text-sm">
+                  {aiResult.autoVerified ? (
+                    <p className="text-green-600">✅ AI Verified ({aiResult.confidence}%)</p>
+                  ) : (
+                    <p className="text-yellow-600">⏳ Pending Admin Verification</p>
+                  )}
+                </div>
+              )}
+              <p className="text-xs text-gray-500 mt-3">Redirecting...</p>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Student Info */}
+              <div className="bg-gray-50 rounded-lg p-3 text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="text-xs text-gray-500">Student</p>
+                    <p className="font-medium text-gray-800">{student.full_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">ID</p>
+                    <p className="font-mono text-xs text-gray-600">{student.student_id}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Month</p>
+                    <p className="font-medium text-gray-800">{deadline?.month_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Amount</p>
+                    <p className="font-bold text-primary-600">{amount} Birr</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bank Info */}
+              <div className="bg-blue-50 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Building2 className="h-4 w-4 text-blue-600" />
+                  <h3 className="font-semibold text-blue-800 text-xs">Bank Transfer Details</h3>
+                </div>
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Bank:</span>
+                    <span className="font-medium">Commercial Bank of Ethiopia</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Account:</span>
+                    <span className="font-medium">Felege Selam School</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Reference:</span>
+                    <span className="font-mono text-primary-600">{student.student_id}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* File Upload */}
               <div>
-                <label className="block text-sm font-medium mb-1">Bank Slip Image *</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  className="w-full p-2 border rounded"
-                  required
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Bank Slip Image *
+                </label>
+                <div
+                  className={`border-2 border-dashed rounded-lg p-3 text-center cursor-pointer transition-all
+                    ${preview ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-primary-400'}
+                  `}
+                  onClick={() => document.getElementById('slip-input').click()}
+                >
+                  <input
+                    id="slip-input"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="hidden"
+                    required
+                  />
+                  
+                  {preview ? (
+                    <div className="space-y-2">
+                      <img
+                        src={preview}
+                        alt="Preview"
+                        className="max-h-32 mx-auto rounded-lg"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFile(null);
+                          setPreview(null);
+                        }}
+                        className="text-xs text-red-500"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-1">
+                      <Camera className="h-8 w-8 text-gray-400" />
+                      <p className="text-sm text-gray-500">Click to upload</p>
+                      <p className="text-xs text-gray-400">PNG, JPG up to 5MB</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Two Column Form */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Amount (Birr) *
+                  </label>
+                  <input
+                    type="number"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                    required
+                    step="0.01"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Bank Name
+                  </label>
+                  <input
+                    type="text"
+                    value={bankName}
+                    onChange={(e) => setBankName(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                    placeholder="e.g., CBE"
+                  />
+                </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Amount (Birr) *</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Transaction Date
+                </label>
                 <input
-                  type="number"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="w-full p-2 border rounded"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Bank Name</label>
-                <input
-                  type="text"
-                  value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
-                  className="w-full p-2 border rounded"
-                  placeholder="e.g., Commercial Bank of Ethiopia"
+                  type="date"
+                  value={transactionDate}
+                  onChange={(e) => setTransactionDate(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
               </div>
 
               {error && (
-                <div className="bg-red-50 p-3 rounded flex items-center gap-2">
-                  <AlertCircle className="h-5 w-5 text-red-500" />
+                <div className="bg-red-50 p-3 rounded-lg flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 text-red-500" />
                   <p className="text-sm text-red-700">{error}</p>
                 </div>
               )}
 
+              {/* Submit Button */}
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full btn-primary flex items-center justify-center gap-2"
+                className="w-full bg-primary-600 text-white py-2.5 rounded-lg font-medium hover:bg-primary-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>
@@ -138,9 +289,9 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
                   </>
                 )}
               </button>
-            </div>
-          </form>
-        )}
+            </form>
+          )}
+        </div>
       </motion.div>
     </motion.div>
   );

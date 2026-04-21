@@ -7,6 +7,9 @@ class School(models.Model):
     phone = models.CharField(max_length=20)
     email = models.EmailField(blank=True)
     
+    # ✅ Add logo field
+    logo = models.ImageField(upload_to='school_logos/', blank=True, null=True, help_text="School logo (JPG, PNG)")
+    
     # Subscription information
     subscription_active = models.BooleanField(default=True)
     subscription_expiry = models.DateField(null=True, blank=True)
@@ -27,3 +30,20 @@ class School(models.Model):
     
     class Meta:
         ordering = ['name']
+
+
+# ========== NEW: SchoolAdminProfile Model ==========
+class SchoolAdminProfile(models.Model):
+    """Link between Django User and School - each school admin belongs to one school"""
+    user = models.OneToOneField('auth.User', on_delete=models.CASCADE, related_name='school_profile')
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='admins')
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.school.name}"
+    
+    class Meta:
+        verbose_name = "School Admin Profile"
+        verbose_name_plural = "School Admin Profiles"
