@@ -41,13 +41,11 @@ function StudentDashboard() {
     try {
       setLoading(true);
       
-      // ✅ FIXED: No leading slash - api.js already has base URL
       const studentResponse = await api.get(`students/search_by_id/?student_id=${studentId}`);
       setStudent(studentResponse.data);
       
       const studentDbId = studentResponse.data.id;
       
-      // ✅ FIXED: No leading slash
       const [historyResponse, pendingResponse] = await Promise.all([
         api.get(`students/${studentDbId}/payment_history/`),
         api.get(`students/${studentDbId}/pending_payments/`)
@@ -73,64 +71,47 @@ function StudentDashboard() {
     }
   }, [studentId, fetchStudentData]);
 
-  const handleChapaPayment = async (payment) => {
-    setProcessingPaymentId(payment.id);
+const handleChapaPayment = async (payment) => {
+  setProcessingPaymentId(payment.id);
+  
+  try {
+    console.log(`💰 Processing payment for: ${payment.month_name}`);
     
-    try {
-      console.log(`Processing payment for: ${payment.month_name}`);
-      
-      const timestamp = Date.now();
-      const randomStr = Math.random().toString(36).substring(2, 8);
-      const tx_ref = `tx-${student.student_id}-${payment.id}-${timestamp}-${randomStr}`;
-      
-      const parentName = student.parent_full_name || 'Parent';
-      const firstName = parentName.split(' ')[0] || 'Parent';
-      const lastName = parentName.split(' ').slice(1).join(' ') || student.student_id;
-      const email = student.parent_email || `${student.student_id}@parent.com`;
-      
-      const requestData = {
-        student_id: student.student_id,
-        deadline_id: payment.id,
-        amount: payment.amount,
-        email: email,
-        first_name: firstName,
-        last_name: lastName,
-        tx_ref: tx_ref,
-        title: `${payment.month_name} Fee`,
-        description: `${payment.month_name} ${payment.academic_year} - Grade ${student.grade}`
-      };
-      
-      console.log('Sending payment request:', requestData);
-      
-      // ✅ FIXED: No leading slash
-      const response = await api.post('chapa/initiate/', requestData);
-      
-      console.log('Chapa response:', response.data);
-      
-      if (response.data.success && response.data.checkout_url) {
-        sessionStorage.setItem('pendingPayment', JSON.stringify({
-          tx_ref: tx_ref,
-          student_id: student.student_id,
-          deadline_id: payment.id,
-          amount: payment.amount,
-          month_name: payment.month_name,
-          academic_year: payment.academic_year,
-          student_name: student.full_name,
-          grade: student.grade,
-          section: student.section
-        }));
-        
-        window.location.href = response.data.checkout_url;
-      } else {
-        alert(`Payment initiation failed for ${payment.month_name}. Please try again.`);
-        setProcessingPaymentId(null);
-      }
-    } catch (err) {
-      console.error(`Chapa error for month: ${payment.month_name}`, err);
-      alert(`Payment failed for ${payment.month_name}. Please try again.`);
+    // ✅ SAVE TO SESSION STORAGE BEFORE REDIRECT
+    sessionStorage.setItem('pendingPayment', JSON.stringify({
+      deadline_id: payment.id,
+      amount: payment.amount,
+      month_name: payment.month_name,
+      academic_year: payment.academic_year,
+      student_name: student.full_name,
+      student_id: student.student_id,
+      grade: student.grade,
+      section: student.section
+    }));
+    
+    const response = await api.post('chapa/test-payment/', {
+      student_id: student.student_id,
+      deadline_id: payment.id,
+      amount: payment.amount,
+      month: payment.month_name,
+      paid_by: student.parent_full_name || 'Parent',
+      paid_by_phone: student.parent_phone || '0912345678'
+    });
+    
+    console.log('Payment response:', response.data);
+    
+    if (response.data.success && response.data.checkout_url) {
+      window.location.href = response.data.checkout_url;
+    } else {
+      alert(`Payment initiation failed: ${response.data.error || 'Unknown error'}`);
       setProcessingPaymentId(null);
     }
-  };
+  } catch (err) {
+    console.error('Payment error:', err);
+    alert('Payment failed. Please try again.');
+    setProcessingPaymentId(null);
+  }
+};
 
   const handleBankTransfer = (payment) => {
     setShowPaymentInfo({
@@ -318,7 +299,7 @@ function StudentDashboard() {
                             ) : (
                               <>
                                 <Wallet className="h-4 w-4" />
-                                Pay {payment.month_name}
+                                Pay Now
                               </>
                             )}
                           </button>
@@ -349,7 +330,7 @@ function StudentDashboard() {
         </AnimatePresence>
       </div>
 
-      {/* Payment Instructions Modal */}
+      {/* Payment Instructions Modal - Smaller size */}
       <AnimatePresence>
         {showPaymentInfo && (
           <motion.div
@@ -362,32 +343,32 @@ function StudentDashboard() {
             <motion.div
               initial={{ scale: 0.9 }}
               animate={{ scale: 1 }}
-              className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6"
+              className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-primary-100 rounded-full">
-                  <Info className="h-6 w-6 text-primary-600" />
+              <div className="flex items-center gap-2 mb-3">
+                <div className="p-1.5 bg-primary-100 rounded-full">
+                  <Info className="h-5 w-5 text-primary-600" />
                 </div>
-                <h2 className="text-xl font-bold">{showPaymentInfo.method}</h2>
+                <h2 className="text-lg font-bold">{showPaymentInfo.method}</h2>
               </div>
 
-              <div className="bg-primary-50 rounded-lg p-4 mb-4">
-                <p className="text-sm text-gray-600">Month</p>
-                <p className="text-lg font-semibold">{showPaymentInfo.payment?.month_name} {showPaymentInfo.payment?.academic_year}</p>
-                <p className="text-sm text-gray-600 mt-2">Amount</p>
-                <p className="text-2xl font-bold text-primary-600">{showPaymentInfo.amount} Birr</p>
-                <p className="text-sm text-gray-600 mt-1">Reference: {showPaymentInfo.reference}</p>
+              <div className="bg-primary-50 rounded-lg p-3 mb-3">
+                <p className="text-xs text-gray-600">Month</p>
+                <p className="text-md font-semibold">{showPaymentInfo.payment?.month_name} {showPaymentInfo.payment?.academic_year}</p>
+                <p className="text-xs text-gray-600 mt-2">Amount</p>
+                <p className="text-xl font-bold text-primary-600">{showPaymentInfo.amount} Birr</p>
+                <p className="text-xs text-gray-600 mt-1">Reference: {showPaymentInfo.reference}</p>
               </div>
 
-              <div className="space-y-3 mb-6">
-                <h3 className="font-semibold text-gray-900">Instructions:</h3>
+              <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
+                <h3 className="font-semibold text-sm text-gray-900">Instructions:</h3>
                 {showPaymentInfo.instructions.map((instruction, idx) => (
                   <div key={idx} className="flex items-start gap-2">
-                    <span className="w-5 h-5 bg-primary-100 rounded-full flex items-center justify-center text-xs font-bold text-primary-600 flex-shrink-0 mt-0.5">
+                    <span className="w-4 h-4 bg-primary-100 rounded-full flex items-center justify-center text-xs font-bold text-primary-600 flex-shrink-0 mt-0.5">
                       {idx + 1}
                     </span>
-                    <p className="text-sm text-gray-600">{instruction}</p>
+                    <p className="text-xs text-gray-600">{instruction}</p>
                   </div>
                 ))}
               </div>
@@ -398,16 +379,16 @@ function StudentDashboard() {
                     setShowPaymentInfo(null);
                     handleUploadClick(showPaymentInfo.payment);
                   }}
-                  className="btn-primary w-full mb-3"
+                  className="btn-primary w-full text-sm py-2 mb-2"
                 >
-                  <Upload className="h-4 w-4 mr-2 inline" />
+                  <Upload className="h-3 w-3 mr-2 inline" />
                   Upload Bank Slip
                 </button>
               )}
 
               <button
                 onClick={() => setShowPaymentInfo(null)}
-                className="btn-secondary w-full"
+                className="btn-secondary w-full text-sm py-2"
               >
                 Close
               </button>

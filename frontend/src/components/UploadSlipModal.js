@@ -1,5 +1,5 @@
 // frontend/src/components/UploadSlipModal.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { X, Upload, CheckCircle, AlertCircle, Loader, Building2, Calendar, User, DollarSign, CreditCard, Camera } from 'lucide-react';
 import api from '../services/api';
@@ -14,6 +14,20 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [aiResult, setAiResult] = useState(null);
+  const [schoolName, setSchoolName] = useState('School');
+
+  useEffect(() => {
+    // Get school info from localStorage
+    const savedSchool = localStorage.getItem('selectedSchool');
+    if (savedSchool) {
+      try {
+        const school = JSON.parse(savedSchool);
+        setSchoolName(school.name || 'School');
+      } catch (e) {
+        console.error('Error parsing school:', e);
+      }
+    }
+  }, []);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -49,7 +63,6 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
     formData.append('uploaded_by', student.parent_full_name || student.full_name);
 
     try {
-      // ✅ CORRECT ENDPOINT - matches your Django URL pattern
       const response = await api.post('slips/upload/', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
@@ -151,7 +164,7 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
                 </div>
               </div>
 
-              {/* Bank Info */}
+              {/* Bank Info - Dynamic School Name */}
               <div className="bg-blue-50 rounded-lg p-3">
                 <div className="flex items-center gap-2 mb-2">
                   <Building2 className="h-4 w-4 text-blue-600" />
@@ -164,7 +177,7 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Account:</span>
-                    <span className="font-medium">Felege Selam School</span>
+                    <span className="font-medium">{schoolName}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Reference:</span>

@@ -177,15 +177,14 @@ def initiate_chapa_payment(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def test_payment(request):
-    """TEST MODE: Bypass Chapa and directly verify payment"""
+    """TEST MODE: Redirect to Chapa test payment page"""
     try:
-        print("📱 Test payment initiated")
+        print("📱 Test payment initiated - Redirecting to Chapa")
         data = request.data
         
         student_id = data.get('student_id')
         deadline_id = data.get('deadline_id')
         amount = data.get('amount')
-        month = data.get('month')
         paid_by = data.get('paid_by', 'Test User')
         paid_by_phone = data.get('paid_by_phone', '0912345678')
         
@@ -222,30 +221,76 @@ def test_payment(request):
         if existing:
             return JsonResponse({
                 'success': False,
-                'error': f'Payment for {deadline.get_month_display()} already verified'
+                'error': f'Payment for already verified'
             }, status=400)
         
-        # Create test payment (auto-verified)
+        # ✅ English month names for Chapa API
+        english_months = {
+            'መስከረም': 'Meskerem', 'ጥቅምት': 'Tikimt', 'ህዳር': 'Hidar', 'ታህሳስ': 'Tahsas',
+            'ጥር': 'Tir', 'የካቲት': 'Yekatit', 'መጋቢት': 'Megabit', 'ሚያዝያ': 'Miazia',
+            'ግንቦት': 'Ginbot', 'ሰኔ': 'Sene', 'ሐምሌ': 'Hamle', 'ነሐሴ': 'Nehase', 'ጳጉሜ': 'Pagume'
+        }
+        month_name_amharic = deadline.get_month_display()
+        month_english = english_months.get(month_name_amharic, 'Monthly Fee')
+        
+        # Generate transaction reference
+        import uuid
+        tx_ref = f"CHAPA-{student.student_id}-{deadline.id}-{uuid.uuid4().hex[:8]}"
+        
+        # Create payment record (pending)
         payment = Payment.objects.create(
             student=student,
             deadline=deadline,
             amount=amount or deadline.amount,
-            payment_method='test',
-            status='verified',
-            verified_at=timezone.now(),
+            payment_method='chapa',
+            status='pending',
             paid_by=paid_by,
             paid_by_phone=paid_by_phone,
-            transaction_reference=f'TEST-{student.student_id}-{deadline.id}-{uuid.uuid4().hex[:6]}'
+            transaction_reference=tx_ref
         )
         
-        print(f"✅ Test payment created for {student.full_name} - {deadline.get_month_display()}")
+        print(f"✅ Payment record created for {student.full_name}")
         
-        return JsonResponse({
-            'success': True,
-            'message': 'Test payment successful! Payment has been verified.',
-            'payment_id': payment.id,
-            'test_mode': True
-        })
+        # Initialize Chapa service
+        chapa_service = ChapaService()
+        
+        # Get parent email
+        email = student.parent_email or f"{student.student_id}@parent.com"
+        first_name = student.first_name or "Parent"
+        last_name = student.last_name or "Name"
+        
+        # Initialize payment with Chapa
+        result = chapa_service.initialize_payment(
+            amount=float(amount or deadline.amount),
+            currency='ETB',
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            tx_ref=tx_ref,
+            callback_url=f"{request.build_absolute_uri('/').rstrip('/')}/api/chapa/webhook/",
+            return_url=f"http://localhost:3000/payment/success?tx_ref={tx_ref}",
+            title=f"{month_english} Fee",
+            description=f"Payment for {month_english} {deadline.academic_year}"
+        )
+        
+        print(f"📱 Chapa result: {result}")
+        
+        if result.get('success'):
+            # ✅ Return checkout_url so frontend can redirect
+            return JsonResponse({
+                'success': True,
+                'checkout_url': result.get('checkout_url'),
+                'tx_ref': tx_ref,
+                'payment_id': payment.id,
+                'message': 'Redirecting to Chapa payment page'
+            })
+        else:
+            # If Chapa fails, delete the payment record
+            payment.delete()
+            return JsonResponse({
+                'success': False,
+                'error': result.get('error', 'Chapa payment initialization failed')
+            }, status=500)
         
     except Exception as e:
         import traceback

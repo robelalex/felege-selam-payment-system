@@ -34,19 +34,19 @@ function Reports() {
   const { selectedYear } = useYear();
 
   const months = [
-    { value: '1', name: 'Meskerem' },
-    { value: '2', name: 'Tikimt' },
-    { value: '3', name: 'Hidar' },
-    { value: '4', name: 'Tahsas' },
-    { value: '5', name: 'Tir' },
-    { value: '6', name: 'Yekatit' },
-    { value: '7', name: 'Megabit' },
-    { value: '8', name: 'Miazia' },
-    { value: '9', name: 'Ginbot' },
-    { value: '10', name: 'Sene' },
-    { value: '11', name: 'Hamle' },
-    { value: '12', name: 'Nehase' },
-    { value: '13', name: 'Pagume' }
+    { value: '1', name: 'መስከረም' },
+    { value: '2', name: 'ጥቅምት' },
+    { value: '3', name: 'ህዳር' },
+    { value: '4', name: 'ታህሳስ' },
+    { value: '5', name: 'ጥር' },
+    { value: '6', name: 'የካቲት' },
+    { value: '7', name: 'መጋቢት' },
+    { value: '8', name: 'ሚያዝያ' },
+    { value: '9', name: 'ግንቦት' },
+    { value: '10', name: 'ሰኔ' },
+    { value: '11', name: 'ሐምሌ' },
+    { value: '12', name: 'ነሐሴ' },
+    { value: '13', name: 'ጳጉሜ' }
   ];
 
 const fetchReport = async () => {

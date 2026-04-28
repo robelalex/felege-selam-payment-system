@@ -1,4 +1,4 @@
-# payments/views.py - COMPLETE FIXED VERSION
+# payments/views.py - COMPLETE FIXED VERSION with Delete Methods
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
@@ -147,6 +147,58 @@ class PaymentViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(pending_payments, many=True)
         return Response(serializer.data)
+    
+    # ✅ DELETE METHODS - Added
+    @action(detail=True, methods=['delete'])
+    def delete_payment(self, request, pk=None):
+        """Delete a single payment"""
+        payment = self.get_object()
+        
+        # Verify payment belongs to school
+        school_id = request.headers.get('X-School-ID')
+        if school_id and str(payment.student.school_id) != school_id:
+            return Response({'error': 'Payment does not belong to your school'}, status=403)
+        
+        payment_info = f"Payment {payment.id} - {payment.student.student_id} - {payment.amount}"
+        payment.delete()
+        
+        print(f"🗑️ Deleted: {payment_info}")
+        return Response({'success': True, 'message': 'Payment deleted successfully'}, status=200)
+    
+    @action(detail=False, methods=['post'])
+    def bulk_delete(self, request):
+        """Delete multiple payments at once"""
+        payment_ids = request.data.get('payment_ids', [])
+        school_id = request.headers.get('X-School-ID')
+        
+        if not payment_ids:
+            return Response({'error': 'No payment IDs provided'}, status=400)
+        
+        if not school_id:
+            return Response({'error': 'School ID required'}, status=400)
+        
+        try:
+            payments = Payment.objects.filter(
+                id__in=payment_ids,
+                student__school_id=int(school_id)
+            )
+            
+            if payments.count() != len(payment_ids):
+                return Response({'error': 'Some payments do not belong to your school'}, status=403)
+            
+            count = payments.count()
+            payments.delete()
+            
+            print(f"🗑️ Bulk deleted {count} payments for school ID: {school_id}")
+            return Response({
+                'success': True,
+                'message': f'Successfully deleted {count} payment(s)',
+                'deleted_count': count
+            }, status=200)
+            
+        except Exception as e:
+            print(f"❌ Bulk delete error: {e}")
+            return Response({'error': str(e)}, status=500)
 
 
 class PaymentDeadlineViewSet(viewsets.ModelViewSet):
@@ -171,7 +223,6 @@ class PaymentDeadlineViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
     
-    # ✅ ADD THIS METHOD - Automatically set school_id when creating
     def perform_create(self, serializer):
         school_id = self.request.headers.get('X-School-ID')
         if school_id:

@@ -18,7 +18,10 @@ import {
   Printer,
   FileText,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Trash2,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import api from '../services/api';
 import { useYear } from '../context/YearContext';
@@ -33,78 +36,73 @@ function AdminPayments() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [selectedPayments, setSelectedPayments] = useState([]);
+  const [selectAll, setSelectAll] = useState(false);
   const itemsPerPage = 10;
 
   const months = [
-    'Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yekatit',
-    'Megabit', 'Miazia', 'Ginbot', 'Sene', 'Hamle', 'Nehase', 'Pagume'
+    'መስከረም', 'ጥቅምት', 'ህዳር', 'ታህሳስ', 'ጥር', 'የካቲት',
+    'መጋቢት', 'ሚያዝያ', 'ግንቦት', 'ሰኔ', 'ሐምሌ', 'ነሐሴ', 'ጳጉሜ'
   ];
 
   const { selectedYear } = useYear();
   
-  // Fetch payments when year changes
   useEffect(() => {
-    console.log('🔄 AdminPayments: selectedYear changed to:', selectedYear);
     fetchPayments();
   }, [selectedYear]);
 
-  // Apply filters when payments or filter criteria change
   useEffect(() => {
     applyFilters();
   }, [payments, searchTerm, filterStatus, filterMonth]);
 
-const fetchPayments = async () => {
-  setLoading(true);
-  try {
-    // Build query parameters
-    const params = new URLSearchParams();
-    
-    if (selectedYear && selectedYear.id) {
-      params.append('academic_year_id', selectedYear.id);
+  // Handle select all
+  useEffect(() => {
+    if (selectAll) {
+      setSelectedPayments(paginatedPayments.map(p => p.id));
+    } else {
+      setSelectedPayments([]);
     }
-    
-    const queryString = params.toString();
-    const url = queryString ? `/payments-filtered/?${queryString}` : '/payments-filtered/';
-    
-    // ✅ Get school from localStorage and add to headers
-    const savedSchool = localStorage.getItem('selectedSchool');
-    let schoolId = null;
-    if (savedSchool) {
-      try {
-        const school = JSON.parse(savedSchool);
-        schoolId = school.id;
-        console.log('💰 School ID from localStorage:', schoolId);
-      } catch (e) {
-        console.error('Error parsing school:', e);
+  }, [selectAll, currentPage, filteredPayments]);
+
+  const fetchPayments = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectedYear && selectedYear.id) {
+        params.append('academic_year_id', selectedYear.id);
       }
+      
+      const queryString = params.toString();
+      const url = queryString ? `/payments-filtered/?${queryString}` : '/payments-filtered/';
+      
+      const savedSchool = localStorage.getItem('selectedSchool');
+      let schoolId = null;
+      if (savedSchool) {
+        try {
+          const school = JSON.parse(savedSchool);
+          schoolId = school.id;
+        } catch (e) {
+          console.error('Error parsing school:', e);
+        }
+      }
+      
+      const response = await api.get(url, {
+        headers: schoolId ? { 'X-School-ID': schoolId } : {}
+      });
+      
+      setPayments(response.data);
+    } catch (err) {
+      console.error('Error fetching payments:', err);
+    } finally {
+      setLoading(false);
     }
-    
-    console.log('💰 AdminPayments - Fetching payments');
-    console.log('💰 Selected Year:', selectedYear);
-    console.log('💰 Full URL:', url);
-    console.log('💰 School ID being sent:', schoolId);
-    
-    const response = await api.get(url, {
-      headers: schoolId ? { 'X-School-ID': schoolId } : {}
-    });
-    
-    console.log('💰 Payments received:', response.data.length);
-    
-    setPayments(response.data);
-  } catch (err) {
-    console.error('Error fetching payments:', err);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const applyFilters = () => {
     let filtered = [...payments];
     
-    // Only show verified payments in main history
     filtered = filtered.filter(payment => payment.status === 'verified');
     
-    // Search filter
     if (searchTerm) {
       filtered = filtered.filter(payment => 
         (payment.student_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
@@ -114,12 +112,10 @@ const fetchPayments = async () => {
       );
     }
 
-    // Status filter
     if (filterStatus !== 'all') {
       filtered = filtered.filter(payment => payment.status === filterStatus);
     }
 
-    // Month filter
     if (filterMonth !== 'all') {
       filtered = filtered.filter(payment => 
         payment.deadline_month === filterMonth || 
@@ -128,9 +124,10 @@ const fetchPayments = async () => {
       );
     }
 
-    console.log('💰 Filtered payments count:', filtered.length);
     setFilteredPayments(filtered);
     setCurrentPage(1);
+    setSelectAll(false);
+    setSelectedPayments([]);
   };
 
   const verifyPayment = async (paymentId) => {
@@ -141,6 +138,47 @@ const fetchPayments = async () => {
       console.error('Error verifying payment:', err);
       alert('Failed to verify payment. Please try again.');
     }
+  };
+
+  const deletePayment = async (paymentId) => {
+    if (window.confirm('Are you sure you want to delete this payment? This action cannot be undone.')) {
+      try {
+        await api.delete(`/payments/${paymentId}/`);
+        await fetchPayments();
+        setShowDetails(false);
+      } catch (err) {
+        console.error('Error deleting payment:', err);
+        alert('Failed to delete payment. Please try again.');
+      }
+    }
+  };
+
+  const bulkDeletePayments = async () => {
+    if (selectedPayments.length === 0) {
+      alert('Please select at least one payment to delete.');
+      return;
+    }
+    
+    if (window.confirm(`Are you sure you want to delete ${selectedPayments.length} payment(s)? This action cannot be undone.`)) {
+      try {
+        await api.post('/payments/bulk-delete/', { payment_ids: selectedPayments });
+        await fetchPayments();
+        setSelectedPayments([]);
+        setSelectAll(false);
+      } catch (err) {
+        console.error('Error bulk deleting payments:', err);
+        alert('Failed to delete payments. Please try again.');
+      }
+    }
+  };
+
+  const toggleSelectPayment = (paymentId) => {
+    setSelectedPayments(prev => 
+      prev.includes(paymentId) 
+        ? prev.filter(id => id !== paymentId)
+        : [...prev, paymentId]
+    );
+    setSelectAll(false);
   };
 
   const getStatusIcon = (status) => {
@@ -179,10 +217,7 @@ const fetchPayments = async () => {
       const queryString = params.toString();
       const url = queryString ? `/payments/export/?${queryString}` : '/payments/export/';
       
-      const response = await api.get(url, {
-        responseType: 'blob'
-      });
-      
+      const response = await api.get(url, { responseType: 'blob' });
       const url_blob = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url_blob;
@@ -267,23 +302,27 @@ const fetchPayments = async () => {
         </div>
         
         <div className="flex gap-2">
-          <button 
-            onClick={handleExport}
-            className="btn-outline flex items-center gap-2"
-          >
+          {selectedPayments.length > 0 && (
+            <button 
+              onClick={bulkDeletePayments}
+              className="btn-danger flex items-center gap-2"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete Selected ({selectedPayments.length})
+            </button>
+          )}
+          <button onClick={handleExport} className="btn-outline flex items-center gap-2">
             <Download className="h-4 w-4" />
             Export
           </button>
-          <button 
-            onClick={fetchPayments}
-            className="btn-outline flex items-center gap-2"
-          >
+          <button onClick={fetchPayments} className="btn-outline flex items-center gap-2">
             <RefreshCw className="h-4 w-4" />
             Refresh
           </button>
         </div>
       </div>
 
+      {/* Stats Cards - same as before */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <div className="flex items-center justify-between">
@@ -296,7 +335,6 @@ const fetchPayments = async () => {
             </div>
           </div>
         </div>
-
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -308,7 +346,6 @@ const fetchPayments = async () => {
             </div>
           </div>
         </div>
-
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -320,7 +357,6 @@ const fetchPayments = async () => {
             </div>
           </div>
         </div>
-
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -334,19 +370,16 @@ const fetchPayments = async () => {
         </div>
       </div>
 
+      {/* Filters Section - same as before */}
       <div className="bg-white rounded-xl shadow-lg p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-gray-900">Filters</h2>
           {(searchTerm || filterStatus !== 'all' || filterMonth !== 'all') && (
-            <button
-              onClick={clearFilters}
-              className="text-sm text-primary-600 hover:text-primary-700 font-medium"
-            >
+            <button onClick={clearFilters} className="text-sm text-primary-600 hover:text-primary-700 font-medium">
               Clear Filters
             </button>
           )}
         </div>
-
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -358,23 +391,13 @@ const fetchPayments = async () => {
               className="input-field pl-9 py-2 text-sm"
             />
           </div>
-          
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="input-field py-2 text-sm"
-          >
+          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="input-field py-2 text-sm">
             <option value="all">All Status</option>
             <option value="verified">Verified</option>
             <option value="pending">Pending</option>
             <option value="rejected">Rejected</option>
           </select>
-
-          <select
-            value={filterMonth}
-            onChange={(e) => setFilterMonth(e.target.value)}
-            className="input-field py-2 text-sm"
-          >
+          <select value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} className="input-field py-2 text-sm">
             <option value="all">All Months</option>
             {months.map((month, index) => (
               <option key={index} value={month}>{month}</option>
@@ -383,11 +406,21 @@ const fetchPayments = async () => {
         </div>
       </div>
 
+      {/* Payments Table with Select All and Delete */}
       <div className="bg-white rounded-xl shadow-lg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <button
+                    onClick={() => setSelectAll(!selectAll)}
+                    className="flex items-center gap-2"
+                  >
+                    {selectAll ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                    Select
+                  </button>
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
@@ -401,29 +434,25 @@ const fetchPayments = async () => {
             <tbody className="divide-y divide-gray-200">
               {paginatedPayments.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan="9" className="px-6 py-12 text-center text-gray-500">
                     <AlertCircle className="h-12 w-12 mx-auto mb-3 text-gray-400" />
                     <p>No payments found for {selectedYear?.name || 'selected academic year'}</p>
-                    <button
-                      onClick={clearFilters}
-                      className="mt-2 text-primary-600 hover:text-primary-700 text-sm font-medium"
-                    >
+                    <button onClick={clearFilters} className="mt-2 text-primary-600 hover:text-primary-700 text-sm font-medium">
                       Clear Filters
                     </button>
-                  </td>
-                </tr>
+                   </td>
+                 </tr>
               ) : (
                 paginatedPayments.map((payment) => (
-                  <motion.tr
-                    key={payment.id}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="hover:bg-gray-50 transition-colors cursor-pointer"
-                    onClick={() => {
-                      setSelectedPayment(payment);
-                      setShowDetails(true);
-                    }}
-                  >
+                  <tr key={payment.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedPayments.includes(payment.id)}
+                        onChange={() => toggleSelectPayment(payment.id)}
+                        className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      />
+                    </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
@@ -451,19 +480,27 @@ const fetchPayments = async () => {
                       {new Date(payment.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4">
-                      {payment.status === 'pending' && (
+                      <div className="flex gap-2">
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            verifyPayment(payment.id);
+                          onClick={() => {
+                            setSelectedPayment(payment);
+                            setShowDetails(true);
                           }}
-                          className="btn-primary text-xs py-1.5 px-3"
+                          className="text-blue-600 hover:text-blue-800"
+                          title="View Details"
                         >
-                          Verify
+                          <Eye className="h-4 w-4" />
                         </button>
-                      )}
+                        <button
+                          onClick={() => deletePayment(payment.id)}
+                          className="text-red-600 hover:text-red-800"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </td>
-                  </motion.tr>
+                  </tr>
                 ))
               )}
             </tbody>
@@ -477,16 +514,9 @@ const fetchPayments = async () => {
                 Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredPayments.length)} of {filteredPayments.length} payments
               </p>
               <div className="flex gap-2">
-                <button
-                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                  disabled={currentPage === 1}
-                  className={`p-2 bg-white rounded border hover:bg-gray-50 transition-colors ${
-                    currentPage === 1 ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
-                >
+                <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="p-2 bg-white rounded border hover:bg-gray-50 transition-colors disabled:opacity-50">
                   <ChevronLeft className="h-4 w-4" />
                 </button>
-                
                 {[...Array(Math.min(totalPages, 5))].map((_, i) => {
                   let pageNum;
                   if (totalPages <= 5) {
@@ -498,29 +528,13 @@ const fetchPayments = async () => {
                   } else {
                     pageNum = currentPage - 2 + i;
                   }
-                  
                   return (
-                    <button
-                      key={pageNum}
-                      onClick={() => setCurrentPage(pageNum)}
-                      className={`px-3 py-1 rounded transition-colors ${
-                        currentPage === pageNum
-                          ? 'bg-primary-600 text-white'
-                          : 'bg-white border hover:bg-gray-50'
-                      }`}
-                    >
+                    <button key={pageNum} onClick={() => setCurrentPage(pageNum)} className={`px-3 py-1 rounded transition-colors ${currentPage === pageNum ? 'bg-primary-600 text-white' : 'bg-white border hover:bg-gray-50'}`}>
                       {pageNum}
                     </button>
                   );
                 })}
-                
-                <button
-                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                  disabled={currentPage === totalPages}
-                  className={`p-2 bg-white rounded border hover:bg-gray-50 transition-colors ${
-                    currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
-                >
+                <button onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages} className="p-2 bg-white rounded border hover:bg-gray-50 transition-colors disabled:opacity-50">
                   <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
@@ -529,29 +543,15 @@ const fetchPayments = async () => {
         )}
       </div>
 
-      {/* Payment Details Modal */}
+      {/* Payment Details Modal - Updated with Delete button */}
       <AnimatePresence>
         {showDetails && selectedPayment && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            onClick={() => setShowDetails(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-              className="bg-white rounded-xl shadow-2xl max-w-2xl w-full"
-              onClick={(e) => e.stopPropagation()}
-            >
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowDetails(false)}>
+            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-xl shadow-2xl max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
               <div className="p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-bold text-gray-900">Payment Details</h2>
-                  <button
-                    onClick={() => setShowDetails(false)}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                  >
+                  <button onClick={() => setShowDetails(false)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
                     <XCircle className="h-5 w-5 text-gray-600" />
                   </button>
                 </div>
@@ -618,30 +618,23 @@ const fetchPayments = async () => {
                     <div className="bg-gray-50 p-4 rounded-lg">
                       <p className="text-sm text-gray-500">Verified At</p>
                       <p className="font-semibold">
-                        {selectedPayment.verified_at 
-                          ? new Date(selectedPayment.verified_at).toLocaleString()
-                          : '—'}
+                        {selectedPayment.verified_at ? new Date(selectedPayment.verified_at).toLocaleString() : '—'}
                       </p>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex justify-end mt-6">
+                <div className="flex justify-end gap-2 mt-6">
                   {selectedPayment.status === 'pending' && (
-                    <button
-                      onClick={() => {
-                        verifyPayment(selectedPayment.id);
-                        setShowDetails(false);
-                      }}
-                      className="btn-primary mr-2"
-                    >
+                    <button onClick={() => { verifyPayment(selectedPayment.id); setShowDetails(false); }} className="btn-primary">
                       Verify Payment
                     </button>
                   )}
-                  <button
-                    onClick={() => setShowDetails(false)}
-                    className="btn-secondary"
-                  >
+                  <button onClick={() => deletePayment(selectedPayment.id)} className="btn-danger">
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete
+                  </button>
+                  <button onClick={() => setShowDetails(false)} className="btn-secondary">
                     Close
                   </button>
                 </div>

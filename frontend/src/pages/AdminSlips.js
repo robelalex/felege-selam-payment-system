@@ -6,13 +6,16 @@ import {
   Eye,
   Download,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Trash2,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import api from '../services/api';
 import { useYear } from '../context/YearContext';
 
 // Get the base URL from environment or use default
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://felege-selam-payment-system.onrender.com';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000';
 
 function AdminSlips() {
   const [slips, setSlips] = useState([]);
@@ -20,20 +23,28 @@ function AdminSlips() {
   const [processing, setProcessing] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
   const [error, setError] = useState('');
+  const [selectedSlips, setSelectedSlips] = useState([]);
+  const [selectAll, setSelectAll] = useState(false);
   
-  // Get selected year from context
   const { selectedYear } = useYear();
 
-  // Fetch slips when year changes
   useEffect(() => {
     fetchPendingSlips();
   }, [selectedYear]);
+
+  // Handle select all when page changes
+  useEffect(() => {
+    if (selectAll) {
+      setSelectedSlips(slips.map(slip => slip.id));
+    } else {
+      setSelectedSlips([]);
+    }
+  }, [selectAll, slips]);
 
   const fetchPendingSlips = async () => {
     setLoading(true);
     setError('');
     try {
-      // ✅ FIXED: Add academic year filter to API call
       const params = new URLSearchParams();
       
       if (selectedYear && selectedYear.id) {
@@ -46,11 +57,10 @@ function AdminSlips() {
       const url = queryString ? `/slips/pending/?${queryString}` : '/slips/pending/';
       
       console.log('📄 Fetching slips for year:', selectedYear?.name);
-      console.log('🔗 URL:', url);
-      
       const response = await api.get(url);
-      console.log('Slips received:', response.data);
       setSlips(response.data);
+      setSelectedSlips([]);
+      setSelectAll(false);
     } catch (err) {
       console.error('Error fetching slips:', err);
       setError('Failed to load pending slips');
@@ -72,11 +82,52 @@ function AdminSlips() {
     }
   };
 
-  // Helper function to get full image URL
+  const deleteSlip = async (slipId) => {
+    if (window.confirm('Are you sure you want to delete this slip? This action cannot be undone.')) {
+      setProcessing(slipId);
+      try {
+        await api.delete(`/slips/${slipId}/`);
+        await fetchPendingSlips();
+      } catch (err) {
+        console.error('Error deleting slip:', err);
+        alert('Failed to delete slip');
+      } finally {
+        setProcessing(null);
+      }
+    }
+  };
+
+  const bulkDeleteSlips = async () => {
+    if (selectedSlips.length === 0) {
+      alert('Please select at least one slip to delete.');
+      return;
+    }
+    
+    if (window.confirm(`Are you sure you want to delete ${selectedSlips.length} slip(s)? This action cannot be undone.`)) {
+      try {
+        await api.post('/slips/bulk-delete/', { slip_ids: selectedSlips });
+        await fetchPendingSlips();
+      } catch (err) {
+        console.error('Error bulk deleting slips:', err);
+        alert('Failed to delete slips');
+      }
+    }
+  };
+
+  const toggleSelectSlip = (slipId) => {
+    setSelectedSlips(prev => 
+      prev.includes(slipId) 
+        ? prev.filter(id => id !== slipId)
+        : [...prev, slipId]
+    );
+    setSelectAll(false);
+  };
+
   const getFullImageUrl = (imagePath) => {
     if (!imagePath) return null;
     if (imagePath.startsWith('http')) return imagePath;
-    return `${API_BASE_URL}${imagePath}`;
+    if (imagePath.startsWith('/media')) return `${API_BASE_URL}${imagePath}`;
+    return `${API_BASE_URL}/media/${imagePath}`;
   };
 
   if (loading) {
@@ -94,10 +145,7 @@ function AdminSlips() {
           <AlertCircle className="h-5 w-5 text-red-500" />
           <p className="text-red-700">{error}</p>
         </div>
-        <button
-          onClick={fetchPendingSlips}
-          className="mt-4 btn-primary"
-        >
+        <button onClick={fetchPendingSlips} className="mt-4 btn-primary">
           Try Again
         </button>
       </div>
@@ -118,13 +166,18 @@ function AdminSlips() {
             {slips.length} pending {slips.length === 1 ? 'slip' : 'slips'} waiting for verification
           </p>
         </div>
-        <button
-          onClick={fetchPendingSlips}
-          className="btn-outline flex items-center gap-2"
-        >
-          <RefreshCw className="h-4 w-4" />
-          Refresh
-        </button>
+        <div className="flex gap-2">
+          {selectedSlips.length > 0 && (
+            <button onClick={bulkDeleteSlips} className="btn-danger flex items-center gap-2">
+              <Trash2 className="h-4 w-4" />
+              Delete Selected ({selectedSlips.length})
+            </button>
+          )}
+          <button onClick={fetchPendingSlips} className="btn-outline flex items-center gap-2">
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {slips.length === 0 ? (
@@ -137,6 +190,20 @@ function AdminSlips() {
         </div>
       ) : (
         <div className="grid gap-4">
+          {/* Select All Header */}
+          <div className="bg-gray-50 rounded-lg p-3 flex items-center justify-between">
+            <button
+              onClick={() => setSelectAll(!selectAll)}
+              className="flex items-center gap-2 text-sm font-medium text-gray-700"
+            >
+              {selectAll ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+              {selectAll ? 'Deselect All' : 'Select All'}
+            </button>
+            <span className="text-sm text-gray-500">
+              {selectedSlips.length} of {slips.length} selected
+            </span>
+          </div>
+
           {slips.map((slip) => (
             <div
               key={slip.id}
@@ -144,7 +211,13 @@ function AdminSlips() {
             >
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex-1">
-                  <div className="flex flex-wrap items-center gap-3 mb-2">
+                  <div className="flex items-center gap-3 mb-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedSlips.includes(slip.id)}
+                      onChange={() => toggleSelectSlip(slip.id)}
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
                     <h3 className="font-semibold text-lg">{slip.student_name}</h3>
                     <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs">
                       Grade {slip.grade}
@@ -211,6 +284,14 @@ function AdminSlips() {
                   >
                     <XCircle className="h-4 w-4" />
                     Reject
+                  </button>
+                  <button
+                    onClick={() => deleteSlip(slip.id)}
+                    disabled={processing === slip.id}
+                    className="p-2 hover:bg-red-50 rounded-lg transition-colors text-red-600"
+                    title="Delete Slip"
+                  >
+                    <Trash2 className="h-5 w-5" />
                   </button>
                 </div>
               </div>

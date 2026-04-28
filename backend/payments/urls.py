@@ -4,7 +4,10 @@ from rest_framework.routers import DefaultRouter
 from .views import PaymentViewSet, PaymentDeadlineViewSet, ReminderViewSet
 from .views import send_reminders, send_payment_confirmation
 from .views.report_views import monthly_report, student_report, annual_summary
-from .views.slip_views import upload_slip, pending_slips, verify_slip, ai_stats
+from .views.slip_views import (
+    upload_slip, pending_slips, verify_slip, ai_stats,
+    delete_slip, bulk_delete_slips  # ✅ ADD THESE IMPORTS
+)
 
 # IMPORT SMS VIEWS
 from .views.sms_views import (
@@ -52,6 +55,8 @@ urlpatterns += [
     path('slips/upload/', upload_slip, name='upload-slip'),
     path('slips/pending/', pending_slips, name='pending-slips'),
     path('slips/<int:slip_id>/verify/', verify_slip, name='verify-slip'),
+    path('slips/<int:slip_id>/delete/', delete_slip, name='delete-slip'),
+    path('slips/bulk-delete/', bulk_delete_slips, name='bulk-delete-slips'),
     path('slips/ai-stats/', ai_stats, name='ai-stats'),
 ]
 
@@ -61,7 +66,7 @@ urlpatterns += [
     path('chapa/webhook/', chapa_webhook, name='chapa-webhook'),
     path('chapa/verify/', verify_chapa_payment, name='chapa-verify'),
     path('chapa/banks/', get_chapa_banks, name='chapa-banks'),
-    path('test-payment/', test_payment, name='test-payment'),
+    path('chapa/test-payment/', test_payment, name='test-payment'),
 ]
 
 # ✅ ADD THIS - Reminder filtered endpoint (fixes the 404 error)
