@@ -187,15 +187,15 @@ class ReminderService:
         return self.results
     
     def get_month_name(self, month_num):
-        """Convert month number to name"""
+        """Convert month number to Amharic name"""
         months = [
-            'Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yekatit',
-            'Megabit', 'Miazia', 'Ginbot', 'Sene', 'Hamle', 'Nehase', 'Pagume'
+            'መስከረም', 'ጥቅምት', 'ህዳር', 'ታህሳስ', 'ጥር', 'የካቲት',
+            'መጋቢት', 'ሚያዝያ', 'ግንቦት', 'ሰኔ', 'ሐምሌ', 'ነሐሴ', 'ጳጉሜ'
         ]
         try:
             return months[month_num - 1]
         except:
-            return f"Month {month_num}"
+            return f"ወር {month_num}"
     
     def send_reminders(self, student_ids, month=None, message=None, academic_year=None, school_id=None):
         """

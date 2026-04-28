@@ -5,19 +5,19 @@ from schools.models import School
 
 class PaymentDeadline(models.Model):
     MONTH_CHOICES = [
-        (1, 'Meskerem'),
-        (2, 'Tikimt'),
-        (3, 'Hidar'),
-        (4, 'Tahsas'),
-        (5, 'Tir'),
-        (6, 'Yekatit'),
-        (7, 'Megabit'),
-        (8, 'Miazia'),
-        (9, 'Ginbot'),
-        (10, 'Sene'),
-        (11, 'Hamle'),
-        (12, 'Nehase'),
-        (13, 'Pagume'),
+        (1, 'መስከረም'),
+        (2, 'ጥቅምት'),
+        (3, 'ህዳር'),
+        (4, 'ታህሳስ'),
+        (5, 'ጥር'),
+        (6, 'የካቲት'),
+        (7, 'መጋቢት'),
+        (8, 'ሚያዝያ'),
+        (9, 'ግንቦት'),
+        (10, 'ሰኔ'),
+        (11, 'ሐምሌ'),
+        (12, 'ነሐሴ'),
+        (13, 'ጳጉሜ'),
     ]
     
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='deadlines')

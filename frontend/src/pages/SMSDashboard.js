@@ -38,10 +38,10 @@ function SMSDashboard() {
   const [expandedSection, setExpandedSection] = useState('test');
   const [pendingStats, setPendingStats] = useState(null);
 
-  const months = [
-    'Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yekatit',
-    'Megabit', 'Miazia', 'Ginbot', 'Sene', 'Hamle', 'Nehase', 'Pagume'
-  ];
+const months = [
+    'መስከረም', 'ጥቅምት', 'ህዳር', 'ታህሳስ', 'ጥር', 'የካቲት',
+    'መጋቢት', 'ሚያዝያ', 'ግንቦት', 'ሰኔ', 'ሐምሌ', 'ነሐሴ', 'ጳጉሜ'
+];
 
   const { selectedYear } = useYear();
 

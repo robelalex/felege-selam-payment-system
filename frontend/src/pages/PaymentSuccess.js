@@ -14,51 +14,65 @@ function PaymentSuccess() {
   const [showReceipt, setShowReceipt] = useState(false);
   const navigate = useNavigate();
 
-useEffect(() => {
-  const verifyPayment = async () => {
-    const tx_ref = searchParams.get('tx_ref');
-    
-    if (tx_ref) {
-      try {
-        // Get the stored payment info
-        const storedPayment = JSON.parse(sessionStorage.getItem('pendingPayment') || '{}');
-        
-        // Verify the payment with your backend
-        const response = await api.get(`/chapa/verify/?tx_ref=${tx_ref}`);
-        
-        if (response.data.success && response.data.status === 'success') {
-          setSuccess(true);
+  useEffect(() => {
+    const verifyPayment = async () => {
+      const tx_ref = searchParams.get('tx_ref');
+      
+      if (tx_ref) {
+        try {
+          // Get the stored payment info from sessionStorage
+          const storedPayment = JSON.parse(sessionStorage.getItem('pendingPayment') || '{}');
           
-          // Create payment object with month info from sessionStorage
-          const paymentData = {
-            id: storedPayment.deadline_id,
-            amount: storedPayment.amount,
-            payment_method: 'chapa',
-            month: storedPayment.month_name,  // Use stored month name
-            academic_year: storedPayment.academic_year,
-            transaction_reference: tx_ref,
-            payment_date: new Date().toISOString()
-          };
+          console.log('📦 Stored Payment:', storedPayment);
           
-          setPayment(paymentData);
+          // Verify the payment with your backend
+          const response = await api.get(`/chapa/verify/?tx_ref=${tx_ref}`);
           
-          // Create student object from stored data
-          setStudent({
-            full_name: storedPayment.student_name,
-            student_id: storedPayment.student_id,
-            grade: storedPayment.grade,
-            section: storedPayment.section
-          });
+          console.log('🔍 Verification Response:', response.data);
+          
+          if (response.data.success && response.data.status === 'success') {
+            setSuccess(true);
+            
+            // ✅ FIXED: Create complete payment object with all fields
+            const paymentData = {
+              id: storedPayment.deadline_id || response.data.payment_id,
+              amount: storedPayment.amount || response.data.amount,
+              payment_method: 'chapa',
+              month: storedPayment.month_name,
+              month_name: storedPayment.month_name,
+              academic_year: storedPayment.academic_year,
+              transaction_reference: tx_ref,
+              payment_date: new Date().toISOString()
+            };
+            
+            console.log('📄 Payment Data for Receipt:', paymentData);
+            setPayment(paymentData);
+            
+            // Create student object from stored data
+            const studentData = {
+              full_name: storedPayment.student_name,
+              student_id: storedPayment.student_id,
+              grade: storedPayment.grade,
+              section: storedPayment.section || '',
+              academic_year: storedPayment.academic_year
+            };
+            
+            console.log('👨‍🎓 Student Data for Receipt:', studentData);
+            setStudent(studentData);
+          } else {
+            console.error('Verification failed:', response.data);
+          }
+        } catch (err) {
+          console.error('Verification error:', err);
         }
-      } catch (err) {
-        console.error('Verification error:', err);
+      } else {
+        console.log('No tx_ref found in URL');
       }
-    }
-    setVerifying(false);
-  };
+      setVerifying(false);
+    };
 
-  verifyPayment();
-}, [searchParams]);
+    verifyPayment();
+  }, [searchParams]);
 
   if (verifying) {
     return (
