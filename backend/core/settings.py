@@ -4,6 +4,9 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 import logging
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
 
 logging.basicConfig(level=logging.DEBUG)
 load_dotenv()
@@ -28,7 +31,6 @@ ALLOWED_HOSTS = [
     'felege-selam-api.onrender.com',
 ]
 
-# Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -40,6 +42,10 @@ INSTALLED_APPS = [
     # Third-party apps
     'rest_framework',
     'corsheaders',
+    
+    # Cloudinary for media storage
+    'cloudinary_storage',
+    'cloudinary',
     
     # Our apps
     'schools',
@@ -110,7 +116,7 @@ STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Media files
+# Media files (local fallback)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
@@ -126,7 +132,6 @@ REST_FRAMEWORK = {
 }
 
 # ===== CORS SETTINGS - PRODUCTION READY =====
-# ✅ Read from environment variable
 cors_origins = os.environ.get('CORS_ALLOWED_ORIGINS', '')
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
@@ -135,7 +140,6 @@ CORS_ALLOWED_ORIGINS = [
 if cors_origins:
     CORS_ALLOWED_ORIGINS.extend([origin.strip() for origin in cors_origins.split(',')])
 
-# ✅ Also add CSRF trusted origins
 csrf_origins = os.environ.get('CSRF_TRUSTED_ORIGINS', '')
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
@@ -145,9 +149,7 @@ if csrf_origins:
     CSRF_TRUSTED_ORIGINS.extend([origin.strip() for origin in csrf_origins.split(',')])
 
 CORS_ALLOW_CREDENTIALS = True
-
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
-
 CORS_ALLOW_HEADERS = [
     'accept', 'accept-encoding', 'authorization', 'content-type',
     'dnt', 'origin', 'user-agent', 'x-csrftoken', 'x-requested-with',
@@ -184,3 +186,18 @@ SMS_SENDER_ID = os.getenv('SMS_SENDER_ID', 'FELEGE-SELAM')
 
 # ===== CHAPA SETTINGS =====
 CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY', '')
+
+# ===== CLOUDINARY CONFIGURATION =====
+cloudinary.config(
+    cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME'),
+    api_key=os.getenv('CLOUDINARY_API_KEY'),
+    api_secret=os.getenv('CLOUDINARY_API_SECRET')
+)
+
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME'),
+    'API_KEY': os.getenv('CLOUDINARY_API_KEY'),
+    'API_SECRET': os.getenv('CLOUDINARY_API_SECRET'),
+}
+
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
