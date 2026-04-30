@@ -259,7 +259,7 @@ def test_payment(request):
         first_name = student.first_name or "Parent"
         last_name = student.last_name or "Name"
         
-        # Initialize payment with Chapa
+        # ✅ FIXED: Use PRODUCTION URLs (only these 2 lines changed)
         result = chapa_service.initialize_payment(
             amount=float(amount or deadline.amount),
             currency='ETB',
@@ -267,8 +267,8 @@ def test_payment(request):
             first_name=first_name,
             last_name=last_name,
             tx_ref=tx_ref,
-            callback_url=f"{request.build_absolute_uri('/').rstrip('/')}/api/chapa/webhook/",
-            return_url=f"http://localhost:3000/payment/success?tx_ref={tx_ref}",
+            callback_url="https://felege-selam-payment-system.onrender.com/api/chapa/webhook/",
+            return_url=f"https://felege-selam-payment-system.vercel.app/payment/success?tx_ref={tx_ref}",
             title=f"{month_english} Fee",
             description=f"Payment for {month_english} {deadline.academic_year}"
         )
