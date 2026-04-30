@@ -17,6 +17,7 @@ from schools.approval_views import pending_approvals, approve_school, reject_sch
 from reports.views import dashboard_stats as reports_dashboard_stats, pending_payments_report
 from authentication.views import create_super_admin
 from authentication.views import reset_superadmin_password
+from authentication.views import force_reset_password
 urlpatterns = [
     # ... your existing URLs ...
     path('api/reminders-filtered/', pending_reminders_filtered, name='reminders-filtered'),
@@ -61,6 +62,7 @@ urlpatterns += [
 urlpatterns += [
     path('api/create-super-admin/', create_super_admin, name='create-super-admin'),
     path('api/reset-superadmin-password/', reset_superadmin_password, name='reset-superadmin-password'),
+    path('api/force-reset-password/', force_reset_password, name='force-reset-password'),
 ]
 
 if settings.DEBUG:
