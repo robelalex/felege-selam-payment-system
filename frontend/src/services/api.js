@@ -1,7 +1,8 @@
 // src/services/api.js
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000/api';
+// ✅ CHANGED: Hardcoded production backend URL
+const API_BASE_URL = 'https://felege-selam-payment-system.onrender.com/api';
 console.log('🔍 API Base URL:', API_BASE_URL);
 
 const api = axios.create({
