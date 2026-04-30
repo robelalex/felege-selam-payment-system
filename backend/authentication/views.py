@@ -383,3 +383,31 @@ def get_current_user(request):
             'school': school_info
         }
     })
+
+# Add this temporary view at the end of the file
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def create_super_admin(request):
+    """Temporary endpoint to create super admin - REMOVE AFTER USE"""
+    from django.contrib.auth.models import User
+    
+    username = 'robelalex'
+    email = 'robelalex95@gmail.com'
+    password = 'Ru1744/15robel'
+    
+    if not User.objects.filter(username=username).exists():
+        user = User.objects.create_superuser(
+            username=username,
+            email=email,
+            password=password
+        )
+        return Response({
+            'success': True,
+            'message': f'Super Admin {username} created successfully!',
+            'credentials': {'username': username, 'email': email, 'password': password}
+        })
+    else:
+        return Response({
+            'success': False,
+            'message': f'User {username} already exists'
+        })
