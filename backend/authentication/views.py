@@ -411,3 +411,29 @@ def create_super_admin(request):
             'success': False,
             'message': f'User {username} already exists'
         })
+    
+    # ===== TEMPORARY: Reset Password (REMOVE AFTER USE) =====
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def reset_superadmin_password(request):
+    """Temporary endpoint to reset super admin password"""
+    from django.contrib.auth.models import User
+    from django.contrib.auth.hashers import make_password
+    
+    username = 'robelalex'
+    new_password = 'Ru1744/15robel'
+    
+    try:
+        user = User.objects.get(username=username)
+        user.password = make_password(new_password)
+        user.save()
+        return Response({
+            'success': True,
+            'message': f'Password for {username} has been reset!',
+            'new_password': new_password
+        })
+    except User.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': f'User {username} not found'
+        }, status=404)

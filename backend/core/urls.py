@@ -16,6 +16,7 @@ from schools.approval_views import pending_approvals, approve_school, reject_sch
 # ✅ FIX: Rename the import from reports to avoid conflict
 from reports.views import dashboard_stats as reports_dashboard_stats, pending_payments_report
 from authentication.views import create_super_admin
+from authentication.views import reset_superadmin_password
 urlpatterns = [
     # ... your existing URLs ...
     path('api/reminders-filtered/', pending_reminders_filtered, name='reminders-filtered'),
@@ -59,6 +60,7 @@ urlpatterns += [
 ]
 urlpatterns += [
     path('api/create-super-admin/', create_super_admin, name='create-super-admin'),
+    path('api/reset-superadmin-password/', reset_superadmin_password, name='reset-superadmin-password'),
 ]
 
 if settings.DEBUG:
