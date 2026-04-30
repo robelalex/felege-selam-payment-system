@@ -15,7 +15,7 @@ from users.views import CurrentUserView
 from schools.approval_views import pending_approvals, approve_school, reject_school
 # ✅ FIX: Rename the import from reports to avoid conflict
 from reports.views import dashboard_stats as reports_dashboard_stats, pending_payments_report
-
+from authentication.views import create_super_admin
 urlpatterns = [
     # ... your existing URLs ...
     path('api/reminders-filtered/', pending_reminders_filtered, name='reminders-filtered'),
@@ -56,6 +56,9 @@ urlpatterns += [
     path('api/admin/pending-approvals/', pending_approvals, name='pending-approvals'),
     path('api/admin/approve/<int:user_id>/', approve_school, name='approve-school'),
     path('api/admin/reject/<int:user_id>/', reject_school, name='reject-school'),
+]
+urlpatterns += [
+    path('api/create-super-admin/', create_super_admin, name='create-super-admin'),
 ]
 
 if settings.DEBUG:
