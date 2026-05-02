@@ -6,23 +6,19 @@ from django.conf.urls.static import static
 from rest_framework.routers import DefaultRouter
 from students.views import StudentViewSet
 from academics.views import AcademicYearViewSet
-from payments.views import PaymentViewSet, PaymentDeadlineViewSet, payments_filtered_by_year  # ✅ ADD HERE
+from payments.views import PaymentViewSet, PaymentDeadlineViewSet, payments_filtered_by_year
 from schools.views import SchoolViewSet
 from students.dashboard import dashboard_stats, grade_overview, pending_payments
 from payments.views.reminder_views import pending_reminders_filtered
 from students.dashboard import monthly_report_filtered
 from users.views import CurrentUserView
 from schools.approval_views import pending_approvals, approve_school, reject_school
-# ✅ FIX: Rename the import from reports to avoid conflict
 from reports.views import dashboard_stats as reports_dashboard_stats, pending_payments_report
-from authentication.views import create_super_admin
-from authentication.views import reset_superadmin_password
-from authentication.views import force_reset_password
-urlpatterns = [
-    # ... your existing URLs ...
-    path('api/reminders-filtered/', pending_reminders_filtered, name='reminders-filtered'),
-    path('api/users/me/', CurrentUserView.as_view(), name='current_user'),
-]
+from authentication.views import change_password
+# ✅ REMOVED temporary endpoints imports for security
+# from authentication.views import create_super_admin
+# from authentication.views import reset_superadmin_password
+# from authentication.views import force_reset_password
 
 # Create a main router
 router = DefaultRouter()
@@ -36,10 +32,13 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
     path('api-auth/', include('rest_framework.urls')),
+    path('api/auth/change-password/', change_password, name='change-password'),
     path('api/admin/', include('authentication.urls')),
+    path('api/', include('authentication.urls')), 
     path('api/', include('payments.urls')),
+    path('api/users/me/', CurrentUserView.as_view(), name='current_user'),
     
-    # ✅ ADD THIS LINE
+    # Payment endpoints
     path('api/payments-filtered/', payments_filtered_by_year, name='payments-filtered'),
     path('api/reminders-filtered/', pending_reminders_filtered, name='reminders-filtered'),
     path('api/reports/monthly-filtered/', monthly_report_filtered, name='monthly-report-filtered'),
@@ -49,20 +48,14 @@ urlpatterns = [
     path('api/reports/grades/', grade_overview, name='grade-overview'),
     path('api/reports/pending/', pending_payments, name='pending-payments'),
     
-    # ✅ NEW: Reports endpoints with school filtering (using reports.views)
+    # Reports endpoints with school filtering (using reports.views)
     path('api/reports/stats-filtered/', reports_dashboard_stats, name='reports-stats-filtered'),
     path('api/reports/pending-filtered/', pending_payments_report, name='reports-pending-filtered'),
-]
-
-urlpatterns += [
+    
+    # Super Admin Approval endpoints
     path('api/admin/pending-approvals/', pending_approvals, name='pending-approvals'),
     path('api/admin/approve/<int:user_id>/', approve_school, name='approve-school'),
     path('api/admin/reject/<int:user_id>/', reject_school, name='reject-school'),
-]
-urlpatterns += [
-    path('api/create-super-admin/', create_super_admin, name='create-super-admin'),
-    path('api/reset-superadmin-password/', reset_superadmin_password, name='reset-superadmin-password'),
-    path('api/force-reset-password/', force_reset_password, name='force-reset-password'),
 ]
 
 if settings.DEBUG:

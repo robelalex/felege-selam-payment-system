@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from django.contrib.auth.models import User
 from schools.models import School, SchoolAdminProfile
-
+from common.email_service import send_approval_notification
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
@@ -42,6 +42,9 @@ def approve_school(request, user_id):
         profile.school.subscription_active = True
         profile.school.save()
         
+        # ✅ Send approval notification email
+        send_approval_notification(user.email, profile.school.name)
+        
         return Response({
             'success': True,
             'message': f'School {profile.school.name} approved successfully'
@@ -50,7 +53,6 @@ def approve_school(request, user_id):
         return Response({'error': 'User not found'}, status=404)
     except SchoolAdminProfile.DoesNotExist:
         return Response({'error': 'School admin profile not found'}, status=404)
-
 
 @api_view(['POST'])
 @permission_classes([IsAdminUser])

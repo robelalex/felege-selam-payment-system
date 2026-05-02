@@ -199,3 +199,240 @@
     scrollbar-width: none;
   }
 }
+/* ========================================
+   RESPONSIVE UTILITIES - ADD AT THE END
+   ======================================== */
+
+/* Mobile-first breakpoints */
+@layer utilities {
+  /* Responsive container */
+  .container-responsive {
+    @apply px-4 sm:px-6 lg:px-8 mx-auto max-w-7xl;
+  }
+  
+  /* Touch-friendly tap targets */
+  .tap-target {
+    @apply min-h-[44px] min-w-[44px] inline-flex items-center justify-center;
+  }
+  
+  /* Responsive text sizes */
+  .text-responsive-h1 {
+    @apply text-2xl sm:text-3xl lg:text-4xl font-bold;
+  }
+  
+  .text-responsive-h2 {
+    @apply text-xl sm:text-2xl lg:text-3xl font-semibold;
+  }
+  
+  .text-responsive-body {
+    @apply text-sm sm:text-base;
+  }
+}
+
+/* Responsive Table - Converts to cards on mobile */
+@media (max-width: 768px) {
+  .responsive-table {
+    @apply block;
+  }
+  
+  .responsive-table thead {
+    @apply hidden;
+  }
+  
+  .responsive-table tbody,
+  .responsive-table tr,
+  .responsive-table td {
+    @apply block w-full;
+  }
+  
+  .responsive-table tr {
+    @apply mb-4 border border-gray-200 rounded-lg shadow-sm bg-white overflow-hidden;
+  }
+  
+  .responsive-table td {
+    @apply flex justify-between items-center p-3 border-b border-gray-100 last:border-b-0;
+  }
+  
+  .responsive-table td::before {
+    content: attr(data-label);
+    @apply font-semibold text-gray-600 w-2/5;
+  }
+}
+
+/* Responsive Stats Cards */
+@media (max-width: 640px) {
+  .stats-grid {
+    @apply grid-cols-1 gap-3;
+  }
+  
+  .stat-card {
+    @apply p-4;
+  }
+  
+  .stat-icon {
+    @apply h-8 w-8;
+  }
+}
+
+/* Responsive Modal */
+@media (max-width: 640px) {
+  .modal-responsive {
+    @apply fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4;
+  }
+  
+  .modal-content {
+    @apply w-full rounded-t-xl sm:rounded-xl max-h-[90vh] overflow-y-auto;
+  }
+}
+
+/* Responsive Sidebar */
+@media (max-width: 1024px) {
+  .admin-sidebar-mobile {
+    @apply fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-xl transform transition-transform duration-300;
+  }
+  
+  .admin-sidebar-mobile.closed {
+    @apply -translate-x-full;
+  }
+  
+  .admin-sidebar-mobile.open {
+    @apply translate-x-0;
+  }
+  
+  .sidebar-overlay {
+    @apply fixed inset-0 bg-black/50 z-40;
+  }
+}
+
+/* Responsive Forms */
+@media (max-width: 640px) {
+  .form-grid {
+    @apply grid-cols-1 gap-4;
+  }
+  
+  .input-field,
+  .btn-primary,
+  .btn-secondary,
+  .btn-outline {
+    @apply py-3 text-base;
+  }
+}
+
+/* Responsive Dashboard Cards */
+.dashboard-card {
+  @apply bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden transition-all duration-200;
+}
+
+.dashboard-card:hover {
+  @apply shadow-md;
+}
+
+@media (max-width: 768px) {
+  .dashboard-card {
+    @apply rounded-lg;
+  }
+}
+
+/* Responsive Charts Container */
+.chart-container {
+  @apply w-full overflow-x-auto;
+}
+
+.chart-wrapper {
+  @apply min-w-[300px] sm:min-w-full;
+}
+
+/* Mobile Bottom Navigation (for parent portal) */
+.mobile-bottom-nav {
+  @apply fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-center py-2 px-4 z-40 lg:hidden;
+}
+
+.mobile-nav-item {
+  @apply flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-colors;
+}
+
+.mobile-nav-item.active {
+  @apply text-primary-600 bg-primary-50;
+}
+
+/* Safe area insets for modern phones */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .mobile-bottom-nav {
+    @apply pb-2;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  .modal-content {
+    @apply pb-2;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Loading States */
+.skeleton {
+  @apply animate-pulse bg-gray-200 rounded;
+}
+
+/* Pull to refresh indicator */
+.pull-to-refresh {
+  @apply flex justify-center py-4;
+}
+
+/* Responsive Images */
+.responsive-image {
+  @apply w-full h-auto object-cover;
+}
+
+/* Grid System Enhancement */
+.responsive-grid {
+  @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6;
+}
+
+/* Flex Responsive */
+.responsive-flex {
+  @apply flex flex-col sm:flex-row gap-4;
+}
+
+/* Card Grid for Students/Payments on Mobile */
+@media (max-width: 768px) {
+  .card-grid-view {
+    @apply space-y-3;
+  }
+  
+  .card-grid-view .card-item {
+    @apply bg-white rounded-lg border border-gray-200 p-4 shadow-sm;
+  }
+  
+  .card-grid-view .card-item-header {
+    @apply flex justify-between items-start mb-2;
+  }
+  
+  .card-grid-view .card-item-title {
+    @apply font-semibold text-gray-900;
+  }
+  
+  .card-grid-view .card-item-subtitle {
+    @apply text-sm text-gray-500;
+  }
+  
+  .card-grid-view .card-item-actions {
+    @apply mt-3 pt-3 border-t border-gray-100 flex justify-end gap-2;
+  }
+}
+
+/* Hide scrollbar but allow scrolling on mobile */
+.scrollable-x {
+  @apply overflow-x-auto scrollbar-hide;
+}
+
+/* Responsive Padding/Margin */
+.section-spacing {
+  @apply py-4 sm:py-6 lg:py-8;
+}
+
+/* Toast notifications responsive */
+@media (max-width: 640px) {
+  .toast-responsive {
+    @apply bottom-4 left-4 right-4 transform-none;
+  }
+}

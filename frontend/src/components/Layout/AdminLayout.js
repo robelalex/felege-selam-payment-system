@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   LayoutDashboard, 
   LogOut,
-  School,
   Menu,
   Users,
   CreditCard,
@@ -18,20 +17,19 @@ import {
   Bell,
   Settings,
   Eye,
-  ChevronDown,
-  ChevronUp,
   CalendarDays,
-  User
+  User,
+  ArrowLeft
 } from 'lucide-react';
 import api from '../../services/api';
 
 const AdminLayout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [showYearSelectorModal, setShowYearSelectorModal] = useState(false);
   const [schoolInfo, setSchoolInfo] = useState(null);
   const [adminUser, setAdminUser] = useState(null);
+  const [isSettingsMode, setIsSettingsMode] = useState(false); // Toggle between modes
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -41,19 +39,15 @@ const AdminLayout = ({ children }) => {
     fetchSchoolInfo();
   }, [location.pathname]);
 
-  // ✅ FIXED: Load school from localStorage (priority)
   const fetchSchoolInfo = async () => {
     try {
-      // First, check localStorage for selected school
       const savedSchool = localStorage.getItem('selectedSchool');
       if (savedSchool) {
         const school = JSON.parse(savedSchool);
         setSchoolInfo(school);
-        console.log('📚 Loaded school from localStorage:', school.name);
         return;
       }
       
-      // Fallback: Fetch from API
       const response = await api.get('/schools/');
       if (response.data && response.data[0]) {
         setSchoolInfo(response.data[0]);
@@ -69,7 +63,6 @@ const AdminLayout = ({ children }) => {
     if (user) {
       const parsedUser = JSON.parse(user);
       setAdminUser(parsedUser);
-      // If user has school info, update localStorage
       if (parsedUser.school) {
         localStorage.setItem('selectedSchool', JSON.stringify(parsedUser.school));
         setSchoolInfo(parsedUser.school);
@@ -77,17 +70,13 @@ const AdminLayout = ({ children }) => {
     }
   };
 
-  // ✅ Helper function to get logo URL
   const getLogoUrl = () => {
     if (schoolInfo?.logo) {
-      // If logo is a full URL or path
       if (schoolInfo.logo.startsWith('http')) {
         return schoolInfo.logo;
       }
-      // If logo is a relative path
       return `http://127.0.0.1:8000${schoolInfo.logo}`;
     }
-    // Default logo
     return '/images/logo.jpg';
   };
 
@@ -99,7 +88,13 @@ const AdminLayout = ({ children }) => {
     navigate('/admin/login');
   };
 
-  const mainNavItems = [
+  // Toggle between Normal Mode and Settings Mode
+  const toggleSettingsMode = () => {
+    setIsSettingsMode(!isSettingsMode);
+  };
+
+  // Normal Mode Navigation Items
+  const normalNavItems = [
     { path: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/admin/students', label: 'Students', icon: Users },
     { path: '/admin/payments', label: 'Payments', icon: CreditCard },
@@ -107,13 +102,24 @@ const AdminLayout = ({ children }) => {
     { path: '/admin/sms', label: 'Send SMS', icon: MessageSquare },
   ];
 
-  const advancedNavItems = [
+  // Settings Mode Navigation Items
+  const settingsNavItems = [
     { path: '/admin/academic-years', label: 'Academic Years', icon: Calendar },
     { path: '/admin/deadlines', label: 'Payment Deadlines', icon: Calendar },
     { path: '/admin/reports', label: 'Reports', icon: BarChart3 },
     { path: '/admin/reminders', label: 'Reminders', icon: Bell },
-    { path: '/admin/settings', label: 'Settings', icon: Settings },
   ];
+
+  // Current active navigation items based on mode
+  const currentNavItems = isSettingsMode ? settingsNavItems : normalNavItems;
+
+  // Check if a path is active (for settings mode, check if path starts with the base)
+  const isPathActive = (path) => {
+    if (isSettingsMode) {
+      return location.pathname === path;
+    }
+    return location.pathname === path;
+  };
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -140,7 +146,7 @@ const AdminLayout = ({ children }) => {
         }`}
       >
         <div className="flex flex-col h-full">
-          {/* Logo - Now uses dynamic school logo */}
+          {/* Logo */}
           <div className={`flex-shrink-0 px-4 py-4 border-b border-gray-100 flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
             {!isCollapsed ? (
               <div className="flex items-center gap-3">
@@ -182,113 +188,97 @@ const AdminLayout = ({ children }) => {
             }
           </button>
 
+          {/* Mode Indicator */}
+          {!isCollapsed && (
+            <div className="px-3 py-2 mt-2">
+              <div className={`text-xs font-medium px-2 py-1 rounded-full inline-block ${
+                isSettingsMode ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+              }`}>
+                {isSettingsMode ? '⚙️ Settings Mode' : '📱 Normal Mode'}
+              </div>
+            </div>
+          )}
+
           {/* Navigation */}
-          <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-            <div className="mb-2">
-              {!isCollapsed && (
-                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 px-2">
-                  Main Menu
-                </p>
+          <nav className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
+            {/* Settings Toggle Button - Always visible */}
+            <button
+              onClick={toggleSettingsMode}
+              className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} w-full px-3 py-2 rounded-lg transition-all duration-200 mb-4 ${
+                isSettingsMode
+                  ? 'bg-purple-600 text-white hover:bg-purple-700'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+              title={isCollapsed ? (isSettingsMode ? 'Back to Main Menu' : 'Settings') : ''}
+            >
+              {isSettingsMode ? (
+                <ArrowLeft className="h-4 w-4" />
+              ) : (
+                <Settings className="h-4 w-4" />
               )}
-              {mainNavItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = location.pathname === item.path;
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-lg transition-all duration-200 mb-1 ${
-                      isActive
-                        ? 'bg-primary-50 text-primary-600'
-                        : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                    title={isCollapsed ? item.label : ''}
-                  >
-                    <Icon className={`h-4 w-4 ${isActive ? 'text-primary-600' : 'text-gray-500'}`} />
-                    {!isCollapsed && <span className="text-sm font-medium">{item.label}</span>}
-                  </Link>
-                );
-              })}
-            </div>
-
-            {/* Advanced Section */}
-            <div className="pt-2">
               {!isCollapsed && (
-                <button
-                  onClick={() => setShowAdvanced(!showAdvanced)}
-                  className="w-full flex items-center justify-between px-2 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600"
+                <span className="text-sm font-medium">
+                  {isSettingsMode ? 'Back to Main Menu' : 'Settings'}
+                </span>
+              )}
+            </button>
+
+            {/* Divider */}
+            <div className="border-t border-gray-100 my-2"></div>
+
+            {/* Navigation Items based on mode */}
+            {!isCollapsed && (
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 px-2 mt-2">
+                {isSettingsMode ? 'Settings Menu' : 'Main Menu'}
+              </p>
+            )}
+            
+            {currentNavItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = isPathActive(item.path);
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-lg transition-all duration-200 mb-1 ${
+                    isActive
+                      ? isSettingsMode 
+                        ? 'bg-purple-50 text-purple-600' 
+                        : 'bg-primary-50 text-primary-600'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                  title={isCollapsed ? item.label : ''}
                 >
-                  <span>Advanced</span>
-                  {showAdvanced ? (
-                    <ChevronUp className="h-3 w-3" />
-                  ) : (
-                    <ChevronDown className="h-3 w-3" />
-                  )}
-                </button>
-              )}
-              
-              <AnimatePresence>
-                {(showAdvanced || isCollapsed) && (
-                  <motion.div
-                    initial={!isCollapsed ? { opacity: 0, height: 0 } : false}
-                    animate={!isCollapsed ? { opacity: 1, height: 'auto' } : false}
-                    exit={!isCollapsed ? { opacity: 0, height: 0 } : false}
-                    className="overflow-hidden"
-                  >
-                    {advancedNavItems.map((item) => {
-                      const Icon = item.icon;
-                      const isActive = location.pathname === item.path;
-                      return (
-                        <Link
-                          key={item.path}
-                          to={item.path}
-                          className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-lg transition-all duration-200 mb-1 ${
-                            isActive
-                              ? 'bg-primary-50 text-primary-600'
-                              : 'text-gray-600 hover:bg-gray-100'
-                          }`}
-                          title={isCollapsed ? item.label : ''}
-                        >
-                          <Icon className={`h-4 w-4 ${isActive ? 'text-primary-600' : 'text-gray-500'}`} />
-                          {!isCollapsed && <span className="text-sm font-medium">{item.label}</span>}
-                        </Link>
-                      );
-                    })}
-                    
-                    {!isCollapsed && (
-                      <button
-                        onClick={() => setShowYearSelectorModal(true)}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 mb-1 text-primary-600 bg-primary-50 hover:bg-primary-100"
-                      >
-                        <CalendarDays className="h-4 w-4" />
-                        <span className="text-sm font-medium">Manage Years</span>
-                      </button>
-                    )}
+                  <Icon className={`h-4 w-4 ${isActive ? (isSettingsMode ? 'text-purple-600' : 'text-primary-600') : 'text-gray-500'}`} />
+                  {!isCollapsed && <span className="text-sm font-medium">{item.label}</span>}
+                </Link>
+              );
+            })}
 
-                    {isCollapsed && (
-                      <button
-                        onClick={() => setShowYearSelectorModal(true)}
-                        className="w-full flex items-center justify-center px-3 py-2 rounded-lg transition-all duration-200 mb-1 text-primary-600 bg-primary-50 hover:bg-primary-100"
-                        title="Manage Academic Years"
-                      >
-                        <CalendarDays className="h-4 w-4" />
-                      </button>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+            {/* Manage Years - Special button that appears in Settings Mode */}
+            {isSettingsMode && (
+              <button
+                onClick={() => setShowYearSelectorModal(true)}
+                className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} w-full px-3 py-2 rounded-lg transition-all duration-200 mb-1 text-purple-600 bg-purple-50 hover:bg-purple-100`}
+                title={isCollapsed ? 'Manage Years' : ''}
+              >
+                <CalendarDays className="h-4 w-4" />
+                {!isCollapsed && <span className="text-sm font-medium">Manage Years</span>}
+              </button>
+            )}
           </nav>
 
-          {/* Year Selector - Compact */}
-          <div className="flex-shrink-0 px-3 py-2 border-t border-gray-100">
-            <div className="flex items-center justify-between">
-              {!isCollapsed && <span className="text-[10px] text-gray-400">Academic Year</span>}
-              <YearSelector />
+          {/* Year Selector - Only show in Normal Mode */}
+          {!isSettingsMode && (
+            <div className="flex-shrink-0 px-3 py-2 border-t border-gray-100">
+              <div className="flex items-center justify-between">
+                {!isCollapsed && <span className="text-[10px] text-gray-400">Academic Year</span>}
+                <YearSelector />
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* User Info & Logout - Compact */}
+          {/* User Info & Logout */}
           <div className="flex-shrink-0 border-t border-gray-100">
             {!isCollapsed && adminUser && (
               <div className="px-3 py-2 flex items-center gap-2 bg-gray-50">

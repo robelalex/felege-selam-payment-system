@@ -1,5 +1,6 @@
 # backend/common/utils.py
 from schools.models import SchoolAdminProfile
+from .models import AuditLog
 
 def get_user_school(user):
     """Get the school associated with a user (returns None for super admins)"""
@@ -32,3 +33,29 @@ def get_school_id_from_request(request):
             return school.id
     
     return None
+
+def log_action(user, action, details='', request=None):
+    """Helper function to log user actions"""
+    ip_address = None
+    user_agent = None
+    
+    if request:
+        ip_address = get_client_ip(request)
+        user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]
+    
+    AuditLog.objects.create(
+        user=user,
+        action=action,
+        details=details,
+        ip_address=ip_address,
+        user_agent=user_agent
+    )
+
+def get_client_ip(request):
+    """Get client IP address from request"""
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    return ip

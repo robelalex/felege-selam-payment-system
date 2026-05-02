@@ -17,7 +17,10 @@ import {
   Check,
   ChevronDown,
   Info,
-  Banknote
+  Banknote,
+  Phone,
+  GraduationCap,
+  ChevronRight
 } from 'lucide-react';
 import api from '../services/api';
 import UploadSlipModal from '../components/UploadSlipModal';
@@ -71,47 +74,46 @@ function StudentDashboard() {
     }
   }, [studentId, fetchStudentData]);
 
-const handleChapaPayment = async (payment) => {
-  setProcessingPaymentId(payment.id);
-  
-  try {
-    console.log(`💰 Processing payment for: ${payment.month_name}`);
+  const handleChapaPayment = async (payment) => {
+    setProcessingPaymentId(payment.id);
     
-    // ✅ SAVE TO SESSION STORAGE BEFORE REDIRECT
-    sessionStorage.setItem('pendingPayment', JSON.stringify({
-      deadline_id: payment.id,
-      amount: payment.amount,
-      month_name: payment.month_name,
-      academic_year: payment.academic_year,
-      student_name: student.full_name,
-      student_id: student.student_id,
-      grade: student.grade,
-      section: student.section
-    }));
-    
-    const response = await api.post('chapa/test-payment/', {
-      student_id: student.student_id,
-      deadline_id: payment.id,
-      amount: payment.amount,
-      month: payment.month_name,
-      paid_by: student.parent_full_name || 'Parent',
-      paid_by_phone: student.parent_phone || '0912345678'
-    });
-    
-    console.log('Payment response:', response.data);
-    
-    if (response.data.success && response.data.checkout_url) {
-      window.location.href = response.data.checkout_url;
-    } else {
-      alert(`Payment initiation failed: ${response.data.error || 'Unknown error'}`);
+    try {
+      console.log(`💰 Processing payment for: ${payment.month_name}`);
+      
+      sessionStorage.setItem('pendingPayment', JSON.stringify({
+        deadline_id: payment.id,
+        amount: payment.amount,
+        month_name: payment.month_name,
+        academic_year: payment.academic_year,
+        student_name: student.full_name,
+        student_id: student.student_id,
+        grade: student.grade,
+        section: student.section
+      }));
+      
+      const response = await api.post('chapa/test-payment/', {
+        student_id: student.student_id,
+        deadline_id: payment.id,
+        amount: payment.amount,
+        month: payment.month_name,
+        paid_by: student.parent_full_name || 'Parent',
+        paid_by_phone: student.parent_phone || '0912345678'
+      });
+      
+      console.log('Payment response:', response.data);
+      
+      if (response.data.success && response.data.checkout_url) {
+        window.location.href = response.data.checkout_url;
+      } else {
+        alert(`Payment initiation failed: ${response.data.error || 'Unknown error'}`);
+        setProcessingPaymentId(null);
+      }
+    } catch (err) {
+      console.error('Payment error:', err);
+      alert('Payment failed. Please try again.');
       setProcessingPaymentId(null);
     }
-  } catch (err) {
-    console.error('Payment error:', err);
-    alert('Payment failed. Please try again.');
-    setProcessingPaymentId(null);
-  }
-};
+  };
 
   const handleBankTransfer = (payment) => {
     setShowPaymentInfo({
@@ -121,12 +123,12 @@ const handleChapaPayment = async (payment) => {
       reference: student?.student_id,
       instructions: [
         'Bank: Commercial Bank of Ethiopia',
-        'Account Name: Felege Selam School',
+        'Account Name: Felege Selam School', 
         'Account Number: 10000001234567',
         `Amount: ${payment.amount} Birr`,
         `Reference: Use Student ID: ${student?.student_id}`,
         `Month: ${payment.month_name} ${payment.academic_year}`,
-        'After transfer, upload the bank slip using the "Upload Slip" button',
+        'After transfer, upload the bank slip',
         'Payment will be verified within 24 hours'
       ],
       showUploadButton: true
@@ -163,14 +165,14 @@ const handleChapaPayment = async (payment) => {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="bg-red-50 p-4 rounded-lg max-w-md">
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="bg-red-50 p-4 rounded-lg max-w-md w-full">
           <div className="flex items-center gap-2">
             <AlertCircle className="h-5 w-5 text-red-500" />
-            <p className="text-red-700">{error}</p>
+            <p className="text-red-700 text-sm">{error}</p>
           </div>
           <button 
-            className="mt-4 btn-primary"
+            className="mt-4 btn-primary w-full"
             onClick={() => navigate('/')}
           >
             Back to Search
@@ -186,65 +188,65 @@ const handleChapaPayment = async (payment) => {
   }, 0);
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-4 md:space-y-6 px-4 pb-20 md:pb-0">
       {/* Header with Back Button */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3 sticky top-0 bg-white/95 backdrop-blur-sm py-3 z-10 -mt-2">
         <button
           onClick={() => navigate('/')}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          className="p-2 hover:bg-gray-100 rounded-lg transition-colors tap-target"
         >
           <ArrowLeft className="h-5 w-5 text-gray-600" />
         </button>
-        <h1 className="text-xl font-semibold text-gray-900">Payment Portal</h1>
+        <h1 className="text-lg md:text-xl font-semibold text-gray-900">Payment Portal</h1>
       </div>
 
-      {/* Student Info Card */}
-      <div className="bg-gradient-to-r from-primary-600 to-primary-800 rounded-xl shadow-lg p-6 text-white">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-white/20 rounded-full">
-              <User className="h-8 w-8" />
+      {/* Student Info Card - Responsive */}
+      <div className="bg-gradient-to-r from-primary-600 to-primary-800 rounded-xl shadow-lg p-4 md:p-6 text-white">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3 md:gap-4">
+            <div className="p-2 md:p-3 bg-white/20 rounded-full">
+              <User className="h-6 w-6 md:h-8 md:w-8" />
             </div>
             <div>
-              <h2 className="text-2xl font-bold">{student?.full_name}</h2>
-              <p className="text-primary-100">ID: {student?.student_id}</p>
+              <h2 className="text-lg md:text-2xl font-bold">{student?.full_name}</h2>
+              <p className="text-primary-100 text-xs md:text-sm">ID: {student?.student_id}</p>
             </div>
           </div>
-          <div className="flex gap-4">
-            <div className="text-right">
-              <p className="text-primary-200 text-sm">Grade</p>
-              <p className="font-semibold">{student?.grade} {student?.section}</p>
+          <div className="flex gap-4 justify-start sm:justify-end">
+            <div>
+              <p className="text-primary-200 text-xs">Grade</p>
+              <p className="font-semibold text-sm md:text-base">{student?.grade} {student?.section}</p>
             </div>
-            <div className="text-right">
-              <p className="text-primary-200 text-sm">Year</p>
-              <p className="font-semibold">{student?.academic_year}</p>
+            <div>
+              <p className="text-primary-200 text-xs">Year</p>
+              <p className="font-semibold text-sm md:text-base">{student?.academic_year?.slice(0, 8)}</p>
             </div>
           </div>
         </div>
         
         {totalOverdue > 0 && (
-          <div className="mt-4 bg-red-500/20 rounded-lg p-3 flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-white" />
-            <p className="text-white">
-              <span className="font-bold">{totalOverdue} Birr</span> overdue. Please pay soon to avoid penalties.
+          <div className="mt-3 md:mt-4 bg-red-500/20 rounded-lg p-2 md:p-3 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 md:h-5 md:w-5 text-white flex-shrink-0" />
+            <p className="text-white text-xs md:text-sm">
+              <span className="font-bold">{totalOverdue} Birr</span> overdue. Please pay soon.
             </p>
           </div>
         )}
       </div>
 
-      {/* Pending Payments Section */}
+      {/* Pending Payments Section - Responsive */}
       <div className="bg-white rounded-xl shadow-lg overflow-hidden">
         <button
           onClick={() => setExpandedSection(expandedSection === 'pending' ? null : 'pending')}
-          className="w-full px-6 py-4 flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors"
+          className="w-full px-4 md:px-6 py-3 md:py-4 flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors tap-target"
         >
-          <div className="flex items-center gap-3">
-            <Clock className="h-5 w-5 text-orange-500" />
-            <h2 className="text-lg font-semibold text-gray-900">
+          <div className="flex items-center gap-2 md:gap-3">
+            <Clock className="h-4 w-4 md:h-5 md:w-5 text-orange-500" />
+            <h2 className="text-base md:text-lg font-semibold text-gray-900">
               Pending Payments ({pendingPayments.length})
             </h2>
           </div>
-          <ChevronDown className={`h-5 w-5 text-gray-500 transform transition-transform ${
+          <ChevronDown className={`h-4 w-4 md:h-5 md:w-5 text-gray-500 transform transition-transform ${
             expandedSection === 'pending' ? 'rotate-180' : ''
           }`} />
         </button>
@@ -258,9 +260,9 @@ const handleChapaPayment = async (payment) => {
               className="divide-y divide-gray-200"
             >
               {pendingPayments.length === 0 ? (
-                <div className="p-8 text-center">
-                  <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
-                  <p className="text-gray-600">No pending payments. All caught up!</p>
+                <div className="p-6 md:p-8 text-center">
+                  <CheckCircle className="h-10 w-10 md:h-12 md:w-12 text-green-500 mx-auto mb-3" />
+                  <p className="text-gray-600 text-sm md:text-base">No pending payments. All caught up!</p>
                 </div>
               ) : (
                 pendingPayments.map((payment) => {
@@ -269,27 +271,33 @@ const handleChapaPayment = async (payment) => {
                   const isProcessing = processingPaymentId === payment.id;
                   
                   return (
-                    <div key={payment.id} className="p-6 hover:bg-gray-50 transition-colors">
-                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className="font-semibold text-lg text-gray-900">
+                    <div key={payment.id} className="p-4 md:p-6 hover:bg-gray-50 transition-colors">
+                      <div className="flex flex-col gap-4">
+                        {/* Payment Info */}
+                        <div>
+                          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                            <h3 className="font-semibold text-base md:text-lg text-gray-900">
                               {payment.month_name} {payment.academic_year}
                             </h3>
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${status.color}`}>
+                            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${status.color}`}>
                               <StatusIcon className="h-3 w-3" />
                               {status.text}
                             </span>
                           </div>
-                          <p className="text-sm text-gray-600">Due: {new Date(payment.due_date).toLocaleDateString()}</p>
-                          <p className="text-2xl font-bold text-primary-600 mt-2">{payment.amount} Birr</p>
+                          <p className="text-xs md:text-sm text-gray-500">
+                            Due: {new Date(payment.due_date).toLocaleDateString()}
+                          </p>
+                          <p className="text-xl md:text-2xl font-bold text-primary-600 mt-2">
+                            {payment.amount} Birr
+                          </p>
                         </div>
                         
+                        {/* Action Buttons - Stack on mobile, row on desktop */}
                         <div className="flex flex-col sm:flex-row gap-2">
                           <button
                             onClick={() => handleChapaPayment(payment)}
                             disabled={isProcessing}
-                            className="btn-primary flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 min-w-[140px]"
+                            className="btn-primary flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 tap-target text-sm"
                           >
                             {isProcessing ? (
                               <>
@@ -306,7 +314,7 @@ const handleChapaPayment = async (payment) => {
 
                           <button
                             onClick={() => handleBankTransfer(payment)}
-                            className="btn-secondary flex items-center justify-center gap-2 px-4 py-2 min-w-[140px]"
+                            className="btn-secondary flex items-center justify-center gap-2 px-4 py-2.5 tap-target text-sm"
                           >
                             <Banknote className="h-4 w-4" />
                             Bank Transfer
@@ -314,7 +322,7 @@ const handleChapaPayment = async (payment) => {
                           
                           <button
                             onClick={() => handleUploadClick(payment)}
-                            className="btn-outline flex items-center justify-center gap-2 px-4 py-2 min-w-[140px]"
+                            className="btn-outline flex items-center justify-center gap-2 px-4 py-2.5 tap-target text-sm"
                           >
                             <Upload className="h-4 w-4" />
                             Upload Slip
@@ -330,87 +338,93 @@ const handleChapaPayment = async (payment) => {
         </AnimatePresence>
       </div>
 
-      {/* Payment Instructions Modal - Smaller size */}
+      {/* Payment Instructions Modal - Mobile Optimized */}
       <AnimatePresence>
         {showPaymentInfo && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 md:p-4"
             onClick={() => setShowPaymentInfo(null)}
           >
             <motion.div
               initial={{ scale: 0.9 }}
               animate={{ scale: 1 }}
-              className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5"
+              className="bg-white rounded-xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center gap-2 mb-3">
-                <div className="p-1.5 bg-primary-100 rounded-full">
-                  <Info className="h-5 w-5 text-primary-600" />
-                </div>
-                <h2 className="text-lg font-bold">{showPaymentInfo.method}</h2>
-              </div>
-
-              <div className="bg-primary-50 rounded-lg p-3 mb-3">
-                <p className="text-xs text-gray-600">Month</p>
-                <p className="text-md font-semibold">{showPaymentInfo.payment?.month_name} {showPaymentInfo.payment?.academic_year}</p>
-                <p className="text-xs text-gray-600 mt-2">Amount</p>
-                <p className="text-xl font-bold text-primary-600">{showPaymentInfo.amount} Birr</p>
-                <p className="text-xs text-gray-600 mt-1">Reference: {showPaymentInfo.reference}</p>
-              </div>
-
-              <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
-                <h3 className="font-semibold text-sm text-gray-900">Instructions:</h3>
-                {showPaymentInfo.instructions.map((instruction, idx) => (
-                  <div key={idx} className="flex items-start gap-2">
-                    <span className="w-4 h-4 bg-primary-100 rounded-full flex items-center justify-center text-xs font-bold text-primary-600 flex-shrink-0 mt-0.5">
-                      {idx + 1}
-                    </span>
-                    <p className="text-xs text-gray-600">{instruction}</p>
+              <div className="p-4 md:p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="p-1.5 bg-primary-100 rounded-full">
+                    <Info className="h-4 w-4 md:h-5 md:w-5 text-primary-600" />
                   </div>
-                ))}
-              </div>
+                  <h2 className="text-base md:text-lg font-bold">{showPaymentInfo.method}</h2>
+                </div>
 
-              {showPaymentInfo.showUploadButton && (
+                <div className="bg-primary-50 rounded-lg p-3 mb-3">
+                  <p className="text-xs text-gray-600">Month</p>
+                  <p className="text-sm md:text-base font-semibold">
+                    {showPaymentInfo.payment?.month_name} {showPaymentInfo.payment?.academic_year}
+                  </p>
+                  <p className="text-xs text-gray-600 mt-2">Amount</p>
+                  <p className="text-lg md:text-xl font-bold text-primary-600">{showPaymentInfo.amount} Birr</p>
+                  <p className="text-xs text-gray-600 mt-1">Ref: {showPaymentInfo.reference}</p>
+                </div>
+
+                <div className="space-y-2 mb-4">
+                  <h3 className="font-semibold text-sm text-gray-900">Instructions:</h3>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {showPaymentInfo.instructions.map((instruction, idx) => (
+                      <div key={idx} className="flex items-start gap-2">
+                        <span className="w-4 h-4 bg-primary-100 rounded-full flex items-center justify-center text-xs font-bold text-primary-600 flex-shrink-0 mt-0.5">
+                          {idx + 1}
+                        </span>
+                        <p className="text-xs text-gray-600 break-words">{instruction}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {showPaymentInfo.showUploadButton && (
+                  <button
+                    onClick={() => {
+                      setShowPaymentInfo(null);
+                      handleUploadClick(showPaymentInfo.payment);
+                    }}
+                    className="btn-primary w-full text-sm py-2.5 mb-2 tap-target"
+                  >
+                    <Upload className="h-3 w-3 mr-2 inline" />
+                    Upload Bank Slip
+                  </button>
+                )}
+
                 <button
-                  onClick={() => {
-                    setShowPaymentInfo(null);
-                    handleUploadClick(showPaymentInfo.payment);
-                  }}
-                  className="btn-primary w-full text-sm py-2 mb-2"
+                  onClick={() => setShowPaymentInfo(null)}
+                  className="btn-secondary w-full text-sm py-2.5 tap-target"
                 >
-                  <Upload className="h-3 w-3 mr-2 inline" />
-                  Upload Bank Slip
+                  Close
                 </button>
-              )}
-
-              <button
-                onClick={() => setShowPaymentInfo(null)}
-                className="btn-secondary w-full text-sm py-2"
-              >
-                Close
-              </button>
+              </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Paid Payments Section */}
+      {/* Paid Payments Section - Responsive */}
       {paidPayments.length > 0 && (
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
           <button
             onClick={() => setExpandedSection(expandedSection === 'paid' ? null : 'paid')}
-            className="w-full px-6 py-4 flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors"
+            className="w-full px-4 md:px-6 py-3 md:py-4 flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors tap-target"
           >
-            <div className="flex items-center gap-3">
-              <CheckCircle className="h-5 w-5 text-green-500" />
-              <h2 className="text-lg font-semibold text-gray-900">
+            <div className="flex items-center gap-2 md:gap-3">
+              <CheckCircle className="h-4 w-4 md:h-5 md:w-5 text-green-500" />
+              <h2 className="text-base md:text-lg font-semibold text-gray-900">
                 Payment History ({paidPayments.length})
               </h2>
             </div>
-            <ChevronDown className={`h-5 w-5 text-gray-500 transform transition-transform ${
+            <ChevronDown className={`h-4 w-4 md:h-5 md:w-5 text-gray-500 transform transition-transform ${
               expandedSection === 'paid' ? 'rotate-180' : ''
             }`} />
           </button>
@@ -424,19 +438,19 @@ const handleChapaPayment = async (payment) => {
                 className="divide-y divide-gray-200"
               >
                 {paidPayments.map((payment, idx) => (
-                  <div key={idx} className="p-4 hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Check className="h-5 w-5 text-green-500" />
+                  <div key={idx} className="p-4 md:p-5 hover:bg-gray-50 transition-colors">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
                         <div>
-                          <p className="font-medium text-gray-900">{payment.month}</p>
-                          <p className="text-sm text-gray-500">
+                          <p className="font-medium text-gray-900 text-sm md:text-base">{payment.month}</p>
+                          <p className="text-xs text-gray-500">
                             {new Date(payment.payment_date).toLocaleDateString()}
                           </p>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-bold text-gray-900">{payment.amount} Birr</p>
+                      <div className="text-left sm:text-right">
+                        <p className="font-bold text-gray-900 text-sm md:text-base">{payment.amount} Birr</p>
                         <p className="text-xs text-gray-500 capitalize">{payment.payment_method}</p>
                       </div>
                     </div>
