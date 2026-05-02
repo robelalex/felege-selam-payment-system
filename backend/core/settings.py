@@ -158,21 +158,19 @@ CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SECURE = not DEBUG
 
 # ===== CORS SETTINGS - PRODUCTION READY =====
-cors_origins = os.environ.get('CORS_ALLOWED_ORIGINS', '')
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://felege-selam-payment-system.vercel.app",
+    "https://*.vercel.app",
 ]
-if cors_origins:
-    CORS_ALLOWED_ORIGINS.extend([origin.strip() for origin in cors_origins.split(',')])
 
-csrf_origins = os.environ.get('CSRF_TRUSTED_ORIGINS', '')
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://felege-selam-payment-system.vercel.app",
+    "https://*.vercel.app",
 ]
-if csrf_origins:
-    CSRF_TRUSTED_ORIGINS.extend([origin.strip() for origin in csrf_origins.split(',')])
 
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
