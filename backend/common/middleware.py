@@ -1,6 +1,6 @@
 # backend/common/middleware.py
 from .utils import get_user_school, is_super_admin
-
+from .models import AuditLog
 class SchoolMiddleware:
     """Automatically add school info to request for school admins"""
     
@@ -16,3 +16,16 @@ class SchoolMiddleware:
         
         response = self.get_response(request)
         return response
+    
+class AuditMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+    
+    def __call__(self, request):
+        # Log user activity for important actions
+        response = self.get_response(request)
+        return response
+    
+    def process_view(self, request, view_func, view_args, view_kwargs):
+        # Log specific actions
+        pass

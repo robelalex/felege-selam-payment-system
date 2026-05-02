@@ -33,7 +33,7 @@ function PaymentSuccess() {
           if (response.data.success && response.data.status === 'success') {
             setSuccess(true);
             
-            // ✅ FIXED: Create complete payment object with all fields
+            // ✅ Create complete payment object with all fields
             const paymentData = {
               id: storedPayment.deadline_id || response.data.payment_id,
               amount: storedPayment.amount || response.data.amount,
@@ -48,17 +48,23 @@ function PaymentSuccess() {
             console.log('📄 Payment Data for Receipt:', paymentData);
             setPayment(paymentData);
             
-            // Create student object from stored data
+            // ✅ FIX: Create complete student object with school name
             const studentData = {
               full_name: storedPayment.student_name,
               student_id: storedPayment.student_id,
               grade: storedPayment.grade,
-              section: storedPayment.section || '',
-              academic_year: storedPayment.academic_year
+              section: storedPayment.section || 'A',
+              academic_year: storedPayment.academic_year,
+              school_name: 'ABFM Academy'  // ✅ Add school name explicitly
             };
             
             console.log('👨‍🎓 Student Data for Receipt:', studentData);
             setStudent(studentData);
+            
+            // ✅ FIX: Save student to localStorage for receipt component
+            localStorage.setItem('selectedStudent', JSON.stringify(studentData));
+            console.log('✅ Student saved to localStorage:', studentData);
+            
           } else {
             console.error('Verification failed:', response.data);
           }
@@ -103,10 +109,10 @@ function PaymentSuccess() {
               )}
               
               <button
-                onClick={() => navigate('/')}
+                onClick={() => navigate('/parent/enter-student-id')}
                 className="btn-secondary w-full"
               >
-                Back to Home
+                Back to Student Portal
               </button>
             </>
           ) : (

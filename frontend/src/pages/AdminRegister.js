@@ -83,16 +83,13 @@ function AdminRegister() {
       submitData.append('school_name', formData.school_name);
       submitData.append('school_code', formData.school_code);
       
-      // ✅ ADD LOGO FILE
+      // ADD LOGO FILE
       if (logoFile) {
         submitData.append('logo', logoFile);
       }
 
-      const response = await api.post('/admin/register/', submitData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
+      // FIXED: Removed manual Content-Type header - let axios handle it automatically
+      const response = await api.post('/admin/register/', submitData);
 
       if (response.data.success) {
         setSuccess(true);
@@ -227,7 +224,7 @@ function AdminRegister() {
               </div>
             </div>
 
-            {/* ✅ NEW: Logo Upload Field */}
+            {/* Logo Upload Field */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 School Logo

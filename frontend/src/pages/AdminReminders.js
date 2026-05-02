@@ -1,5 +1,5 @@
 // src/pages/AdminReminders.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Bell,
@@ -17,8 +17,7 @@ import {
   Clock,
   X
 } from 'lucide-react';
-import axios from 'axios';
-import api from '../services/api'; // ✅ ADD THIS IMPORT
+import api from '../services/api';
 
 function AdminReminders() {
   const [pendingData, setPendingData] = useState(null);
@@ -30,33 +29,62 @@ function AdminReminders() {
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState('');
   const [result, setResult] = useState(null);
+  
+  // ✅ Prevent multiple simultaneous requests
+  const isFetching = useRef(false);
+  const abortController = useRef(null);
 
   const months = [
     'መስከረም','ጥቅምት','ህዳር','ታህሳስ','ጥር','የካቲት','መጋቢት','ሚያዝያ','ግንቦት','ሰነ','ሃምለ','ነሃሰ','ፓጉመ',
-    // 'Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yekatit',
-    // 'Megabit', 'Miazia', 'Ginbot', 'Sene', 'Hamle', 'Nehase', 'Pagume'
   ];
 
-  useEffect(() => {
-    fetchPendingData();
-  }, [selectedMonth, selectedGrade]);
-
-  const fetchPendingData = async () => {
+  // ✅ Use useCallback to prevent recreation of function
+  const fetchPendingData = useCallback(async () => {
+    // ✅ Prevent multiple simultaneous requests
+    if (isFetching.current) return;
+    
+    // ✅ Cancel previous request
+    if (abortController.current) {
+      abortController.current.abort();
+    }
+    
+    abortController.current = new AbortController();
+    isFetching.current = true;
     setLoading(true);
+    
     try {
       const params = new URLSearchParams();
       if (selectedMonth !== 'all') params.append('month', selectedMonth);
       if (selectedGrade !== 'all') params.append('grade', selectedGrade);
       
-      // ✅ FIXED: Use api instead of axios with hardcoded URL
-      const response = await api.get(`/reminders/pending/?${params}`);
+      const response = await api.get(`/reminders/pending/?${params}`, {
+        signal: abortController.current.signal
+      });
       setPendingData(response.data);
     } catch (err) {
-      console.error('Error fetching pending data:', err);
+      if (err.name === 'AbortError') {
+        console.log('Fetch aborted');
+      } else {
+        console.error('Error fetching pending data:', err);
+      }
     } finally {
+      isFetching.current = false;
       setLoading(false);
     }
-  };
+  }, [selectedMonth, selectedGrade]); // ✅ Dependencies are correct
+
+  // ✅ Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (abortController.current) {
+        abortController.current.abort();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    fetchPendingData();
+  }, [fetchPendingData]); // ✅ Now depends on the memoized function
 
   const toggleStudent = (studentId) => {
     setSelectedStudents(prev =>
@@ -86,7 +114,6 @@ function AdminReminders() {
     setResult(null);
 
     try {
-      // ✅ FIXED: Use api instead of axios with hardcoded URL
       const response = await api.post('/reminders/send/', {
         student_ids: selectedStudents,
         month: selectedMonth !== 'all' ? selectedMonth : null,
@@ -100,11 +127,8 @@ function AdminReminders() {
         message: `Successfully sent ${response.data.sent} reminders!`
       });
       
-      // Clear selection after sending
       setSelectedStudents([]);
       setMessage('');
-      
-      // Refresh data
       fetchPendingData();
     } catch (err) {
       setResult({

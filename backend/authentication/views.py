@@ -1,4 +1,4 @@
-# backend/authentication/views.py - FULL UPDATED (with logo, academic year, and approval workflow)
+# backend/authentication/views.py - COMPLETE WITH OTP 2FA
 from django.contrib.auth import authenticate
 from django.contrib.auth import login as auth_login
 from django.contrib.auth import logout as auth_logout
@@ -8,13 +8,280 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.decorators import throttle_classes
 from django.utils import timezone
+from django.contrib.auth.hashers import make_password, check_password
 import uuid
-from .serializers import RegisterSerializer, LoginSerializer, UserSerializer, ForgotPasswordSerializer, ResetPasswordSerializer
-from .models import UserProfile
+from .serializers import (
+    RegisterSerializer, LoginSerializer, UserSerializer, 
+    ForgotPasswordSerializer, ResetPasswordSerializer, 
+    ChangePasswordSerializer
+)
+from .models import UserProfile, PasswordHistory
 from datetime import date
+from .throttles import LoginRateThrottle
+from common.utils import log_action
+from .utils import generate_otp, send_otp_email, verify_otp
+from common.email_service import send_otp_email
+
+# ===== HELPER FUNCTION FOR PASSWORD HISTORY =====
+def save_password_history(user, password):
+    """Save password to history and keep only last 5"""
+    PasswordHistory.objects.create(
+        user=user,
+        password_hash=make_password(password)
+    )
+    old_passwords = PasswordHistory.objects.filter(user=user).order_by('-created_at')[5:]
+    for old in old_passwords:
+        old.delete()
 
 
+def check_password_history(user, new_password):
+    """Check if password was used before (prevent reuse)"""
+    recent_passwords = PasswordHistory.objects.filter(user=user).order_by('-created_at')[:5]
+    
+    for history in recent_passwords:
+        if check_password(new_password, history.password_hash):
+            return False, "You cannot reuse a recent password. Please choose a different password."
+    
+    return True, ""
+
+
+# ===== OTP 2FA: ADMIN LOGIN WITH 2FA =====
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def admin_login_step1(request):
+    """Step 1: Admin login with email and password, sends OTP"""
+    email = request.data.get('email')
+    password = request.data.get('password')
+    
+    if not email or not password:
+        return Response({'error': 'Email and password required'}, status=400)
+    
+    try:
+        user = User.objects.get(email=email)
+    except User.DoesNotExist:
+        return Response({'error': 'Invalid credentials'}, status=401)
+    
+    # Check if user is active
+    if not user.is_active:
+        return Response({'error': 'Account pending approval'}, status=401)
+    
+    # Authenticate
+    user = authenticate(username=user.username, password=password)
+    
+    if not user:
+        return Response({'error': 'Invalid credentials'}, status=401)
+    
+    # Check email verification
+    if hasattr(user, 'profile') and not user.profile.is_email_verified:
+        return Response({'error': 'Please verify your email first'}, status=401)
+    
+    # Generate OTP (6-digit random number)
+    import random
+    otp_code = f"{random.randint(100000, 999999)}"
+    
+    profile = user.profile
+    profile.otp_code = otp_code
+    profile.otp_created_at = timezone.now()
+    profile.save()
+    
+    # Send OTP email
+    success, message = send_otp_email(email, otp_code, 'admin')
+    
+    if not success:
+        return Response({'error': 'Failed to send OTP. Please try again.'}, status=500)
+    
+    return Response({
+        'success': True,
+        'message': 'OTP sent to your email',
+        'user_id': user.id,
+        'requires_otp': True
+    })
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def admin_login_step2(request):
+    """Step 2: Verify OTP and complete admin login"""
+    user_id = request.data.get('user_id')
+    otp_code = request.data.get('otp_code')
+    
+    if not user_id or not otp_code:
+        return Response({'error': 'User ID and OTP required'}, status=400)
+    
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found'}, status=404)
+    
+    profile = user.profile
+    
+    # Verify OTP
+    valid, message = verify_otp(profile, otp_code)
+    
+    if not valid:
+        return Response({'error': message}, status=401)
+    
+    # Clear OTP
+    profile.otp_code = None
+    profile.otp_created_at = None
+    profile.save()
+    
+    # Login the user
+    auth_login(request, user)
+    
+    # Log audit
+    log_action(user, 'LOGIN', 'Admin logged in with 2FA', request)
+    
+    # Get school info
+    school_info = None
+    try:
+        from schools.models import SchoolAdminProfile, School
+        school_admin_profile = SchoolAdminProfile.objects.filter(user=user, is_active=True).first()
+        if school_admin_profile:
+            school = School.objects.get(id=school_admin_profile.school_id)
+            school_info = {
+                'id': school.id,
+                'name': school.name,
+                'code': school.code,
+                'logo': school.logo.url if school.logo else None
+            }
+    except:
+        pass
+    
+    return Response({
+        'success': True,
+        'message': 'Login successful',
+        'user': {
+            'id': user.id,
+            'email': user.email,
+            'username': user.username,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'role': profile.role,
+            'is_super_admin': profile.is_super_admin,
+            'is_school_admin': profile.is_school_admin,
+            'school': school_info
+        }
+    })
+
+
+# ===== OTP 2FA: PARENT LOGIN WITH OTP ONLY =====
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def parent_login_step1(request):
+    """Step 1: Parent sends email, receives OTP"""
+    email = request.data.get('email')
+    
+    if not email:
+        return Response({'error': 'Email required'}, status=400)
+    
+    # Find student by parent email
+    from students.models import Student
+    students = Student.objects.filter(parent_email=email)
+    
+    if not students.exists():
+        return Response({'error': 'No student found with this email'}, status=404)
+    
+    # Generate OTP
+    otp_code = generate_otp()
+    print(f"🔐 Generated OTP for {email}: {otp_code}")  # Debug print
+    
+    # Create or update user profile for this email
+    username = f"parent_{email.replace('@', '_').replace('.', '_')}"
+    user, created = User.objects.get_or_create(
+        username=username,
+        defaults={
+            'email': email,
+            'is_active': True
+        }
+    )
+    
+    if created:
+        UserProfile.objects.create(
+            user=user,
+            role='parent',
+            is_email_verified=True
+        )
+    
+    # ✅ FIX: Get or create profile and save OTP
+    profile = user.profile
+    profile.otp_code = otp_code
+    profile.otp_created_at = timezone.now()
+    profile.save()
+    
+    print(f"✅ OTP saved for {email}: {profile.otp_code}")  # Debug print
+    
+    # Send OTP email
+    send_otp_email(email, otp_code, 'parent')
+    
+    return Response({
+        'success': True,
+        'message': 'OTP sent to your email',
+        'user_id': user.id
+    })
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def parent_login_step2(request):
+    """Step 2: Verify OTP and get student access"""
+    user_id = request.data.get('user_id')
+    otp_code = request.data.get('otp_code')
+    
+    if not user_id or not otp_code:
+        return Response({'error': 'User ID and OTP required'}, status=400)
+    
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found'}, status=404)
+    
+    profile = user.profile
+    
+    print(f"🔐 Verifying OTP for {user.email}")
+    print(f"   Input OTP: {otp_code}")
+    print(f"   DB OTP: {profile.otp_code}")
+    print(f"   Created at: {profile.otp_created_at}")
+    
+    # Verify OTP
+    valid, message = verify_otp(profile, otp_code)
+    
+    print(f"   Valid: {valid}, Message: {message}")
+    
+    if not valid:
+        return Response({'error': message}, status=401)
+    
+    # Clear OTP
+    profile.otp_code = None
+    profile.otp_created_at = None
+    profile.save()
+    
+    # Get students for this parent
+    from students.models import Student
+    students = Student.objects.filter(parent_email=user.email)
+    
+    # Include school info for each student
+    student_data = [{
+        'id': s.id,
+        'student_id': s.student_id,
+        'full_name': s.full_name,
+        'grade': f"Grade {s.grade}",
+        'section': s.section,
+        'school_name': s.school.name if s.school else None,
+        'school_logo': s.school.logo.url if s.school and s.school.logo else None
+    } for s in students]
+    
+    # Create session
+    auth_login(request, user)
+    
+    return Response({
+        'success': True,
+        'message': 'Access granted',
+        'students': student_data
+    })
+
+# ===== ORIGINAL REGISTRATION ENDPOINT =====
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register(request):
@@ -23,32 +290,26 @@ def register(request):
     print("=" * 50)
     print("📝 REGISTRATION REQUEST RECEIVED")
     
-    # Handle file upload for logo
     logo = request.FILES.get('logo')
     school = None
     
-    # Get data with defaults
     email = request.data.get('email')
     username = request.data.get('username')
     school_code = request.data.get('school_code', '').upper()
     school_name = request.data.get('school_name')
     
-    # ✅ Check if email already exists
-    from django.contrib.auth.models import User
     if User.objects.filter(email=email).exists():
         return Response({
             'success': False,
             'errors': {'email': 'This email is already registered. Please use a different email.'}
         }, status=status.HTTP_400_BAD_REQUEST)
     
-    # ✅ Check if username already exists
     if User.objects.filter(username=username).exists():
         return Response({
             'success': False,
             'errors': {'username': 'This username is already taken. Please choose another.'}
         }, status=status.HTTP_400_BAD_REQUEST)
     
-    # ✅ Check if school code already exists
     from schools.models import School
     if School.objects.filter(code=school_code).exists():
         return Response({
@@ -57,7 +318,6 @@ def register(request):
         }, status=status.HTTP_400_BAD_REQUEST)
     
     try:
-        # Create school (NO academic year here - school admin will create it)
         school = School.objects.create(
             name=school_name,
             code=school_code,
@@ -72,14 +332,14 @@ def register(request):
         )
         print(f"✅ School created: {school.name} (Code: {school.code})")
         
-        # Create user (inactive until approved)
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save(is_active=False)
             print(f"✅ User created: {user.username}")
             
-            # Create UserProfile with school_id
-            from .models import UserProfile
+            password = request.data.get('password')
+            save_password_history(user, password)
+            
             UserProfile.objects.create(
                 user=user,
                 school_id=school.id,
@@ -88,7 +348,6 @@ def register(request):
             )
             print(f"✅ UserProfile created")
             
-            # Create SchoolAdminProfile
             from schools.models import SchoolAdminProfile
             SchoolAdminProfile.objects.create(
                 user=user,
@@ -109,7 +368,6 @@ def register(request):
                 }
             }, status=status.HTTP_201_CREATED)
         
-        # If serializer fails, clean up
         print(f"❌ Serializer errors: {serializer.errors}")
         school.delete()
         return Response({
@@ -130,6 +388,7 @@ def register(request):
         }, status=status.HTTP_400_BAD_REQUEST)
 
 
+# ===== ORIGINAL ENDPOINTS (KEPT FOR COMPATIBILITY) =====
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def verify_email(request, token):
@@ -151,101 +410,6 @@ def verify_email(request, token):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-def login(request):
-    """Login user"""
-    serializer = LoginSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response({
-            'success': False,
-            'errors': serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    email = serializer.validated_data['email']
-    password = serializer.validated_data['password']
-    
-    # Get user by email
-    try:
-        user = User.objects.get(email=email)
-    except User.DoesNotExist:
-        return Response({
-            'success': False,
-            'error': 'Invalid email or password'
-        }, status=status.HTTP_401_UNAUTHORIZED)
-    
-    # ✅ Check if user is active (approved by Super Admin)
-    if not user.is_active:
-        return Response({
-            'success': False,
-            'error': 'Your account is pending approval. Please wait for Super Admin to activate your school.'
-        }, status=status.HTTP_401_UNAUTHORIZED)
-    
-    # Authenticate with username
-    user = authenticate(username=user.username, password=password)
-    
-    if not user:
-        return Response({
-            'success': False,
-            'error': 'Invalid email or password'
-        }, status=status.HTTP_401_UNAUTHORIZED)
-    
-    # Check email verification
-    if hasattr(user, 'userprofile') and not user.userprofile.is_email_verified:
-        return Response({
-            'success': False,
-            'error': 'Please verify your email before logging in'
-        }, status=status.HTTP_401_UNAUTHORIZED)
-    
-    # Login the user
-    auth_login(request, user)
-    
-    # Get school from SchoolAdminProfile
-    school_info = None
-    try:
-        from schools.models import SchoolAdminProfile, School
-        school_admin_profile = SchoolAdminProfile.objects.filter(user=user, is_active=True).first()
-        if school_admin_profile:
-            school = School.objects.get(id=school_admin_profile.school_id)
-            school_info = {
-                'id': school.id,
-                'name': school.name,
-                'code': school.code,
-                'logo': school.logo.url if school.logo else None
-            }
-            print(f"✅ Login - School found for {user.username}: {school.name} (ID: {school.id})")
-        else:
-            print(f"⚠️ Login - No SchoolAdminProfile found for {user.username}")
-    except Exception as e:
-        print(f"❌ Login - Error getting school: {e}")
-    
-    # Get role from UserProfile if exists
-    role = 'school_admin'
-    is_super_admin = False
-    is_school_admin = True
-    
-    if hasattr(user, 'userprofile'):
-        role = user.userprofile.role
-        is_super_admin = user.userprofile.is_super_admin
-        is_school_admin = user.userprofile.is_school_admin
-    
-    return Response({
-        'success': True,
-        'message': 'Login successful',
-        'user': {
-            'id': user.id,
-            'email': user.email,
-            'username': user.username,
-            'first_name': user.first_name,
-            'last_name': user.last_name,
-            'role': role,
-            'is_super_admin': is_super_admin,
-            'is_school_admin': is_school_admin,
-            'school': school_info
-        }
-    })
-
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
 def forgot_password(request):
     """Send password reset email"""
     serializer = ForgotPasswordSerializer(data=request.data)
@@ -258,18 +422,31 @@ def forgot_password(request):
     email = serializer.validated_data['email']
     
     try:
-        user = User.objects.get(email=email)
-        # Generate reset token
-        if hasattr(user, 'userprofile'):
-            user.userprofile.reset_password_token = uuid.uuid4()
-            user.userprofile.reset_password_expires = timezone.now() + timezone.timedelta(hours=24)
-            user.userprofile.save()
+        # ✅ Use filter().first() to avoid MultipleObjectsReturned
+        user = User.objects.filter(email=email).first()
         
+        if user and hasattr(user, 'profile'):
+            import uuid
+            user.profile.reset_password_token = uuid.uuid4()
+            user.profile.reset_password_expires = timezone.now() + timezone.timedelta(hours=24)
+            user.profile.save()
+            
+            # ✅ Send the reset email
+            from common.email_service import send_reset_password_email
+            success, message = send_reset_password_email(email, str(user.profile.reset_password_token))
+            
+            if not success:
+                print(f"Failed to send reset email: {message}")
+        
+        # Always return success for security (don't reveal if email exists)
         return Response({
             'success': True,
             'message': 'Password reset link sent to your email'
         })
-    except User.DoesNotExist:
+        
+    except Exception as e:
+        print(f"Forgot password error: {e}")
+        # Still return success for security
         return Response({
             'success': True,
             'message': 'If your email is registered, you will receive a reset link'
@@ -296,11 +473,26 @@ def reset_password(request):
             reset_password_expires__gt=timezone.now()
         )
         user = profile.user
+        
+        # Check password history
+        valid, message = check_password_history(user, new_password)
+        if not valid:
+            return Response({
+                'success': False,
+                'error': message
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
         user.set_password(new_password)
         user.save()
+        
+        save_password_history(user, new_password)
+        
+        # Clear the reset token
         profile.reset_password_token = None
         profile.reset_password_expires = None
         profile.save()
+        
+        log_action(user, 'PASSWORD_RESET', 'Password reset via token', request)
         
         return Response({
             'success': True,
@@ -309,14 +501,56 @@ def reset_password(request):
     except UserProfile.DoesNotExist:
         return Response({
             'success': False,
-            'error': 'Invalid or expired reset token'
+            'error': 'Invalid or expired reset token. Please request a new password reset.'
         }, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def change_password(request):
+    """Change password for authenticated user"""
+    serializer = ChangePasswordSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({
+            'success': False,
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    user = request.user
+    old_password = serializer.validated_data['old_password']
+    new_password = serializer.validated_data['new_password']
+    
+    if not user.check_password(old_password):
+        return Response({
+            'success': False,
+            'error': 'Current password is incorrect'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    valid, message = check_password_history(user, new_password)
+    if not valid:
+        return Response({
+            'success': False,
+            'error': message
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    user.set_password(new_password)
+    user.save()
+    
+    save_password_history(user, new_password)
+    
+    log_action(user, 'PASSWORD_CHANGE', 'User changed password', request)
+    
+    return Response({
+        'success': True,
+        'message': 'Password changed successfully. Please login again.'
+    })
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def logout(request):
     """Logout user"""
+    user = request.user
+    log_action(user, 'LOGOUT', 'User logged out', request)
     auth_logout(request)
     return Response({
         'success': True,
@@ -340,7 +574,6 @@ def get_current_user(request):
     """Get current logged in user info"""
     user = request.user
     
-    # Get school from SchoolAdminProfile
     school_info = None
     try:
         from schools.models import SchoolAdminProfile, School
@@ -353,21 +586,17 @@ def get_current_user(request):
                 'code': school.code,
                 'logo': school.logo.url if school.logo else None
             }
-            print(f"✅ get_current_user - School found for {user.username}: {school.name}")
-        else:
-            print(f"⚠️ get_current_user - No SchoolAdminProfile found for {user.username}")
     except Exception as e:
         print(f"❌ get_current_user - Error getting school: {e}")
     
-    # Get role from UserProfile if exists
     role = 'school_admin'
     is_super_admin = False
     is_school_admin = True
     
-    if hasattr(user, 'userprofile'):
-        role = user.userprofile.role
-        is_super_admin = user.userprofile.is_super_admin
-        is_school_admin = user.userprofile.is_school_admin
+    if hasattr(user, 'profile'):
+        role = user.profile.role
+        is_super_admin = user.profile.is_super_admin
+        is_school_admin = user.profile.is_school_admin
     
     return Response({
         'success': True,
@@ -383,89 +612,3 @@ def get_current_user(request):
             'school': school_info
         }
     })
-
-# Add this temporary view at the end of the file
-@api_view(['GET'])
-@permission_classes([AllowAny])
-def create_super_admin(request):
-    """Temporary endpoint to create super admin - REMOVE AFTER USE"""
-    from django.contrib.auth.models import User
-    
-    username = 'robelalex'
-    email = 'robelalex95@gmail.com'
-    password = 'Ru1744/15robel'
-    
-    if not User.objects.filter(username=username).exists():
-        user = User.objects.create_superuser(
-            username=username,
-            email=email,
-            password=password
-        )
-        return Response({
-            'success': True,
-            'message': f'Super Admin {username} created successfully!',
-            'credentials': {'username': username, 'email': email, 'password': password}
-        })
-    else:
-        return Response({
-            'success': False,
-            'message': f'User {username} already exists'
-        })
-    
-    # ===== TEMPORARY: Reset Password (REMOVE AFTER USE) =====
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def reset_superadmin_password(request):
-    """Temporary endpoint to reset super admin password"""
-    from django.contrib.auth.models import User
-    from django.contrib.auth.hashers import make_password
-    
-    username = 'robelalex'
-    new_password = 'Ru1744/15robel'
-    
-    try:
-        user = User.objects.get(username=username)
-        user.password = make_password(new_password)
-        user.save()
-        return Response({
-            'success': True,
-            'message': f'Password for {username} has been reset!',
-            'new_password': new_password
-        })
-    except User.DoesNotExist:
-        return Response({
-            'success': False,
-            'message': f'User {username} not found'
-        }, status=404)
-    
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def force_reset_password(request):
-    from django.contrib.auth.models import User
-    from django.contrib.auth.hashers import make_password
-    
-    username = 'robelalex'
-    new_password = 'Admin@123456'
-    
-    try:
-        user = User.objects.get(username=username)
-        user.password = make_password(new_password)
-        user.is_active = True
-        user.save()
-        return Response({
-            'success': True,
-            'message': f'Password for {username} has been reset!',
-            'new_password': new_password
-        })
-    except User.DoesNotExist:
-        user = User.objects.create_superuser(
-            username=username,
-            email='robelalex95@gmail.com',
-            password=new_password
-        )
-        return Response({
-            'success': True,
-            'created': True,
-            'message': f'Super Admin {username} created!',
-            'new_password': new_password
-        })

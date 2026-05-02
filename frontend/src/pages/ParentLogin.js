@@ -1,20 +1,18 @@
-// src/pages/AdminLogin.js
+// src/pages/ParentLogin.js
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { Lock, Mail, ArrowRight, AlertCircle, Loader, Eye, EyeOff, Shield } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Mail, ArrowRight, AlertCircle, Loader, Shield, CheckCircle } from 'lucide-react';
 import api from '../services/api';
 
-function AdminLogin() {
+function ParentLogin() {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [step, setStep] = useState('login');
+  const [step, setStep] = useState('email');
   const [userId, setUserId] = useState(null);
   const [otpCode, setOtpCode] = useState('');
   const [resendTimer, setResendTimer] = useState(0);
-  const navigate = useNavigate();
 
   React.useEffect(() => {
     if (resendTimer > 0) {
@@ -23,66 +21,69 @@ function AdminLogin() {
     }
   }, [resendTimer]);
 
-  // Step 1: Login with email and password - FIXED URL
-  const handleLogin = async (e) => {
+  const handleSendOTP = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
     try {
-      // ✅ CORRECT: Use /admin/login/ (not /admin/login-step1/)
-      const response = await api.post('/admin/login/', {
-        email: email,
-        password: password
+      const response = await api.post('/parent/send-otp/', {
+        email: email
       });
 
-      if (response.data.success && response.data.requires_otp) {
+      if (response.data.success) {
         setUserId(response.data.user_id);
         setStep('otp');
         setResendTimer(60);
         setError('');
       } else {
-        setError(response.data.error || 'Invalid email or password');
+        setError(response.data.error || 'Failed to send OTP');
       }
     } catch (err) {
-      console.error('Login error:', err);
-      if (err.response?.data?.error === 'Account pending approval') {
-        setError('Your account is pending Super Admin approval. Please wait for verification.');
-      } else {
-        setError(err.response?.data?.error || 'Login failed. Please check your credentials.');
-      }
+      console.error('Send OTP error:', err);
+      setError(err.response?.data?.error || 'Email not found. Please check your email address.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Step 2: Verify OTP - FIXED URL
   const handleVerifyOTP = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
     try {
-      // ✅ CORRECT: Use /admin/verify/ (not /admin/login-step2/)
-      const response = await api.post('/admin/verify/', {
+      const response = await api.post('/parent/verify/', {
         user_id: userId,
         otp_code: otpCode
       });
 
-      if (response.data.success) {
-        localStorage.setItem('isAdmin', 'true');
-        localStorage.setItem('adminUser', JSON.stringify(response.data.user));
+      if (response.data.success && response.data.students) {
+        // Store parent session
+        localStorage.setItem('parentSession', JSON.stringify({
+          email: email,
+          user_id: userId,
+          verified: true,
+          verifiedAt: new Date().toISOString()
+        }));
         
-        if (response.data.user.school) {
-          localStorage.setItem('selectedSchool', JSON.stringify({
-            id: response.data.user.school.id,
-            name: response.data.user.school.name,
-            code: response.data.user.school.code,
-            logo: response.data.user.school.logo
-          }));
+        // ✅ FIX: Save the first student to localStorage for receipt
+        if (response.data.students && response.data.students.length > 0) {
+          const firstStudent = response.data.students[0];
+          // Enhance student data with school name
+          const studentWithSchool = {
+            ...firstStudent,
+            school_name: firstStudent.school_name || 'ABFM Academy',
+            full_name: firstStudent.full_name,
+            student_id: firstStudent.student_id,
+            grade: firstStudent.grade,
+            section: firstStudent.section || 'A'
+          };
+          localStorage.setItem('selectedStudent', JSON.stringify(studentWithSchool));
+          console.log('✅ Student saved to localStorage:', studentWithSchool);
         }
         
-        navigate('/admin/dashboard');
+        navigate('/parent/enter-student-id');
       } else {
         setError(response.data.error || 'Invalid OTP code');
       }
@@ -94,7 +95,6 @@ function AdminLogin() {
     }
   };
 
-  // Resend OTP - FIXED URL
   const handleResendOTP = async () => {
     if (resendTimer > 0) return;
     
@@ -102,14 +102,11 @@ function AdminLogin() {
     setError('');
     
     try {
-      // ✅ CORRECT: Use /admin/login/ (not /admin/login-step1/)
-      const response = await api.post('/admin/login/', {
-        email: email,
-        password: password
+      const response = await api.post('/parent/send-otp/', {
+        email: email
       });
       
       if (response.data.success) {
-        setUserId(response.data.user_id);
         setResendTimer(60);
         setError('');
       } else {
@@ -122,21 +119,21 @@ function AdminLogin() {
     }
   };
 
-  const handleBackToLogin = () => {
-    setStep('login');
+  const handleBackToEmail = () => {
+    setStep('email');
     setOtpCode('');
     setError('');
   };
 
   if (step === 'otp') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-teal-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center p-3 bg-primary-100 rounded-full mb-4">
-              <Shield className="h-8 w-8 text-primary-600" />
+            <div className="inline-flex items-center justify-center p-3 bg-green-100 rounded-full mb-4">
+              <Shield className="h-8 w-8 text-green-600" />
             </div>
-            <h1 className="text-3xl font-bold text-gray-900">Two-Factor Authentication</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Verify Your Identity</h1>
             <p className="text-gray-600 mt-2">
               Enter the 6-digit code sent to <strong>{email}</strong>
             </p>
@@ -175,7 +172,7 @@ function AdminLogin() {
               <button
                 type="submit"
                 disabled={loading || otpCode.length !== 6}
-                className="btn-primary w-full flex items-center justify-center gap-2 py-3"
+                className="btn-primary w-full flex items-center justify-center gap-2 py-3 bg-green-600 hover:bg-green-700"
               >
                 {loading ? (
                   <>
@@ -184,7 +181,7 @@ function AdminLogin() {
                   </>
                 ) : (
                   <>
-                    Verify & Sign In
+                    Verify & Access Portal
                     <ArrowRight className="h-5 w-5" />
                   </>
                 )}
@@ -195,7 +192,7 @@ function AdminLogin() {
                   type="button"
                   onClick={handleResendOTP}
                   disabled={resendTimer > 0}
-                  className="text-sm text-primary-600 hover:text-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="text-sm text-green-600 hover:text-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {resendTimer > 0 ? `Resend code in ${resendTimer}s` : 'Resend code'}
                 </button>
@@ -204,10 +201,10 @@ function AdminLogin() {
               <div className="text-center">
                 <button
                   type="button"
-                  onClick={handleBackToLogin}
+                  onClick={handleBackToEmail}
                   className="text-sm text-gray-500 hover:text-gray-700"
                 >
-                  ← Back to login
+                  ← Back to email
                 </button>
               </div>
             </form>
@@ -218,18 +215,18 @@ function AdminLogin() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-teal-50 flex items-center justify-center p-4">
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center p-3 bg-primary-100 rounded-full mb-4">
-            <Lock className="h-8 w-8 text-primary-600" />
+          <div className="inline-flex items-center justify-center p-3 bg-green-100 rounded-full mb-4">
+            <Mail className="h-8 w-8 text-green-600" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">Welcome Back</h1>
-          <p className="text-gray-600 mt-2">Sign in to your admin account</p>
+          <h1 className="text-3xl font-bold text-gray-900">Parent Portal</h1>
+          <p className="text-gray-600 mt-2">Access your child's academic information</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl p-8">
-          <form onSubmit={handleLogin} className="space-y-6">
+          <form onSubmit={handleSendOTP} className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Email Address
@@ -241,40 +238,13 @@ function AdminLogin() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="input-field pl-10"
-                  placeholder="admin@school.com"
+                  placeholder="parent@example.com"
                   required
                 />
               </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="input-field pl-10 pr-10"
-                  placeholder="Enter your password"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <Link to="/admin/forgot-password" className="text-sm text-primary-600 hover:text-primary-700">
-                Forgot Password?
-              </Link>
+              <p className="text-sm text-gray-500 mt-2">
+                We'll send a 6-digit verification code to this email
+              </p>
             </div>
 
             {error && (
@@ -289,27 +259,35 @@ function AdminLogin() {
             <button
               type="submit"
               disabled={loading}
-              className="btn-primary w-full flex items-center justify-center gap-2 py-3"
+              className="btn-primary w-full flex items-center justify-center gap-2 py-3 bg-green-600 hover:bg-green-700"
             >
               {loading ? (
                 <>
                   <Loader className="h-5 w-5 animate-spin" />
-                  Signing in...
+                  Sending Code...
                 </>
               ) : (
                 <>
-                  Sign In
+                  Send Verification Code
                   <ArrowRight className="h-5 w-5" />
                 </>
               )}
             </button>
 
-            <p className="text-center text-sm text-gray-600">
-              Don't have an account?{' '}
-              <Link to="/admin/register" className="text-primary-600 hover:text-primary-700 font-medium">
-                Register School
-              </Link>
-            </p>
+            <div className="border-t pt-4">
+              <div className="flex items-center gap-3 text-sm text-gray-500">
+                <CheckCircle className="h-4 w-4 text-green-500" />
+                <span>One-time code sent to your email</span>
+              </div>
+              <div className="flex items-center gap-3 text-sm text-gray-500 mt-2">
+                <CheckCircle className="h-4 w-4 text-green-500" />
+                <span>Code expires in 10 minutes</span>
+              </div>
+              <div className="flex items-center gap-3 text-sm text-gray-500 mt-2">
+                <CheckCircle className="h-4 w-4 text-green-500" />
+                <span>Your information is encrypted</span>
+              </div>
+            </div>
           </form>
         </div>
       </div>
@@ -317,4 +295,4 @@ function AdminLogin() {
   );
 }
 
-export default AdminLogin;
+export default ParentLogin;

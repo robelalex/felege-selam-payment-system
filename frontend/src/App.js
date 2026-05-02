@@ -31,6 +31,10 @@ import LoginTest from './pages/LoginTest';
 import SimpleTest from './pages/SimpleTest';
 import PaymentSuccess from './pages/PaymentSuccess';
 import AdminDeadlines from './pages/AdminDeadlines';
+import ParentLogin from './pages/ParentLogin';
+import SelectStudent from './pages/SelectStudent';
+import ParentDashboard from './pages/ParentDashboard';
+import EnterStudentId from './pages/EnterStudentId';
 // Styles
 import './index.css';
 
@@ -200,6 +204,11 @@ function App() {
           <Route path="/login-test" element={<LoginTest />} />
           <Route path="/simple-test" element={<SimpleTest />} />
           <Route path="/payment/success" element={<PaymentSuccess />} />
+
+          <Route path="/parent/login" element={<ParentLogin />} />
+          <Route path="/parent/select-student" element={<SelectStudent />} />
+          <Route path="/parent/enter-student-id" element={<EnterStudentId />} />
+          <Route path="/parent/dashboard/:studentId" element={<ParentDashboard />} />
         </Routes>
       </Router>
       </YearProvider>
