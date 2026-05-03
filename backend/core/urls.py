@@ -17,11 +17,6 @@ from schools.approval_views import pending_approvals, approve_school, reject_sch
 from reports.views import dashboard_stats as reports_dashboard_stats, pending_payments_report
 from authentication.views import change_password
 
-# ✅ REMOVED temporary endpoints imports for security
-# from authentication.views import create_super_admin
-# from authentication.views import reset_superadmin_password
-# from authentication.views import force_reset_password
-
 # Create a main router
 router = DefaultRouter()
 router.register(r'students', StudentViewSet, basename='student')
@@ -45,12 +40,12 @@ urlpatterns = [
     path('api/reminders-filtered/', pending_reminders_filtered, name='reminders-filtered'),
     path('api/reports/monthly-filtered/', monthly_report_filtered, name='monthly-report-filtered'),
     
-    # Dashboard endpoints (using students.dashboard)
+    # Dashboard endpoints
     path('api/reports/stats/', dashboard_stats, name='dashboard-stats'),
     path('api/reports/grades/', grade_overview, name='grade-overview'),
     path('api/reports/pending/', pending_payments, name='pending-payments'),
     
-    # Reports endpoints with school filtering (using reports.views)
+    # Reports endpoints with school filtering
     path('api/reports/stats-filtered/', reports_dashboard_stats, name='reports-stats-filtered'),
     path('api/reports/pending-filtered/', pending_payments_report, name='reports-pending-filtered'),
     
@@ -58,14 +53,20 @@ urlpatterns = [
     path('api/admin/pending-approvals/', pending_approvals, name='pending-approvals'),
     path('api/admin/approve/<int:user_id>/', approve_school, name='approve-school'),
     path('api/admin/reject/<int:user_id>/', reject_school, name='reject-school'),
+]
 
-        # ✅ Serve React app for all other routes (must be LAST)
+# ✅ Serve static files in production
+urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+
+# ✅ Serve media files (only in DEBUG mode)
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# ✅ Serve React app for all other routes (must be LAST)
+urlpatterns += [
     path('', TemplateView.as_view(template_name='index.html')),
     path('admin-login/', TemplateView.as_view(template_name='index.html')),
     path('admin-dashboard/', TemplateView.as_view(template_name='index.html')),
     path('parent-login/', TemplateView.as_view(template_name='index.html')),
     path('parent-dashboard/', TemplateView.as_view(template_name='index.html')),
 ]
-
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
