@@ -227,3 +227,25 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 # Frontend URL for password reset links
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
+
+# After STATIC_ROOT line (around line 100), add:
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'staticfiles'),
+]
+
+# Update TEMPLATES DIRS (around line 60):
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [os.path.join(BASE_DIR, 'staticfiles')],  # ← Add this
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
