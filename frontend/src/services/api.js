@@ -1,9 +1,12 @@
 // src/services/api.js
 import axios from 'axios';
 
-// ✅ Use environment variable (works for both local and production)
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000/api';
+// ✅ USE PROXY (no CORS) - Vercel rewrites /api to backend
+// For local development: uses localhost
+// For production: uses relative /api which Vercel proxies to Render
+const API_BASE_URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://127.0.0.1:8000/api';
 console.log('🔍 API Base URL:', API_BASE_URL);
+console.log('🔍 Environment:', process.env.NODE_ENV);
 
 const api = axios.create({
   baseURL: API_BASE_URL,
