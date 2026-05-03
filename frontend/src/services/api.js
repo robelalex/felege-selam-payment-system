@@ -1,11 +1,10 @@
 // src/services/api.js
 import axios from 'axios';
 
-// ✅ FOR PRODUCTION: Hardcoded Render URL
-// ✅ FOR LOCAL: Uses localhost
-const API_BASE_URL = process.env.NODE_ENV === 'production' 
-    ? 'https://felege-selam-payment-system.onrender.com/api'
-    : 'http://127.0.0.1:8000/api';
+// ✅ Use environment variable for API URL
+// Production: uses /api (Vercel proxy)
+// Local: uses localhost
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000/api';
 
 console.log('🔍 API Base URL:', API_BASE_URL);
 console.log('🔍 Environment:', process.env.NODE_ENV);
