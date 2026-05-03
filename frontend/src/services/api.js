@@ -1,10 +1,12 @@
 // src/services/api.js
 import axios from 'axios';
 
-// ✅ USE PROXY (no CORS) - Vercel rewrites /api to backend
-// For local development: uses localhost
-// For production: uses relative /api which Vercel proxies to Render
-const API_BASE_URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://127.0.0.1:8000/api';
+// ✅ FOR PRODUCTION: Hardcoded Render URL
+// ✅ FOR LOCAL: Uses localhost
+const API_BASE_URL = process.env.NODE_ENV === 'production' 
+    ? 'https://felege-selam-payment-system.onrender.com/api'
+    : 'http://127.0.0.1:8000/api';
+
 console.log('🔍 API Base URL:', API_BASE_URL);
 console.log('🔍 Environment:', process.env.NODE_ENV);
 
