@@ -23,105 +23,104 @@ function AdminLogin() {
     }
   }, [resendTimer]);
 
-  // Step 1: Login with email and password
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
+// Step 1: Login with email and password
+const handleLogin = async (e) => {
+  e.preventDefault();
+  setLoading(true);
+  setError('');
 
-    try {
-      // ✅ FIXED: Use '/login/' (not '/admin/login/')
-      const response = await api.post('/login/', {
-        email: email,
-        password: password
-      });
+  try {
+    // ✅ CORRECT: Use '/login/' not '/admin/login/'
+    const response = await api.post('/login/', {
+      email: email,
+      password: password
+    });
 
-      if (response.data.success && response.data.requires_otp) {
-        setUserId(response.data.user_id);
-        setStep('otp');
-        setResendTimer(60);
-        setError('');
-      } else {
-        setError(response.data.error || 'Invalid email or password');
-      }
-    } catch (err) {
-      console.error('Login error:', err);
-      if (err.response?.data?.error === 'Account pending approval') {
-        setError('Your account is pending Super Admin approval. Please wait for verification.');
-      } else {
-        setError(err.response?.data?.error || 'Login failed. Please check your credentials.');
-      }
-    } finally {
-      setLoading(false);
+    if (response.data.success && response.data.requires_otp) {
+      setUserId(response.data.user_id);
+      setStep('otp');
+      setResendTimer(60);
+      setError('');
+    } else {
+      setError(response.data.error || 'Invalid email or password');
     }
-  };
-
-  // Step 2: Verify OTP
-  const handleVerifyOTP = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-
-    try {
-      // ✅ FIXED: Use '/verify/' (not '/admin/verify/')
-      const response = await api.post('/verify/', {
-        user_id: userId,
-        otp_code: otpCode
-      });
-
-      if (response.data.success) {
-        localStorage.setItem('isAdmin', 'true');
-        localStorage.setItem('adminUser', JSON.stringify(response.data.user));
-        
-        if (response.data.user.school) {
-          localStorage.setItem('selectedSchool', JSON.stringify({
-            id: response.data.user.school.id,
-            name: response.data.user.school.name,
-            code: response.data.user.school.code,
-            logo: response.data.user.school.logo
-          }));
-        }
-        
-        navigate('/admin/dashboard');
-      } else {
-        setError(response.data.error || 'Invalid OTP code');
-      }
-    } catch (err) {
-      console.error('OTP verification error:', err);
-      setError(err.response?.data?.error || 'OTP verification failed. Please try again.');
-    } finally {
-      setLoading(false);
+  } catch (err) {
+    console.error('Login error:', err);
+    if (err.response?.data?.error === 'Account pending approval') {
+      setError('Your account is pending Super Admin approval. Please wait for verification.');
+    } else {
+      setError(err.response?.data?.error || 'Login failed. Please check your credentials.');
     }
-  };
+  } finally {
+    setLoading(false);
+  }
+};
 
-  // Resend OTP
-  const handleResendOTP = async () => {
-    if (resendTimer > 0) return;
-    
-    setLoading(true);
-    setError('');
-    
-    try {
-      // ✅ FIXED: Use '/login/' (not '/admin/login/')
-      const response = await api.post('/login/', {
-        email: email,
-        password: password
-      });
+// Step 2: Verify OTP
+const handleVerifyOTP = async (e) => {
+  e.preventDefault();
+  setLoading(true);
+  setError('');
+
+  try {
+    // ✅ CORRECT: Use '/verify/' not '/admin/verify/'
+    const response = await api.post('/verify/', {
+      user_id: userId,
+      otp_code: otpCode
+    });
+
+    if (response.data.success) {
+      localStorage.setItem('isAdmin', 'true');
+      localStorage.setItem('adminUser', JSON.stringify(response.data.user));
       
-      if (response.data.success) {
-        setUserId(response.data.user_id);
-        setResendTimer(60);
-        setError('');
-      } else {
-        setError(response.data.error || 'Failed to resend OTP');
+      if (response.data.user.school) {
+        localStorage.setItem('selectedSchool', JSON.stringify({
+          id: response.data.user.school.id,
+          name: response.data.user.school.name,
+          code: response.data.user.school.code,
+          logo: response.data.user.school.logo
+        }));
       }
-    } catch (err) {
-      setError('Failed to resend OTP. Please try again.');
-    } finally {
-      setLoading(false);
+      
+      navigate('/admin/dashboard');
+    } else {
+      setError(response.data.error || 'Invalid OTP code');
     }
-  };
+  } catch (err) {
+    console.error('OTP verification error:', err);
+    setError(err.response?.data?.error || 'OTP verification failed. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+};
 
+// Resend OTP
+const handleResendOTP = async () => {
+  if (resendTimer > 0) return;
+  
+  setLoading(true);
+  setError('');
+  
+  try {
+    // ✅ CORRECT: Use '/login/' not '/admin/login/'
+    const response = await api.post('/login/', {
+      email: email,
+      password: password
+    });
+    
+    if (response.data.success) {
+      setUserId(response.data.user_id);
+      setResendTimer(60);
+      setError('');
+    } else {
+      setError(response.data.error || 'Failed to resend OTP');
+    }
+  } catch (err) {
+    setError('Failed to resend OTP. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+};
   const handleBackToLogin = () => {
     setStep('login');
     setOtpCode('');
