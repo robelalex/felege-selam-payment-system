@@ -23,15 +23,15 @@ function AdminLogin() {
     }
   }, [resendTimer]);
 
-  // Step 1: Login with email and password - FIXED URL
+  // Step 1: Login with email and password
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
     try {
-      // ✅ CORRECT: Use /admin/login/ (not /admin/login-step1/)
-      const response = await api.post('/admin/login/', {
+      // ✅ FIXED: Use '/login/' (not '/admin/login/')
+      const response = await api.post('/login/', {
         email: email,
         password: password
       });
@@ -56,15 +56,15 @@ function AdminLogin() {
     }
   };
 
-  // Step 2: Verify OTP - FIXED URL
+  // Step 2: Verify OTP
   const handleVerifyOTP = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
     try {
-      // ✅ CORRECT: Use /admin/verify/ (not /admin/login-step2/)
-      const response = await api.post('/admin/verify/', {
+      // ✅ FIXED: Use '/verify/' (not '/admin/verify/')
+      const response = await api.post('/verify/', {
         user_id: userId,
         otp_code: otpCode
       });
@@ -94,7 +94,7 @@ function AdminLogin() {
     }
   };
 
-  // Resend OTP - FIXED URL
+  // Resend OTP
   const handleResendOTP = async () => {
     if (resendTimer > 0) return;
     
@@ -102,8 +102,8 @@ function AdminLogin() {
     setError('');
     
     try {
-      // ✅ CORRECT: Use /admin/login/ (not /admin/login-step1/)
-      const response = await api.post('/admin/login/', {
+      // ✅ FIXED: Use '/login/' (not '/admin/login/')
+      const response = await api.post('/login/', {
         email: email,
         password: password
       });
