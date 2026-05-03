@@ -3,6 +3,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.views.generic import TemplateView
 from rest_framework.routers import DefaultRouter
 from students.views import StudentViewSet
 from academics.views import AcademicYearViewSet
@@ -15,6 +16,7 @@ from users.views import CurrentUserView
 from schools.approval_views import pending_approvals, approve_school, reject_school
 from reports.views import dashboard_stats as reports_dashboard_stats, pending_payments_report
 from authentication.views import change_password
+
 # ✅ REMOVED temporary endpoints imports for security
 # from authentication.views import create_super_admin
 # from authentication.views import reset_superadmin_password
@@ -56,6 +58,13 @@ urlpatterns = [
     path('api/admin/pending-approvals/', pending_approvals, name='pending-approvals'),
     path('api/admin/approve/<int:user_id>/', approve_school, name='approve-school'),
     path('api/admin/reject/<int:user_id>/', reject_school, name='reject-school'),
+
+        # ✅ Serve React app for all other routes (must be LAST)
+    path('', TemplateView.as_view(template_name='index.html')),
+    path('admin-login/', TemplateView.as_view(template_name='index.html')),
+    path('admin-dashboard/', TemplateView.as_view(template_name='index.html')),
+    path('parent-login/', TemplateView.as_view(template_name='index.html')),
+    path('parent-dashboard/', TemplateView.as_view(template_name='index.html')),
 ]
 
 if settings.DEBUG:
