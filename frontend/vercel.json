@@ -1,5 +1,11 @@
 {
-  "installCommand": "npm install --legacy-peer-deps",
-  "buildCommand": "DISABLE_ESLINT_PLUGIN=true npm run build",
-  "outputDirectory": "build"
+    "installCommand": "npm install --legacy-peer-deps",
+    "buildCommand": "DISABLE_ESLINT_PLUGIN=true",
+    "outputDirectory": "build",
+    "rewrites": [
+        {
+            "source": "/api/(.*)",
+            "destination": "https://felege-selam-payment-system.onrender.com/api/$1"
+        }
+    ]
 }
