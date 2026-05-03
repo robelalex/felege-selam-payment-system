@@ -72,10 +72,11 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'core.urls'
 
+# ===== TEMPLATES CONFIGURATION =====
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [os.path.join(BASE_DIR, 'staticfiles_build')],  # ✅ React build folder
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -113,9 +114,12 @@ TIME_ZONE = 'Africa/Addis_Ababa'
 USE_I18N = True
 USE_TZ = True
 
-# Static files
+# ===== STATIC FILES CONFIGURATION =====
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'staticfiles_build'),  # ✅ Different folder from STATIC_ROOT
+]
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Media files (local fallback)
@@ -227,25 +231,3 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 # Frontend URL for password reset links
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
-
-# After STATIC_ROOT line (around line 100), add:
-STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'staticfiles'),
-]
-
-# Update TEMPLATES DIRS (around line 60):
-TEMPLATES = [
-    {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [os.path.join(BASE_DIR, 'staticfiles')],  # ← Add this
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
-            ],
-        },
-    },
-]
