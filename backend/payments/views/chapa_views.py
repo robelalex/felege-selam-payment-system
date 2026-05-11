@@ -424,3 +424,38 @@ def get_chapa_banks(request):
             {'id': '3', 'name': 'Awash Bank'},
         ]
         return JsonResponse({'success': True, 'banks': mock_banks, 'mock': True})
+
+
+# ========== NEW FUNCTION ADDED ==========
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def payment_status(request, tx_ref):
+    """Get payment status by transaction reference"""
+    try:
+        print(f"🔍 Checking payment status for tx_ref: {tx_ref}")
+        
+        # Check local database
+        payment = Payment.objects.filter(transaction_reference=tx_ref).first()
+        
+        if payment:
+            print(f"🔍 Found payment in database: Status={payment.status}")
+            return JsonResponse({
+                'success': True,
+                'status': payment.status,
+                'verified': payment.status == 'verified',
+                'amount': str(payment.amount),
+                'student_name': payment.student.full_name,
+                'month': payment.deadline.get_month_display() if payment.deadline else 'N/A'
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': 'Payment not found'
+            }, status=404)
+            
+    except Exception as e:
+        print(f"❌ Payment status error: {e}")
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)

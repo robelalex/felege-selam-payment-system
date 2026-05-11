@@ -67,52 +67,77 @@ class PaymentViewSet(viewsets.ModelViewSet):
         print(f"💰 Returning {len(serializer.data)} payments")
         return Response(serializer.data)
     
-    @action(detail=False, methods=['post'])
-    def initiate_payment(self, request):
-        """Parent initiates a payment"""
-        student_id = request.data.get('student_id')
-        deadline_id = request.data.get('deadline_id')
-        amount = request.data.get('amount')
-        payment_method = request.data.get('payment_method', 'telebirr')
-        paid_by = request.data.get('paid_by')
-        paid_by_phone = request.data.get('paid_by_phone')
-        school_id = request.headers.get('X-School-ID')
+@action(detail=False, methods=['post'])
+def initiate_payment(self, request):
+    """Parent initiates a payment for a specific student and deadline (ONE at a time)"""
+    student_id = request.data.get('student_id')
+    deadline_id = request.data.get('deadline_id')
+    amount = request.data.get('amount')
+    payment_method = request.data.get('payment_method', 'telebirr')
+    paid_by = request.data.get('paid_by')
+    paid_by_phone = request.data.get('paid_by_phone')
+    school_id = request.headers.get('X-School-ID')
+    
+    # Validate required fields
+    if not student_id:
+        return Response({'error': 'student_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+    if not deadline_id:
+        return Response({'error': 'deadline_id is required (pay one at a time)'}, status=status.HTTP_400_BAD_REQUEST)
+    if not amount:
+        return Response({'error': 'amount is required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        student = Student.objects.get(student_id=student_id)
         
-        try:
-            student = Student.objects.get(student_id=student_id)
-            
-            # ✅ Verify student belongs to this school
-            if school_id and str(student.school_id) != school_id:
-                return Response({'error': 'Student does not belong to your school'}, status=403)
-            
-            deadline = PaymentDeadline.objects.get(id=deadline_id)
-            
-            # ✅ Verify deadline belongs to this school
-            if school_id and str(deadline.school_id) != school_id:
-                return Response({'error': 'Deadline does not belong to your school'}, status=403)
-            
-            payment = Payment.objects.create(
-                student=student,
-                deadline=deadline,
-                amount=amount,
-                payment_method=payment_method,
-                paid_by=paid_by,
-                paid_by_phone=paid_by_phone,
-                status='pending'
-            )
-            
-            serializer = self.get_serializer(payment)
-            return Response({
-                'success': True,
-                'message': 'Payment initiated successfully',
-                'payment': serializer.data,
-                'instructions': 'Please complete the payment using Telebirr or bank transfer'
-            }, status=status.HTTP_201_CREATED)
-            
-        except Student.DoesNotExist:
-            return Response({'error': 'Student not found'}, status=404)
-        except PaymentDeadline.DoesNotExist:
-            return Response({'error': 'Payment deadline not found'}, status=404)
+        # Verify student belongs to this school
+        if school_id and str(student.school_id) != school_id:
+            return Response({'error': 'Student does not belong to your school'}, status=403)
+        
+        # Get the SPECIFIC deadline (only ONE payment item)
+        deadline = PaymentDeadline.objects.get(id=deadline_id)
+        
+        # Verify deadline belongs to this school
+        if school_id and str(deadline.school_id) != school_id:
+            return Response({'error': 'Deadline does not belong to your school'}, status=403)
+        
+        # FIX: Provide a default value for paid_by if not provided
+        # Since paid_by is required (not null in model), we must provide a value
+        if not paid_by:
+            # Use 'Anonymous' or get from request user if available
+            if request.user and request.user.is_authenticated:
+                paid_by = request.user.get_full_name() or request.user.username
+            else:
+                paid_by = 'Anonymous User'  # Default value
+        
+        # Provide default for paid_by_phone if not provided
+        if not paid_by_phone:
+            paid_by_phone = 'Not provided'
+        
+        # Create payment for THIS SPECIFIC deadline only (NOT the whole year)
+        payment = Payment.objects.create(
+            student=student,
+            deadline=deadline,  # ← Only ONE specific deadline/payment item
+            amount=amount,
+            payment_method=payment_method,
+            paid_by=paid_by,  # Now this will never be null
+            paid_by_phone=paid_by_phone,
+            status='pending'
+        )
+        
+        serializer = self.get_serializer(payment)
+        return Response({
+            'success': True,
+            'message': f'Payment initiated successfully for {deadline.description if deadline.description else deadline.get_month_display()} {deadline.academic_year}',
+            'payment': serializer.data,
+            'instructions': 'Please complete the payment using Telebirr or bank transfer'
+        }, status=status.HTTP_201_CREATED)
+        
+    except Student.DoesNotExist:
+        return Response({'error': f'Student with ID {student_id} not found'}, status=404)
+    except PaymentDeadline.DoesNotExist:
+        return Response({'error': f'Payment deadline with ID {deadline_id} not found'}, status=404)
+    except Exception as e:
+        return Response({'error': f'Payment initiation failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=True, methods=['post'])
     def verify_payment(self, request, pk=None):

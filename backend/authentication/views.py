@@ -23,7 +23,7 @@ from .throttles import LoginRateThrottle
 from common.utils import log_action
 from .utils import generate_otp, send_otp_email, verify_otp
 from common.email_service import send_otp_email
-
+from .permissions import IsSuperAdmin, IsSchoolAdmin
 # ===== HELPER FUNCTION FOR PASSWORD HISTORY =====
 def save_password_history(user, password):
     """Save password to history and keep only last 5"""
@@ -225,7 +225,7 @@ def parent_login_step1(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def parent_login_step2(request):
-    """Step 2: Verify OTP and get student access"""
+    """Step 2: Verify OTP and return success (without student list)"""
     user_id = request.data.get('user_id')
     otp_code = request.data.get('otp_code')
     
@@ -239,15 +239,8 @@ def parent_login_step2(request):
     
     profile = user.profile
     
-    print(f"🔐 Verifying OTP for {user.email}")
-    print(f"   Input OTP: {otp_code}")
-    print(f"   DB OTP: {profile.otp_code}")
-    print(f"   Created at: {profile.otp_created_at}")
-    
     # Verify OTP
     valid, message = verify_otp(profile, otp_code)
-    
-    print(f"   Valid: {valid}, Message: {message}")
     
     if not valid:
         return Response({'error': message}, status=401)
@@ -257,28 +250,16 @@ def parent_login_step2(request):
     profile.otp_created_at = None
     profile.save()
     
-    # Get students for this parent
-    from students.models import Student
-    students = Student.objects.filter(parent_email=user.email)
-    
-    # Include school info for each student
-    student_data = [{
-        'id': s.id,
-        'student_id': s.student_id,
-        'full_name': s.full_name,
-        'grade': f"Grade {s.grade}",
-        'section': s.section,
-        'school_name': s.school.name if s.school else None,
-        'school_logo': s.school.logo.url if s.school and s.school.logo else None
-    } for s in students]
-    
     # Create session
     auth_login(request, user)
     
+    # ✅ REMOVED: The student list is no longer returned
+    # Parent will now manually enter Student ID on the next page
+    
     return Response({
         'success': True,
-        'message': 'Access granted',
-        'students': student_data
+        'message': 'OTP verified successfully. Please enter your student ID.',
+        'user_id': user.id
     })
 
 # ===== ORIGINAL REGISTRATION ENDPOINT =====
@@ -569,46 +550,192 @@ def get_csrf_token(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def get_current_user(request):
     """Get current logged in user info"""
-    user = request.user
-    
-    school_info = None
     try:
-        from schools.models import SchoolAdminProfile, School
-        school_admin_profile = SchoolAdminProfile.objects.filter(user=user, is_active=True).first()
-        if school_admin_profile:
-            school = School.objects.get(id=school_admin_profile.school_id)
-            school_info = {
-                'id': school.id,
-                'name': school.name,
-                'code': school.code,
-                'logo': school.logo.url if school.logo else None
+        if not request.user.is_authenticated:
+            return Response({
+                'success': False,
+                'error': 'Not authenticated',
+                'user': None
+            }, status=200)
+        
+        user = request.user
+        school_info = None
+        
+        try:
+            from schools.models import SchoolAdminProfile, School
+            school_admin_profile = SchoolAdminProfile.objects.filter(user=user, is_active=True).first()
+            if school_admin_profile:
+                school = School.objects.get(id=school_admin_profile.school_id)
+                school_info = {
+                    'id': school.id,
+                    'name': school.name,
+                    'code': school.code,
+                    'logo': school.logo.url if school.logo else None
+                }
+        except Exception as e:
+            print(f"Error getting school info: {e}")
+        
+        role = 'staff'
+        is_super_admin = False
+        is_school_admin = False
+        
+        if hasattr(user, 'profile'):
+            profile = user.profile
+            role = profile.role
+            is_super_admin = (role == 'super_admin')
+            is_school_admin = (role == 'school_admin')
+        
+        return Response({
+            'success': True,
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'username': user.username,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'role': role,
+                'is_super_admin': is_super_admin,
+                'is_school_admin': is_school_admin,
+                'school': school_info
             }
+        })
     except Exception as e:
-        print(f"❌ get_current_user - Error getting school: {e}")
-    
-    role = 'school_admin'
-    is_super_admin = False
-    is_school_admin = True
-    
-    if hasattr(user, 'profile'):
-        role = user.profile.role
-        is_super_admin = user.profile.is_super_admin
-        is_school_admin = user.profile.is_school_admin
-    
-    return Response({
-        'success': True,
-        'user': {
-            'id': user.id,
-            'email': user.email,
-            'username': user.username,
-            'first_name': user.first_name,
-            'last_name': user.last_name,
-            'role': role,
-            'is_super_admin': is_super_admin,
-            'is_school_admin': is_school_admin,
-            'school': school_info
-        }
-    })
+        print(f"Error in get_current_user: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_school_staff(request):
+    """Get all staff members for the school admin's school"""
+    try:
+        if not request.user.is_authenticated:
+            return Response({'error': 'Authentication required'}, status=401)
+        
+        if not hasattr(request.user, 'profile'):
+            return Response({'error': 'User profile not found'}, status=403)
+        
+        if request.user.profile.role != 'school_admin':
+            return Response({'error': 'Only school admins can view staff'}, status=403)
+        
+        school_id = request.user.profile.school_id
+        
+        if not school_id:
+            return Response({'error': 'No school associated with this admin'}, status=400)
+        
+        users = User.objects.filter(
+            profile__school_id=school_id,
+            profile__role__in=['registrar', 'payment_manager', 'reporting_manager', 'reminder_manager']
+        )
+        
+        from .serializers import UserSerializer
+        serializer = UserSerializer(users, many=True)
+        return Response(serializer.data)
+        
+    except Exception as e:
+        print(f"Error in get_school_staff: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['POST'])
+@permission_classes([AllowAny]) 
+def create_staff(request):
+    """Create a new staff member"""
+    try:
+        if not request.user.is_authenticated:
+            return Response({'error': 'Authentication required'}, status=401)
+        
+        if not hasattr(request.user, 'profile'):
+            return Response({'error': 'User profile not found'}, status=403)
+        
+        if request.user.profile.role != 'school_admin':
+            return Response({'error': 'Only school admins can create staff'}, status=403)
+        
+        email = request.data.get('email')
+        username = request.data.get('username')
+        password = request.data.get('password')
+        role = request.data.get('role')
+        first_name = request.data.get('first_name', '')
+        last_name = request.data.get('last_name', '')
+        phone = request.data.get('phone', '')
+        
+        valid_roles = ['registrar', 'payment_manager', 'reporting_manager', 'reminder_manager']
+        
+        if role not in valid_roles:
+            return Response({'error': f'Invalid role. Choose from: {valid_roles}'}, status=400)
+        
+        if User.objects.filter(email=email).exists():
+            return Response({'error': 'Email already exists'}, status=400)
+        
+        if User.objects.filter(username=username).exists():
+            return Response({'error': 'Username already exists'}, status=400)
+        
+        school_id = request.user.profile.school_id
+        
+        user = User.objects.create(
+            email=email,
+            username=username,
+            password=make_password(password),
+            first_name=first_name,
+            last_name=last_name,
+            is_active=True
+        )
+        
+        UserProfile.objects.create(
+            user=user,
+            role=role,
+            phone=phone,
+            school_id=school_id,
+            is_email_verified=True
+        )
+        
+        return Response({
+            'success': True,
+            'message': f'Staff member created successfully',
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'username': user.username,
+                'role': role
+            }
+        }, status=201)
+        
+    except Exception as e:
+        print(f"Error in create_staff: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['DELETE'])
+@permission_classes([AllowAny])
+def delete_staff(request, user_id):
+    """Delete a staff member"""
+    try:
+        if not request.user.is_authenticated:
+            return Response({'error': 'Authentication required'}, status=401)
+        
+        if not hasattr(request.user, 'profile'):
+            return Response({'error': 'User profile not found'}, status=403)
+        
+        if request.user.profile.role != 'school_admin':
+            return Response({'error': 'Only school admins can delete staff'}, status=403)
+        
+        school_id = request.user.profile.school_id
+        
+        user = User.objects.get(id=user_id, profile__school_id=school_id)
+        user.delete()
+        return Response({'success': True, 'message': 'Staff member deleted'})
+        
+    except User.DoesNotExist:
+        return Response({'error': 'Staff member not found'}, status=404)
+    except Exception as e:
+        print(f"Error in delete_staff: {e}")
+        return Response({'error': str(e)}, status=500)

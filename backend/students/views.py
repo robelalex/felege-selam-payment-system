@@ -85,6 +85,22 @@ class StudentViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
     
+    def perform_create(self, serializer):
+        """✅ Automatically set school from X-School-ID header when creating a student"""
+        school_id = self.request.headers.get('X-School-ID')
+        
+        if not school_id:
+            raise serializers.ValidationError({"error": "School ID required (X-School-ID header)"})
+        
+        try:
+            school = School.objects.get(id=int(school_id))
+            serializer.save(school=school)
+            print(f"📚 Created student for school: {school.name}")
+        except School.DoesNotExist:
+            raise serializers.ValidationError({"error": "School not found"})
+        except ValueError:
+            raise serializers.ValidationError({"error": "Invalid school ID"})
+    
     @action(detail=False, methods=['get'], url_path='search_by_id')
     def search_by_id(self, request):
         """Search student by their unique ID"""
@@ -126,22 +142,54 @@ class StudentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='pending_payments')
     def pending_payments(self, request, pk=None):
         """Get all pending payments for a student - ONLY for their academic year"""
-        student = self.get_object()
-        
-        paid_deadlines = Payment.objects.filter(
-            student=student, 
-            status='verified'
-        ).values_list('deadline_id', flat=True)
-        
-        pending_deadlines = PaymentDeadline.objects.filter(
-            school=student.school,
-            academic_year=student.academic_year,
-            is_active=True
-        ).exclude(id__in=paid_deadlines)
-        
-        from .serializers import PaymentDeadlineSerializer
-        serializer = PaymentDeadlineSerializer(pending_deadlines, many=True)
-        return Response(serializer.data)
+        try:
+            student = self.get_object()
+            print(f"📚 Getting pending payments for student ID: {student.id} - {student.student_id}")
+            
+            # Get verified/paid deadlines
+            paid_deadlines = Payment.objects.filter(
+                student=student, 
+                status='verified'
+            ).values_list('deadline_id', flat=True)
+            
+            print(f"📚 Paid deadline IDs: {list(paid_deadlines)}")
+            
+            # Get pending deadlines
+            pending_deadlines = PaymentDeadline.objects.filter(
+                school=student.school,
+                academic_year=student.academic_year,
+                is_active=True
+            ).exclude(id__in=paid_deadlines)
+            
+            print(f"📚 Found {pending_deadlines.count()} pending deadlines")
+            
+            # Format the response with all required fields
+            data = []
+            for deadline in pending_deadlines:
+                data.append({
+                    'id': deadline.id,
+                    'deadline_id': deadline.id,
+                    'month_name': deadline.get_month_display(),
+                    'month_number': deadline.month,
+                    'academic_year': deadline.academic_year,
+                    'amount': str(deadline.amount),
+                    'due_date': deadline.due_date,
+                    'description': deadline.description,
+                    'grade': deadline.grade,
+                    'is_active': deadline.is_active
+                })
+                print(f"📚 Added pending: {deadline.get_month_display()} - Amount: {deadline.amount}")
+            
+            return Response(data)
+            
+        except Exception as e:
+            print(f"❌ Error in pending_payments: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
     @action(detail=False, methods=['get'], url_path='download_template')
     def download_template(self, request):
@@ -285,3 +333,16 @@ class StudentViewSet(viewsets.ModelViewSet):
             
         except Exception as e:
             return Response({'error': str(e)}, status=500)
+        
+    @action(detail=True, methods=['patch'])
+    def update_monthly_fee(self, request, pk=None):
+        """Update a student's monthly fee"""
+        student = self.get_object()
+        new_fee = request.data.get('monthly_fee')
+        
+        if new_fee:
+            student.monthly_fee = new_fee
+            student.save()
+            return Response({'success': True, 'monthly_fee': student.monthly_fee})
+        
+        return Response({'error': 'monthly_fee required'}, status=400)

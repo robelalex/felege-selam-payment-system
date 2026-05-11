@@ -62,3 +62,4 @@ def verify_otp(user_profile, entered_otp):
         return False, "OTP code has expired"
     
     return True, "OTP verified"
+

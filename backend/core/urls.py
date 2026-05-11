@@ -16,8 +16,8 @@ from users.views import CurrentUserView
 from schools.approval_views import pending_approvals, approve_school, reject_school
 from reports.views import dashboard_stats as reports_dashboard_stats, pending_payments_report
 from authentication.views import change_password
+from authentication import views as auth_views  # ✅ ADD THIS
 
-# Create a main router
 router = DefaultRouter()
 router.register(r'students', StudentViewSet, basename='student')
 router.register(r'academic-years', AcademicYearViewSet, basename='academic-year')
@@ -34,6 +34,9 @@ urlpatterns = [
     path('api/', include('authentication.urls')), 
     path('api/', include('payments.urls')),
     path('api/users/me/', CurrentUserView.as_view(), name='current_user'),
+    
+    # ✅ ADD THIS - The correct /me/ endpoint
+    path('api/me/', auth_views.get_current_user, name='current-user'),
     
     # Payment endpoints
     path('api/payments-filtered/', payments_filtered_by_year, name='payments-filtered'),
@@ -55,14 +58,13 @@ urlpatterns = [
     path('api/admin/reject/<int:user_id>/', reject_school, name='reject-school'),
 ]
 
-# ✅ Serve static files in production
+# Serve static files
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
-# ✅ Serve media files (only in DEBUG mode)
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
-# ✅ Serve React app for all other routes (must be LAST)
+# Serve React app for all other routes (must be LAST)
 urlpatterns += [
     path('', TemplateView.as_view(template_name='index.html')),
     path('admin-login/', TemplateView.as_view(template_name='index.html')),

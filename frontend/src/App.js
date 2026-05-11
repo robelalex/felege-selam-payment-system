@@ -35,6 +35,11 @@ import ParentLogin from './pages/ParentLogin';
 import SelectStudent from './pages/SelectStudent';
 import ParentDashboard from './pages/ParentDashboard';
 import EnterStudentId from './pages/EnterStudentId';
+import StaffManagement from './pages/StaffManagement';
+import RegistrarDashboard from './pages/RegistrarDashboard';
+import PaymentManagerDashboard from './pages/PaymentManagerDashboard';
+import ReportingDashboard from './pages/ReportingDashboard';
+import ReminderDashboard from './pages/ReminderDashboard';
 // Styles
 import './index.css';
 
@@ -60,15 +65,10 @@ function App() {
       <Router>
         <Toaster position="top-right" />
         <Routes>
+          {/* ✅ CHANGED: Root now redirects to parent login */}
+          <Route path="/" element={<Navigate to="/parent/login" />} />
+          
           {/* Parent Routes - Using ParentLayout */}
-          <Route
-            path="/"
-            element={
-              <ParentLayout>
-                <StudentSearch />
-              </ParentLayout>
-            }
-          />
           <Route
             path="/student/:studentId"
             element={
@@ -200,15 +200,61 @@ function App() {
   </ProtectedRoute>
 } />
 
+<Route path="/admin/staff" element={
+  <ProtectedRoute>
+    <AdminLayout>
+      <StaffManagement />
+    </AdminLayout>
+  </ProtectedRoute>
+} />
+
+<Route path="/registrar/dashboard" element={
+  <ProtectedRoute>
+    <AdminLayout>
+      <RegistrarDashboard />
+    </AdminLayout>
+  </ProtectedRoute>
+} />
+
+<Route path="/payment/dashboard" element={
+  <ProtectedRoute>
+    <AdminLayout>
+      <PaymentManagerDashboard />
+    </AdminLayout>
+  </ProtectedRoute>
+} />
+
+<Route path="/reports/dashboard" element={
+  <ProtectedRoute>
+    <AdminLayout>
+      <ReportingDashboard />
+    </AdminLayout>
+  </ProtectedRoute>
+} />
+
+<Route path="/reminder/dashboard" element={
+  <ProtectedRoute>
+    <AdminLayout>
+      <ReminderDashboard />
+    </AdminLayout>
+  </ProtectedRoute>
+} />
+
           {/* Test Routes */}
           <Route path="/login-test" element={<LoginTest />} />
           <Route path="/simple-test" element={<SimpleTest />} />
           <Route path="/payment/success" element={<PaymentSuccess />} />
 
+          {/* ✅ Parent Portal Routes - CORRECT ORDER */}
           <Route path="/parent/login" element={<ParentLogin />} />
-          <Route path="/parent/select-student" element={<SelectStudent />} />
           <Route path="/parent/enter-student-id" element={<EnterStudentId />} />
           <Route path="/parent/dashboard/:studentId" element={<ParentDashboard />} />
+          
+          {/* Keep for backward compatibility */}
+          <Route path="/parent/select-student" element={<SelectStudent />} />
+          
+          {/* ✅ Old StudentSearch - you can remove this route if not needed */}
+          {/* <Route path="/" element={<StudentSearch />} /> */}
         </Routes>
       </Router>
       </YearProvider>

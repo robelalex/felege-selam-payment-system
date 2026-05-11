@@ -138,3 +138,9 @@ class Student(models.Model):
                 print(f"Generated ID for {self.first_name}: {self.student_id}")
         
         super().save(*args, **kwargs)
+        # Add to Student class in students/models.py
+    def update_monthly_fee(self, new_fee):
+        """Update student's monthly fee"""
+        self.monthly_fee = new_fee
+        self.save()
+        return True

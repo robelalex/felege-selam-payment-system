@@ -28,4 +28,9 @@ urlpatterns = [
     
     # CSRF token
     path('csrf/', views.get_csrf_token, name='csrf-token'),
+
+        # ✅ NEW: Staff Management endpoints
+    path('staff/', views.get_school_staff, name='get-school-staff'),
+    path('staff/create/', views.create_staff, name='create-staff'),
+    path('staff/delete/<int:user_id>/', views.delete_staff, name='delete-staff'),
 ]

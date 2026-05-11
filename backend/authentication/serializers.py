@@ -7,6 +7,7 @@ from .models import UserProfile, PasswordHistory
 import re
 
 
+# Add to UserSerializer - make sure 'role' is included
 class UserSerializer(serializers.ModelSerializer):
     role = serializers.CharField(source='profile.role')
     phone = serializers.CharField(source='profile.phone')

@@ -1,4 +1,5 @@
 # payments/views.py - COMPLETE FIXED VERSION with Delete Methods
+from django.db import models  # Add at top
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
@@ -9,7 +10,6 @@ from .serializers import PaymentSerializer, PaymentDeadlineSerializer
 from .services.reminder_service import ReminderService
 from academics.models import AcademicYear
 from schools.models import School
-
 
 class PaymentViewSet(viewsets.ModelViewSet):
     serializer_class = PaymentSerializer
@@ -200,20 +200,28 @@ class PaymentViewSet(viewsets.ModelViewSet):
             print(f"❌ Bulk delete error: {e}")
             return Response({'error': str(e)}, status=500)
 
-
 class PaymentDeadlineViewSet(viewsets.ModelViewSet):
     serializer_class = PaymentDeadlineSerializer
     
     def get_queryset(self):
         """Filter PaymentDeadlines by school from header"""
         school_id = self.request.headers.get('X-School-ID')
-        print(f"📅 PaymentDeadlineViewSet - X-School-ID: {school_id}")
+        grade = self.request.query_params.get('grade')  # ✅ NEW
+        print(f"📅 PaymentDeadlineViewSet - X-School-ID: {school_id}, grade: {grade}")
         
         if not school_id:
             return PaymentDeadline.objects.none()
         
         try:
-            return PaymentDeadline.objects.filter(school_id=int(school_id))
+            queryset = PaymentDeadline.objects.filter(school_id=int(school_id))
+            
+            # ✅ Filter by grade if specified
+            if grade:
+                queryset = queryset.filter(
+                    models.Q(grade=int(grade)) | models.Q(grade__isnull=True)
+                )
+            
+            return queryset
         except ValueError:
             return PaymentDeadline.objects.none()
     
@@ -225,10 +233,11 @@ class PaymentDeadlineViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         school_id = self.request.headers.get('X-School-ID')
+        grade = self.request.data.get('grade')  # ✅ NEW
         if school_id:
             try:
-                serializer.save(school_id=int(school_id))
-                print(f"📅 Created deadline for school ID: {school_id}")
+                serializer.save(school_id=int(school_id), grade=grade if grade else None)
+                print(f"📅 Created deadline for school ID: {school_id}, grade: {grade}")
             except ValueError:
                 from rest_framework import serializers
                 raise serializers.ValidationError({"error": "Invalid school ID"})
@@ -240,6 +249,7 @@ class PaymentDeadlineViewSet(viewsets.ModelViewSet):
     def active_deadlines(self, request):
         """Get all active payment deadlines for the current school"""
         school_id = request.headers.get('X-School-ID')
+        grade = request.query_params.get('grade')  # ✅ NEW
         
         if not school_id:
             return Response([], status=200)
@@ -249,7 +259,14 @@ class PaymentDeadlineViewSet(viewsets.ModelViewSet):
                 school_id=int(school_id), 
                 is_active=True
             )
-            print(f"📅 Active deadlines filtered by school ID: {school_id}, count: {deadlines.count()}")
+            
+            # ✅ Filter by grade if specified
+            if grade:
+                deadlines = deadlines.filter(
+                    models.Q(grade=int(grade)) | models.Q(grade__isnull=True)
+                )
+            
+            print(f"📅 Active deadlines filtered by school ID: {school_id}, grade: {grade}, count: {deadlines.count()}")
         except ValueError:
             deadlines = PaymentDeadline.objects.none()
         

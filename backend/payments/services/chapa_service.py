@@ -51,6 +51,10 @@ class ChapaService:
             print("❌ CHAPA_SECRET_KEY not set!")
             return {'success': False, 'error': 'Chapa secret key not configured'}
         
+        # Get frontend URL from settings or use default
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+        backend_url = getattr(settings, 'BACKEND_URL', 'https://felege-selam-payment-system.onrender.com')
+        
         # Validate required fields
         required_fields = ['amount', 'email', 'first_name', 'last_name', 'tx_ref']
         for field in required_fields:
@@ -64,6 +68,15 @@ class ChapaService:
             title = title[:16]
             print(f"Title truncated to: {title}")
         
+        # ✅ FIXED: Use production URLs
+        # callback_url: where Chapa sends webhook (backend)
+        # return_url: where user is redirected after payment (frontend)
+        callback_url = kwargs.get('callback_url', f'{backend_url}/api/chapa/webhook/')
+        return_url = kwargs.get('return_url', f'{frontend_url}/payment/success')
+        
+        print(f"✅ Using callback_url: {callback_url}")
+        print(f"✅ Using return_url: {return_url}")
+        
         # Build payload exactly as Chapa expects
         payload = {
             'amount': str(kwargs.get('amount')),
@@ -72,8 +85,8 @@ class ChapaService:
             'first_name': kwargs.get('first_name'),
             'last_name': kwargs.get('last_name'),
             'tx_ref': kwargs.get('tx_ref'),
-            'callback_url': kwargs.get('callback_url', 'http://localhost:8000/api/chapa/webhook/'),
-            'return_url': kwargs.get('return_url', 'http://localhost:3000/payment/success'),
+            'callback_url': callback_url,
+            'return_url': return_url,
             'customization': {
                 'title': title,
                 'description': kwargs.get('description', 'School Fee Payment')

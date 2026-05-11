@@ -24,22 +24,23 @@ function PaymentSuccess() {
           const storedPayment = JSON.parse(sessionStorage.getItem('pendingPayment') || '{}');
           
           console.log('📦 Stored Payment:', storedPayment);
+          console.log('🔍 Verifying tx_ref:', tx_ref);
           
-          // Verify the payment with your backend
-          const response = await api.get(`/chapa/verify/?tx_ref=${tx_ref}`);
+          // ✅ CHANGED: Use the new payment-status endpoint instead of chapa/verify
+          const response = await api.get(`/payments/status/${tx_ref}/`);
           
           console.log('🔍 Verification Response:', response.data);
           
-          if (response.data.success && response.data.status === 'success') {
+          if (response.data.success && response.data.verified) {
             setSuccess(true);
             
-            // ✅ Create complete payment object with all fields
+            // Create complete payment object with all fields
             const paymentData = {
               id: storedPayment.deadline_id || response.data.payment_id,
-              amount: storedPayment.amount || response.data.amount,
+              amount: response.data.amount || storedPayment.amount,
               payment_method: 'chapa',
-              month: storedPayment.month_name,
-              month_name: storedPayment.month_name,
+              month: response.data.month || storedPayment.month_name,
+              month_name: response.data.month || storedPayment.month_name,
               academic_year: storedPayment.academic_year,
               transaction_reference: tx_ref,
               payment_date: new Date().toISOString()
@@ -48,20 +49,20 @@ function PaymentSuccess() {
             console.log('📄 Payment Data for Receipt:', paymentData);
             setPayment(paymentData);
             
-            // ✅ FIX: Create complete student object with school name
+            // Create complete student object with school name
             const studentData = {
-              full_name: storedPayment.student_name,
+              full_name: response.data.student_name || storedPayment.student_name,
               student_id: storedPayment.student_id,
               grade: storedPayment.grade,
               section: storedPayment.section || 'A',
               academic_year: storedPayment.academic_year,
-              school_name: 'ABFM Academy'  // ✅ Add school name explicitly
+              school_name: 'ABFM Academy'
             };
             
             console.log('👨‍🎓 Student Data for Receipt:', studentData);
             setStudent(studentData);
             
-            // ✅ FIX: Save student to localStorage for receipt component
+            // Save student to localStorage for receipt component
             localStorage.setItem('selectedStudent', JSON.stringify(studentData));
             console.log('✅ Student saved to localStorage:', studentData);
             
@@ -70,6 +71,7 @@ function PaymentSuccess() {
           }
         } catch (err) {
           console.error('Verification error:', err);
+          console.error('Error response:', err.response?.data);
         }
       } else {
         console.log('No tx_ref found in URL');

@@ -28,16 +28,26 @@ class PaymentDeadline(models.Model):
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     
+    # ✅ NEW: Grade-specific deadline (null = applies to all grades)
+    grade = models.IntegerField(
+        choices=Student.GRADE_CHOICES,
+        null=True,
+        blank=True,
+        help_text="Leave blank to apply to all grades"
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        unique_together = ['school', 'academic_year', 'month']
-        ordering = ['academic_year', 'month']
+        unique_together = ['school', 'academic_year', 'month', 'grade']  # ✅ Updated
+        ordering = ['academic_year', 'month', 'grade']
     
     def __str__(self):
         month_name = dict(self.MONTH_CHOICES)[self.month]
-        return f"{self.academic_year} - {month_name}"
+        if self.grade:
+            return f"{self.academic_year} - {month_name} (Grade {self.grade})"
+        return f"{self.academic_year} - {month_name} (All Grades)"
 
 class Payment(models.Model):
     PAYMENT_METHODS = [
