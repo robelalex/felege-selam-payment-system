@@ -206,7 +206,7 @@ def admin_login_step2(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def parent_login_step1(request):
-    """Step 1: Parent sends email, receives OTP"""
+    """Step 1: Parent sends email, receives OTP - TEST MODE"""
     email = request.data.get('email')
     
     if not email:
@@ -219,9 +219,9 @@ def parent_login_step1(request):
     if not students.exists():
         return Response({'error': 'No student found with this email'}, status=404)
     
-    # Generate OTP
-    otp_code = generate_otp()
-    print(f"🔐 Generated OTP for {email}: {otp_code}")  # Debug print
+    # ✅ Use fixed OTP 123456 for testing
+    otp_code = "123456"
+    print(f"🔐 PARENT LOGIN - Email: {email}, OTP: {otp_code}")
     
     # Create or update user profile for this email
     username = f"parent_{email.replace('@', '_').replace('.', '_')}"
@@ -240,27 +240,24 @@ def parent_login_step1(request):
             is_email_verified=True
         )
     
-    # ✅ FIX: Get or create profile and save OTP
+    # Save OTP
     profile = user.profile
     profile.otp_code = otp_code
     profile.otp_created_at = timezone.now()
     profile.save()
     
-    print(f"✅ OTP saved for {email}: {profile.otp_code}")  # Debug print
-    
-    # Send OTP email
-    send_otp_email(email, otp_code, 'parent')
+    print(f"✅ OTP saved for {email}: {profile.otp_code}")
     
     return Response({
         'success': True,
-        'message': 'OTP sent to your email',
+        'message': 'OTP sent to your email (Use: 123456)',
         'user_id': user.id
     })
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def parent_login_step2(request):
-    """Step 2: Verify OTP and return success (without student list)"""
+    """Step 2: Verify OTP and return success - ACCEPTS 123456 FOR TESTING"""
     user_id = request.data.get('user_id')
     otp_code = request.data.get('otp_code')
     
@@ -272,6 +269,17 @@ def parent_login_step2(request):
     except User.DoesNotExist:
         return Response({'error': 'User not found'}, status=404)
     
+    # ✅ ALLOW FIXED OTP 123456 FOR TESTING
+    if otp_code == "123456":
+        # Login the user
+        auth_login(request, user)
+        return Response({
+            'success': True,
+            'message': 'OTP verified successfully. Please enter your student ID.',
+            'user_id': user.id
+        })
+    
+    # Otherwise use normal OTP verification
     profile = user.profile
     
     # Verify OTP
@@ -287,9 +295,6 @@ def parent_login_step2(request):
     
     # Create session
     auth_login(request, user)
-    
-    # ✅ REMOVED: The student list is no longer returned
-    # Parent will now manually enter Student ID on the next page
     
     return Response({
         'success': True,
