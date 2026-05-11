@@ -32,6 +32,7 @@ ALLOWED_HOSTS = [
     '10.141.130.95',
     '.onrender.com',
     'felege-selam-api.onrender.com',
+    'felege-selam-payment-system.onrender.com',  # ✅ Add this
     'testserver', 
 ]
 
@@ -169,6 +170,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://felege-selam-payment-system.vercel.app",
+    "https://felege-selam-payment-system.vercel.app",
     "https://*.vercel.app",
 ]
 
@@ -179,6 +181,8 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.vercel.app",
 ]
 
+# ✅ Add this for production
+CORS_ALLOW_ALL_ORIGINS = False  # Don't allow all, only specified
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
 CORS_ALLOW_HEADERS = [
@@ -186,7 +190,6 @@ CORS_ALLOW_HEADERS = [
     'dnt', 'origin', 'user-agent', 'x-csrftoken', 'x-requested-with',
     'x-school-id',
 ]
-
 # ===== PRODUCTION SETTINGS =====
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
 if RENDER_EXTERNAL_HOSTNAME:
