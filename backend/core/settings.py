@@ -27,6 +27,9 @@ DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
+    '10.140.190.94',
+    '10.146.175.12',
+    '10.141.130.95',
     '.onrender.com',
     'felege-selam-api.onrender.com',
     'testserver', 
@@ -231,3 +234,6 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 # Frontend URL for password reset links
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
+
+# Add this line at the end of settings.py (after FRONTEND_URL)
+BACKEND_URL = os.environ.get('BACKEND_URL', 'https://felege-selam-payment-system.onrender.com')

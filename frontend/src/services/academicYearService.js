@@ -3,17 +3,12 @@ import api from './api';
 
 class AcademicYearService {
   async getAllYears() {
-    // Don't add year filter to this endpoint
-    const response = await api.get('/academic-years/', {
-      params: {} // Empty params to avoid interceptor adding year
-    });
+    const response = await api.get('/academic-years/');
     return response.data;
   }
 
   async getCurrentYear() {
-    const response = await api.get('/academic-years/current/', {
-      params: {}
-    });
+    const response = await api.get('/academic-years/current/');
     return response.data;
   }
 
@@ -42,8 +37,27 @@ class AcademicYearService {
     return response.data;
   }
 
+  // ✅ NEW: Delete academic year
   async deleteYear(yearId) {
     const response = await api.delete(`/academic-years/${yearId}/`);
+    return response.data;
+  }
+
+  // ✅ NEW: Archive academic year (soft delete)
+  async archiveYear(yearId) {
+    const response = await api.patch(`/academic-years/${yearId}/archive/`);
+    return response.data;
+  }
+
+  // ✅ NEW: Restore archived year
+  async restoreYear(yearId) {
+    const response = await api.patch(`/academic-years/${yearId}/restore/`);
+    return response.data;
+  }
+
+  // ✅ NEW: Get archived years
+  async getArchivedYears() {
+    const response = await api.get('/academic-years/archived/');
     return response.data;
   }
 }

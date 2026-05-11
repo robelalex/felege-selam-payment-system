@@ -19,7 +19,8 @@ import {
   Eye,
   CalendarDays,
   User,
-  ArrowLeft
+  ArrowLeft,
+  Users as UsersIcon
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -29,15 +30,24 @@ const AdminLayout = ({ children }) => {
   const [showYearSelectorModal, setShowYearSelectorModal] = useState(false);
   const [schoolInfo, setSchoolInfo] = useState(null);
   const [adminUser, setAdminUser] = useState(null);
-  const [isSettingsMode, setIsSettingsMode] = useState(false); // Toggle between modes
+  const [isSettingsMode, setIsSettingsMode] = useState(false);
+  const [userRole, setUserRole] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
 
-  useEffect(() => {
-    setSidebarOpen(false);
-    fetchAdminUser();
-    fetchSchoolInfo();
-  }, [location.pathname]);
+useEffect(() => {
+  setSidebarOpen(false);
+  
+  // First fetch admin user from localStorage
+  fetchAdminUser();
+  
+  // Then fetch school info and user role in sequence
+  const initData = async () => {
+    await fetchSchoolInfo();
+    await fetchUserRole();
+  };
+  initData();
+}, [location.pathname]);
 
   const fetchSchoolInfo = async () => {
     try {
@@ -63,10 +73,24 @@ const AdminLayout = ({ children }) => {
     if (user) {
       const parsedUser = JSON.parse(user);
       setAdminUser(parsedUser);
+      if (parsedUser.role) {
+        setUserRole(parsedUser.role);
+      }
       if (parsedUser.school) {
         localStorage.setItem('selectedSchool', JSON.stringify(parsedUser.school));
         setSchoolInfo(parsedUser.school);
       }
+    }
+  };
+
+  const fetchUserRole = async () => {
+    try {
+      const response = await api.get('/me/');
+      if (response.data?.user?.role) {
+        setUserRole(response.data.user.role);
+      }
+    } catch (err) {
+      console.error('Error fetching user role:', err);
     }
   };
 
@@ -88,13 +112,14 @@ const AdminLayout = ({ children }) => {
     navigate('/admin/login');
   };
 
-  // Toggle between Normal Mode and Settings Mode
   const toggleSettingsMode = () => {
     setIsSettingsMode(!isSettingsMode);
   };
 
-  // Normal Mode Navigation Items
-  const normalNavItems = [
+  // ========== ROLE-BASED NAVIGATION ==========
+  
+  // School Admin Navigation (Full Access)
+  const schoolAdminNormalNavItems = [
     { path: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/admin/students', label: 'Students', icon: Users },
     { path: '/admin/payments', label: 'Payments', icon: CreditCard },
@@ -102,23 +127,84 @@ const AdminLayout = ({ children }) => {
     { path: '/admin/sms', label: 'Send SMS', icon: MessageSquare },
   ];
 
-  // Settings Mode Navigation Items
-  const settingsNavItems = [
+  // School Admin Settings Mode
+  const schoolAdminSettingsNavItems = [
     { path: '/admin/academic-years', label: 'Academic Years', icon: Calendar },
     { path: '/admin/deadlines', label: 'Payment Deadlines', icon: Calendar },
     { path: '/admin/reports', label: 'Reports', icon: BarChart3 },
     { path: '/admin/reminders', label: 'Reminders', icon: Bell },
+    { path: '/admin/staff', label: 'Staff Management', icon: UsersIcon },
   ];
 
-  // Current active navigation items based on mode
-  const currentNavItems = isSettingsMode ? settingsNavItems : normalNavItems;
+  // Registrar Navigation (Only Students)
+  const registrarNavItems = [
+    { path: '/admin/students', label: 'Students', icon: Users },
+  ];
 
-  // Check if a path is active (for settings mode, check if path starts with the base)
-  const isPathActive = (path) => {
-    if (isSettingsMode) {
-      return location.pathname === path;
+  // Payment Manager Navigation
+  const paymentManagerNavItems = [
+    { path: '/admin/payments', label: 'Payments', icon: CreditCard },
+    { path: '/admin/slips', label: 'Bank Slips', icon: Eye },
+  ];
+
+  // Reporting Manager Navigation
+  const reportingManagerNavItems = [
+    { path: '/admin/reports', label: 'Reports', icon: BarChart3 },
+  ];
+
+  // Reminder Manager Navigation
+  const reminderManagerNavItems = [
+    { path: '/admin/sms', label: 'Send SMS', icon: MessageSquare },
+    { path: '/admin/reminders', label: 'Reminders', icon: Bell },
+  ];
+
+  // Determine which navigation to show based on role
+  const getNavItems = () => {
+    if (userRole === 'school_admin') {
+      return { 
+        normal: schoolAdminNormalNavItems, 
+        settings: schoolAdminSettingsNavItems 
+      };
     }
+    
+    if (userRole === 'registrar') {
+      return { normal: registrarNavItems, settings: [] };
+    }
+    
+    if (userRole === 'payment_manager') {
+      return { normal: paymentManagerNavItems, settings: [] };
+    }
+    
+    if (userRole === 'reporting_manager') {
+      return { normal: reportingManagerNavItems, settings: [] };
+    }
+    
+    if (userRole === 'reminder_manager') {
+      return { normal: reminderManagerNavItems, settings: [] };
+    }
+    
+    // Fallback for any other role
+    return { normal: schoolAdminNormalNavItems, settings: [] };
+  };
+
+  const navItems = getNavItems();
+  const currentNavItems = isSettingsMode ? navItems.settings : navItems.normal;
+  const showSettingsToggle = navItems.settings.length > 0 && userRole === 'school_admin';
+
+  const isPathActive = (path) => {
     return location.pathname === path;
+  };
+
+  // Get role display name
+  const getRoleDisplay = () => {
+    switch(userRole) {
+      case 'school_admin': return 'School Admin';
+      case 'registrar': return 'Registrar';
+      case 'payment_manager': return 'Payment Manager';
+      case 'reporting_manager': return 'Reporting Manager';
+      case 'reminder_manager': return 'Reminder Manager';
+      default: return 'Admin';
+    }
   };
 
   return (
@@ -161,7 +247,7 @@ const AdminLayout = ({ children }) => {
                 />
                 <div>
                   <span className="font-bold text-gray-800 text-sm">{schoolInfo?.name || 'Admin Portal'}</span>
-                  <p className="text-[10px] text-gray-400">{adminUser?.first_name} {adminUser?.last_name}</p>
+                  <p className="text-[10px] text-gray-400 capitalize">{getRoleDisplay()}</p>
                 </div>
               </div>
             ) : (
@@ -188,8 +274,8 @@ const AdminLayout = ({ children }) => {
             }
           </button>
 
-          {/* Mode Indicator */}
-          {!isCollapsed && (
+          {/* Mode Indicator (only for School Admin) */}
+          {!isCollapsed && userRole === 'school_admin' && (
             <div className="px-3 py-2 mt-2">
               <div className={`text-xs font-medium px-2 py-1 rounded-full inline-block ${
                 isSettingsMode ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
@@ -201,33 +287,37 @@ const AdminLayout = ({ children }) => {
 
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
-            {/* Settings Toggle Button - Always visible */}
-            <button
-              onClick={toggleSettingsMode}
-              className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} w-full px-3 py-2 rounded-lg transition-all duration-200 mb-4 ${
-                isSettingsMode
-                  ? 'bg-purple-600 text-white hover:bg-purple-700'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-              title={isCollapsed ? (isSettingsMode ? 'Back to Main Menu' : 'Settings') : ''}
-            >
-              {isSettingsMode ? (
-                <ArrowLeft className="h-4 w-4" />
-              ) : (
-                <Settings className="h-4 w-4" />
-              )}
-              {!isCollapsed && (
-                <span className="text-sm font-medium">
-                  {isSettingsMode ? 'Back to Main Menu' : 'Settings'}
-                </span>
-              )}
-            </button>
+            {/* Settings Toggle Button (only for School Admin with settings) */}
+            {showSettingsToggle && (
+              <>
+                <button
+                  onClick={toggleSettingsMode}
+                  className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} w-full px-3 py-2 rounded-lg transition-all duration-200 mb-4 ${
+                    isSettingsMode
+                      ? 'bg-purple-600 text-white hover:bg-purple-700'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                  title={isCollapsed ? (isSettingsMode ? 'Back to Main Menu' : 'Settings') : ''}
+                >
+                  {isSettingsMode ? (
+                    <ArrowLeft className="h-4 w-4" />
+                  ) : (
+                    <Settings className="h-4 w-4" />
+                  )}
+                  {!isCollapsed && (
+                    <span className="text-sm font-medium">
+                      {isSettingsMode ? 'Back to Main Menu' : 'Settings'}
+                    </span>
+                  )}
+                </button>
 
-            {/* Divider */}
-            <div className="border-t border-gray-100 my-2"></div>
+                {/* Divider */}
+                <div className="border-t border-gray-100 my-2"></div>
+              </>
+            )}
 
-            {/* Navigation Items based on mode */}
-            {!isCollapsed && (
+            {/* Navigation Items based on mode and role */}
+            {!isCollapsed && currentNavItems.length > 0 && (
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 px-2 mt-2">
                 {isSettingsMode ? 'Settings Menu' : 'Main Menu'}
               </p>
@@ -255,8 +345,8 @@ const AdminLayout = ({ children }) => {
               );
             })}
 
-            {/* Manage Years - Special button that appears in Settings Mode */}
-            {isSettingsMode && (
+            {/* Manage Years - Special button that appears in Settings Mode for School Admin */}
+            {isSettingsMode && userRole === 'school_admin' && (
               <button
                 onClick={() => setShowYearSelectorModal(true)}
                 className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} w-full px-3 py-2 rounded-lg transition-all duration-200 mb-1 text-purple-600 bg-purple-50 hover:bg-purple-100`}
@@ -268,8 +358,8 @@ const AdminLayout = ({ children }) => {
             )}
           </nav>
 
-          {/* Year Selector - Only show in Normal Mode */}
-          {!isSettingsMode && (
+          {/* Year Selector - Only show in Normal Mode for School Admin */}
+          {!isSettingsMode && userRole === 'school_admin' && (
             <div className="flex-shrink-0 px-3 py-2 border-t border-gray-100">
               <div className="flex items-center justify-between">
                 {!isCollapsed && <span className="text-[10px] text-gray-400">Academic Year</span>}
@@ -287,9 +377,11 @@ const AdminLayout = ({ children }) => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium text-gray-800 truncate">
-                    {adminUser.first_name} {adminUser.last_name}
+                    {adminUser.first_name || adminUser.username}
                   </p>
-                  <p className="text-[10px] text-gray-400 truncate">{adminUser.email}</p>
+                  <p className="text-[10px] text-gray-400 truncate capitalize">
+                    {getRoleDisplay()}
+                  </p>
                 </div>
               </div>
             )}
@@ -324,6 +416,9 @@ const AdminLayout = ({ children }) => {
             }}
           />
           <span className="font-semibold text-gray-800 text-sm">{schoolInfo?.name || 'Admin Panel'}</span>
+        </div>
+        <div className="ml-auto">
+          <span className="text-xs text-gray-500 capitalize">{getRoleDisplay()}</span>
         </div>
       </div>
 

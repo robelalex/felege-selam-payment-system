@@ -28,8 +28,8 @@ function EnterStudentId() {
     setError('');
 
     try {
-      // ✅ FIXED: Use full path with /api/
-      const response = await api.get(`/api/students/search_by_id/?student_id=${studentId}`);
+      // ✅ CHANGED: Removed /api/ prefix (baseURL already has it)
+      const response = await api.get(`/students/search_by_id/?student_id=${studentId}`);
       
       if (response.data) {
         const student = response.data;

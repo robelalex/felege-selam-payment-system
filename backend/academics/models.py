@@ -1,7 +1,7 @@
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from datetime import date
-from schools.models import School  # ✅ Add this import
+from schools.models import School
 
 class AcademicYear(models.Model):
     """Academic Year Management"""
@@ -45,6 +45,10 @@ class AcademicYear(models.Model):
         default=True,
         help_text="Is this year active in the system?"
     )
+    is_archived = models.BooleanField(
+        default=False,
+        help_text="Soft delete flag"
+    )
     
     # Statistics (auto-updated)
     total_students = models.IntegerField(default=0)
@@ -74,8 +78,9 @@ class AcademicYear(models.Model):
         super().save(*args, **kwargs)
     
     def promote_students(self):
-        """Promote all students to next grade"""
+        """Promote all students to next grade and update fees"""
         from students.models import Student
+        from payments.models import PaymentDeadline
         
         students = Student.objects.filter(status='active')
         promoted_count = 0
@@ -83,6 +88,12 @@ class AcademicYear(models.Model):
         for student in students:
             if student.grade < 8:
                 student.grade += 1
+                
+                # ✅ Get the default fee for the new grade from deadlines
+                new_fee = self.get_default_fee_for_grade(student.grade, student.school_id)
+                if new_fee:
+                    student.monthly_fee = new_fee
+                
                 student.save()
                 promoted_count += 1
             else:
@@ -91,30 +102,70 @@ class AcademicYear(models.Model):
         
         return promoted_count
     
+    def get_default_fee_for_grade(self, grade, school_id):
+        """Get default monthly fee for a grade from active deadlines"""
+        from payments.models import PaymentDeadline
+        
+        # Try to get a deadline for this specific grade
+        deadline = PaymentDeadline.objects.filter(
+            school_id=school_id,
+            grade=grade,
+            is_active=True
+        ).first()
+        
+        if deadline:
+            return deadline.amount
+        
+        # Fallback to a deadline that applies to all grades
+        deadline = PaymentDeadline.objects.filter(
+            school_id=school_id,
+            grade__isnull=True,
+            is_active=True
+        ).first()
+        
+        if deadline:
+            return deadline.amount
+        
+        # Default fallback amounts
+        DEFAULT_FEES = {
+            1: 500, 2: 550, 3: 600, 4: 650,
+            5: 700, 6: 750, 7: 800, 8: 850
+        }
+        return DEFAULT_FEES.get(grade, 500)
+    
     def archive_year(self):
         """Archive this academic year"""
         self.is_active = False
         self.is_current = False
+        self.is_archived = True
+        self.save()
+    
+    def restore_year(self):
+        """Restore an archived academic year"""
+        self.is_active = True
+        self.is_archived = False
         self.save()
     
     def get_statistics(self):
         """Get statistics for this academic year"""
         from students.models import Student
         from payments.models import Payment
+        from django.db import models
         
         return {
             'total_students': Student.objects.filter(
-                enrollment_date__gte=self.start_date,
-                enrollment_date__lte=self.end_date
+                academic_year=self.name,
+                school=self.school
             ).count(),
             'total_payments': Payment.objects.filter(
-                created_at__gte=self.start_date,
-                created_at__lte=self.end_date
+                deadline__academic_year=self.name,
+                student__school=self.school,
+                status='verified'
             ).aggregate(total=models.Sum('amount'))['total'] or 0,
             'verified_payments': Payment.objects.filter(
-                status='verified',
-                created_at__gte=self.start_date,
-                created_at__lte=self.end_date
+                deadline__academic_year=self.name,
+                student__school=self.school,
+                status='verified'
             ).count()
         }
 

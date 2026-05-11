@@ -6,30 +6,42 @@ from .views import send_reminders, send_payment_confirmation
 from .views.report_views import monthly_report, student_report, annual_summary
 from .views.slip_views import (
     upload_slip, pending_slips, verify_slip, ai_stats,
-    delete_slip, bulk_delete_slips  # ✅ ADD THESE IMPORTS
+    delete_slip, bulk_delete_slips
 )
-
-# IMPORT SMS VIEWS
 from .views.sms_views import (
     sms_balance, send_test_sms, sms_history,
     send_payment_reminder, send_bulk_reminders
 )
 from .views.chapa_views import (
     initiate_chapa_payment, chapa_webhook, 
-    verify_chapa_payment, get_chapa_banks, test_payment
+    verify_chapa_payment, get_chapa_banks, test_payment, payment_status
 )
-
-# ✅ IMPORT REMINDER FILTERED VIEW
 from .views.reminder_views import pending_reminders_filtered
 
 router = DefaultRouter()
-router.register(r'payments', PaymentViewSet)
 router.register(r'deadlines', PaymentDeadlineViewSet)
 router.register(r'reminders', ReminderViewSet, basename='reminder')
 
-# Base API URLs
+# ✅ DON'T register payments with router - use direct paths instead
+payment_viewset = PaymentViewSet.as_view({
+    'get': 'list',
+    'post': 'create',
+    'put': 'update',
+    'delete': 'destroy'
+})
+
 urlpatterns = [
+    # ✅ Payments endpoints - direct paths
+    path('payments/', payment_viewset, name='payments'),
+    path('payments/initiate-payment/', PaymentViewSet.as_view({'post': 'initiate_payment'}), name='initiate-payment'),
+    path('payments/verify-payment/<int:pk>/', PaymentViewSet.as_view({'post': 'verify_payment'}), name='verify-payment'),
+    path('payments/pending-verifications/', PaymentViewSet.as_view({'get': 'pending_verifications'}), name='pending-verifications'),
+    path('payments/delete-payment/<int:pk>/', PaymentViewSet.as_view({'delete': 'delete_payment'}), name='delete-payment'),
+    path('payments/bulk-delete/', PaymentViewSet.as_view({'post': 'bulk_delete'}), name='bulk-delete'),
+    
+    # Deadlines and reminders (via router)
     path('', include(router.urls)),
+    
     path('send-reminders/', send_reminders, name='send-reminders'),
     path('payment-confirmation/<int:payment_id>/', send_payment_confirmation, name='payment-confirmation'),
 ]
@@ -67,9 +79,9 @@ urlpatterns += [
     path('chapa/verify/', verify_chapa_payment, name='chapa-verify'),
     path('chapa/banks/', get_chapa_banks, name='chapa-banks'),
     path('chapa/test-payment/', test_payment, name='test-payment'),
+    path('payments/status/<str:tx_ref>/', payment_status, name='payment-status'),  # ← ONLY NEW LINE
 ]
 
-# ✅ ADD THIS - Reminder filtered endpoint (fixes the 404 error)
 urlpatterns += [
     path('reminders-filtered/', pending_reminders_filtered, name='reminders-filtered'),
 ]

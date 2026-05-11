@@ -4,10 +4,27 @@ import axios from 'axios';
 // ✅ Use environment variable for API URL
 // Production: uses /api (Vercel proxy)
 // Local: uses localhost
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000/api';
+// const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000/api';
+const API_BASE_URL = 'http://localhost:8000/api';
 
 console.log('🔍 API Base URL:', API_BASE_URL);
 console.log('🔍 Environment:', process.env.NODE_ENV);
+
+// ✅ Helper function to get CSRF token from cookie
+const getCSRFToken = () => {
+  let cookieValue = null;
+  if (document.cookie && document.cookie !== '') {
+    const cookies = document.cookie.split(';');
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i].trim();
+      if (cookie.substring(0, 10) === 'csrftoken=') {
+        cookieValue = decodeURIComponent(cookie.substring(10));
+        break;
+      }
+    }
+  }
+  return cookieValue;
+};
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -17,16 +34,43 @@ const api = axios.create({
   withCredentials: true,
 });
 
+// ✅ Set CSRF token in default headers
+const csrfToken = getCSRFToken();
+if (csrfToken) {
+  api.defaults.headers.common['X-CSRFToken'] = csrfToken;
+  console.log('✅ CSRF Token set in axios defaults');
+}
+
 // Add a request interceptor to include the selected year and school
 api.interceptors.request.use(
   (config) => {
     console.log('📤 INTERCEPTOR - URL:', config.url);
     console.log('📤 INTERCEPTOR - Method:', config.method);
     
-    // ✅ SKIP adding parameters for registration endpoint
-    const isRegistration = config.url && config.url.includes('/admin/register/');
+    // ✅ Ensure CSRF token is included for non-GET requests
+    if (config.method !== 'get' && !config.headers['X-CSRFToken']) {
+      const token = getCSRFToken();
+      if (token) {
+        config.headers['X-CSRFToken'] = token;
+      }
+    }
     
-    if (!isRegistration) {
+    // ✅ SKIP adding parameters for excluded endpoints
+    const isRegistration = config.url && config.url.includes('/admin/register/');
+    const isPaymentInitiation = config.url && config.url.includes('/payments/initiate-payment/');
+    const isChapaPayment = config.url && config.url.includes('/chapa/test-payment/');
+    const isChapaInitiate = config.url && config.url.includes('/chapa/initiate/');
+    const isStaffCreate = config.url && config.url.includes('/staff/create/');
+    const isLogin = config.url && config.url.includes('/login/');
+    const isVerify = config.url && config.url.includes('/verify/');
+    
+    // ✅ Check if this request should skip year parameters
+    const shouldSkipParams = isLogin || isVerify || isStaffCreate || isChapaPayment || isChapaInitiate;
+    
+    if (shouldSkipParams) {
+      console.log('📤 INTERCEPTOR - SKIPPING year params for excluded endpoint');
+    } 
+    else if (!isRegistration && !isPaymentInitiation) {
       // Get selected year from localStorage
       const savedYear = localStorage.getItem('selectedAcademicYear');
       console.log('📤 INTERCEPTOR - savedYear from localStorage:', savedYear);
@@ -41,7 +85,6 @@ api.interceptors.request.use(
             if (!config.params) {
               config.params = {};
             }
-            // Send both id and year_ec to support different backend formats
             config.params.academic_year_id = year.id;
             config.params.academic_year = year.year_ec;
             config.params.year_id = year.id;
@@ -54,7 +97,12 @@ api.interceptors.request.use(
         console.log('📤 INTERCEPTOR - No saved year found!');
       }
     } else {
-      console.log('📤 INTERCEPTOR - SKIPPING year params for registration endpoint');
+      if (isRegistration) {
+        console.log('📤 INTERCEPTOR - SKIPPING year params for registration endpoint');
+      }
+      if (isPaymentInitiation) {
+        console.log('📤 INTERCEPTOR - SKIPPING year params for payment initiation endpoint');
+      }
     }
     
     // Get selected school from localStorage and add to headers
@@ -67,7 +115,6 @@ api.interceptors.request.use(
         console.log('📤 INTERCEPTOR - Parsed school object:', school);
         
         if (school && school.id) {
-          // Add school ID to headers for backend filtering
           config.headers['X-School-ID'] = school.id;
           console.log('📤 INTERCEPTOR - Added X-School-ID header:', school.id);
         }
@@ -131,7 +178,7 @@ export const getActiveDeadlines = () => {
 };
 
 export const initiatePayment = (paymentData) => {
-  return api.post('/payments/initiate_payment/', paymentData);
+  return api.post('/payments/initiate-payment/', paymentData);
 };
 
 // School APIs

@@ -58,7 +58,8 @@ function ParentLogin() {
         otp_code: otpCode
       });
 
-      if (response.data.success && response.data.students) {
+      // ✅ FIXED: Backend only returns "success" (no "students")
+      if (response.data.success) {
         // Store parent session
         localStorage.setItem('parentSession', JSON.stringify({
           email: email,
@@ -66,22 +67,6 @@ function ParentLogin() {
           verified: true,
           verifiedAt: new Date().toISOString()
         }));
-        
-        // ✅ FIX: Save the first student to localStorage for receipt
-        if (response.data.students && response.data.students.length > 0) {
-          const firstStudent = response.data.students[0];
-          // Enhance student data with school name
-          const studentWithSchool = {
-            ...firstStudent,
-            school_name: firstStudent.school_name || 'ABFM Academy',
-            full_name: firstStudent.full_name,
-            student_id: firstStudent.student_id,
-            grade: firstStudent.grade,
-            section: firstStudent.section || 'A'
-          };
-          localStorage.setItem('selectedStudent', JSON.stringify(studentWithSchool));
-          console.log('✅ Student saved to localStorage:', studentWithSchool);
-        }
         
         navigate('/parent/enter-student-id');
       } else {

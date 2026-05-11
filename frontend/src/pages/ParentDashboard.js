@@ -6,10 +6,12 @@ import {
   DollarSign, CreditCard, Clock, CheckCircle, 
   XCircle, AlertCircle, Loader, Eye, Download, 
   ChevronRight, User, Home, Receipt, TrendingUp,
-  Shield, Smartphone, Building2, Lock, ArrowLeft
+  Shield, Smartphone, Building2, Lock, ArrowLeft,
+  Upload, Banknote
 } from 'lucide-react';
 import api from '../services/api';
 import ParentLayout from '../components/Layout/ParentLayout';
+import UploadSlipModal from '../components/UploadSlipModal';
 
 function ParentDashboard() {
   const { studentId } = useParams();
@@ -19,8 +21,11 @@ function ParentDashboard() {
   const [payments, setPayments] = useState([]);
   const [pendingPayments, setPendingPayments] = useState([]);
   const [academicYear, setAcademicYear] = useState(null);
-  const [processingPayment, setProcessingPayment] = useState(false);
+  const [processingPaymentId, setProcessingPaymentId] = useState(null);
   const [error, setError] = useState('');
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [selectedDeadline, setSelectedDeadline] = useState(null);
+  const [showBankInfo, setShowBankInfo] = useState(null);
 
   useEffect(() => {
     fetchStudentData();
@@ -30,19 +35,15 @@ function ParentDashboard() {
   const fetchStudentData = async () => {
     setLoading(true);
     try {
-      // Fetch student details
       const studentResponse = await api.get(`/students/${studentId}/`);
       setStudent(studentResponse.data);
       
-      // Fetch payment history
       const paymentResponse = await api.get(`/students/${studentId}/payment_history/`);
       setPayments(paymentResponse.data);
       
-      // Fetch pending payments
       const pendingResponse = await api.get(`/students/${studentId}/pending_payments/`);
       setPendingPayments(pendingResponse.data);
       
-      // Store selected student in localStorage
       localStorage.setItem('selectedStudent', JSON.stringify(studentResponse.data));
       
     } catch (err) {
@@ -62,58 +63,86 @@ function ParentDashboard() {
     }
   };
 
+  // UPDATED: Track which specific deadline is being processed
   const handleMakePayment = async (deadlineId, amount) => {
-    setProcessingPayment(true);
+    setProcessingPaymentId(deadlineId);
     setError('');
     
     try {
-      // Check if Telebirr or Chapa is configured
-      const school = JSON.parse(localStorage.getItem('selectedSchool') || '{}');
+      // Find the specific payment month from pendingPayments
+      const payment = pendingPayments.find(p => p.id === deadlineId);
       
-      // If Telebirr merchant ID exists, use Telebirr
-      if (school.telebirr_merchant_id) {
-        // Telebirr payment initialization
-        const response = await api.post('/payments/initiate_telebirr/', {
-          student_id: student.student_id,
-          deadline_id: deadlineId,
-          amount: amount,
-          phone_number: student.parent_phone
-        });
-        
-        if (response.data.payment_url) {
-          window.location.href = response.data.payment_url;
-        } else if (response.data.checkout_request_id) {
-          // Telebirr uses checkout_request_id
-          alert('Payment initiated. Please check your phone for the payment prompt.');
-          // Poll for payment status
-          pollPaymentStatus(response.data.checkout_request_id);
-        }
-      } 
-      // Fallback to Chapa
-      else {
-        const response = await api.post('/payments/initiate_payment/', {
-          student_id: student.student_id,
-          deadline_id: deadlineId,
-          amount: amount,
-          email: student.parent_email,
-          phone: student.parent_phone,
-          first_name: student.first_name,
-          last_name: student.last_name
-        });
-        
-        if (response.data.payment_url) {
-          window.location.href = response.data.payment_url;
-        } else if (response.data.checkout_url) {
-          window.location.href = response.data.checkout_url;
-        }
+      if (!payment) {
+        setError('Payment information not found');
+        setProcessingPaymentId(null);
+        return;
+      }
+      
+      console.log('💰 Paying for specific month:', payment.month_name);
+      console.log('💰 Deadline ID:', deadlineId);
+      console.log('💰 Amount:', amount);
+      
+      // Store payment info in sessionStorage for receipt after payment
+      const pendingPaymentInfo = {
+        deadline_id: deadlineId,
+        amount: parseFloat(amount),
+        month_name: payment.month_name,
+        academic_year: payment.academic_year,
+        student_id: student.student_id,
+        student_name: student.full_name,
+        grade: student.grade,
+        section: student.section
+      };
+      sessionStorage.setItem('pendingPayment', JSON.stringify(pendingPaymentInfo));
+      console.log('💾 Stored pending payment info:', pendingPaymentInfo);
+      
+      const response = await api.post('/chapa/test-payment/', {
+        student_id: student.student_id,
+        deadline_id: deadlineId,
+        amount: parseFloat(amount),
+        month: payment.month_name,
+        paid_by: student.parent_full_name || student.full_name || 'Parent',
+        paid_by_phone: student.parent_phone || '0912345678'
+      });
+      
+      console.log('💰 Payment response:', response.data);
+      
+      if (response.data.checkout_url) {
+        // Redirect to Chapa payment page
+        window.location.href = response.data.checkout_url;
+      } else if (response.data.success) {
+        alert('Payment initiated successfully!');
+        fetchStudentData();
+      } else {
+        setError(response.data.error || 'Payment initiation failed');
       }
       
     } catch (err) {
       console.error('Payment error:', err);
       setError(err.response?.data?.error || 'Payment initiation failed. Please try again.');
     } finally {
-      setProcessingPayment(false);
+      setProcessingPaymentId(null);
     }
+  };
+
+  const handleBankTransfer = (payment) => {
+    setShowBankInfo({
+      payment: payment,
+      amount: payment.amount,
+      instructions: [
+        'Bank: Commercial Bank of Ethiopia',
+        'Account Name: School Name',
+        'Account Number: 10000001234567',
+        `Reference: Use Student ID: ${student?.student_id}`,
+        `Month: ${payment.month_name}`,
+        'After transfer, upload the bank slip'
+      ]
+    });
+  };
+
+  const handleUploadClick = (deadline) => {
+    setSelectedDeadline(deadline);
+    setShowUploadModal(true);
   };
 
   const pollPaymentStatus = async (checkoutRequestId) => {
@@ -123,7 +152,7 @@ function ParentDashboard() {
         if (response.data.status === 'completed') {
           clearInterval(interval);
           alert('Payment successful!');
-          fetchStudentData(); // Refresh data
+          fetchStudentData();
         } else if (response.data.status === 'failed') {
           clearInterval(interval);
           alert('Payment failed. Please try again.');
@@ -131,9 +160,8 @@ function ParentDashboard() {
       } catch (err) {
         console.error('Status check error:', err);
       }
-    }, 5000); // Check every 5 seconds
+    }, 5000);
     
-    // Stop polling after 2 minutes
     setTimeout(() => clearInterval(interval), 120000);
   };
 
@@ -143,6 +171,14 @@ function ParentDashboard() {
       month: 'short',
       day: 'numeric'
     });
+  };
+
+  const getDaysRemaining = (dueDate) => {
+    const today = new Date();
+    const due = new Date(dueDate);
+    const diffTime = due - today;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
   };
 
   const getPaymentStatusBadge = (status) => {
@@ -180,11 +216,11 @@ function ParentDashboard() {
             <p className="text-red-700">{error || 'Student not found'}</p>
           </div>
           <button
-            onClick={() => navigate('/parent/select-student')}
+            onClick={() => navigate('/parent/enter-student-id')}
             className="mt-4 text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to Student Selection
+            Back to Student ID Entry
           </button>
         </div>
       </ParentLayout>
@@ -248,41 +284,71 @@ function ParentDashboard() {
           </div>
         </div>
 
-        {/* Pending Payments Section */}
+        {/* Pending Payments Section - Updated button with individual loading state */}
         {pendingPayments.length > 0 && (
           <div className="bg-white rounded-2xl shadow-lg p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <Clock className="h-5 w-5 text-yellow-600" />
-              Pending Payments
+              Pending Payments ({pendingPayments.length})
             </h2>
-            <div className="space-y-3">
-              {pendingPayments.map((payment) => (
-                <div key={payment.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                    <div>
-                      <p className="font-medium text-gray-900">{payment.description || payment.deadline_name}</p>
-                      <p className="text-sm text-gray-500">Due: {formatDate(payment.due_date)}</p>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <p className="text-xl font-bold text-red-600">
-                        ETB {parseFloat(payment.amount).toLocaleString()}
-                      </p>
-                      <button
-                        onClick={() => handleMakePayment(payment.id, payment.amount)}
-                        disabled={processingPayment}
-                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
-                      >
-                        {processingPayment ? (
-                          <Loader className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <CreditCard className="h-4 w-4" />
-                        )}
-                        Pay Now
-                      </button>
+            <div className="space-y-4">
+              {pendingPayments.map((payment) => {
+                const daysRemaining = getDaysRemaining(payment.due_date);
+                return (
+                  <div key={payment.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="font-semibold text-gray-900">{payment.month_name}</p>
+                          {daysRemaining <= 10 && daysRemaining > 0 && (
+                            <span className="text-xs text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">
+                              {daysRemaining} days reminder
+                            </span>
+                          )}
+                          {daysRemaining <= 0 && (
+                            <span className="text-xs text-red-600 bg-red-100 px-2 py-0.5 rounded-full">
+                              Overdue
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-500">Due: {formatDate(payment.due_date)}</p>
+                        <p className="text-xl font-bold text-red-600 mt-1">
+                          ETB {parseFloat(payment.amount).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {/* UPDATED BUTTON: Only shows loading spinner for the clicked month */}
+                        <button
+                          onClick={() => handleMakePayment(payment.id, payment.amount)}
+                          disabled={processingPaymentId === payment.id}
+                          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 text-sm"
+                        >
+                          {processingPaymentId === payment.id ? (
+                            <Loader className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <CreditCard className="h-4 w-4" />
+                          )}
+                          Pay Now
+                        </button>
+                        <button
+                          onClick={() => handleBankTransfer(payment)}
+                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                        >
+                          <Banknote className="h-4 w-4" />
+                          Bank Transfer
+                        </button>
+                        <button
+                          onClick={() => handleUploadClick(payment)}
+                          className="flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm"
+                        >
+                          <Upload className="h-4 w-4" />
+                          Upload Slip
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -347,7 +413,7 @@ function ParentDashboard() {
         <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl p-6">
           <h3 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
             <Shield className="h-5 w-5 text-indigo-600" />
-            Secure Payment Options
+            Payment Options
           </h3>
           <div className="flex flex-wrap gap-4 text-sm text-gray-600">
             <span className="flex items-center gap-2">
@@ -363,12 +429,56 @@ function ParentDashboard() {
               Bank Transfer
             </span>
             <span className="flex items-center gap-2">
+              <Upload className="h-4 w-4" />
+              Bank Slip Upload
+            </span>
+            <span className="flex items-center gap-2">
               <Lock className="h-4 w-4" />
               Secure & Encrypted
             </span>
           </div>
         </div>
       </div>
+
+      {/* Bank Transfer Info Modal */}
+      {showBankInfo && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowBankInfo(null)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold mb-4">Bank Transfer Instructions</h3>
+            <div className="space-y-2">
+              {showBankInfo.instructions.map((instruction, idx) => (
+                <p key={idx} className="text-sm text-gray-700">{instruction}</p>
+              ))}
+            </div>
+            <button
+              onClick={() => {
+                setShowBankInfo(null);
+                handleUploadClick(showBankInfo.payment);
+              }}
+              className="mt-4 w-full btn-primary flex items-center justify-center gap-2"
+            >
+              <Upload className="h-4 w-4" />
+              Upload Bank Slip
+            </button>
+            <button onClick={() => setShowBankInfo(null)} className="mt-2 w-full btn-secondary">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Upload Slip Modal */}
+      {showUploadModal && (
+        <UploadSlipModal
+          student={student}
+          deadline={selectedDeadline}
+          onClose={() => setShowUploadModal(false)}
+          onSuccess={() => {
+            fetchStudentData();
+            setShowUploadModal(false);
+          }}
+        />
+      )}
     </ParentLayout>
   );
 }
