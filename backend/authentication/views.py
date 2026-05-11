@@ -310,39 +310,46 @@ def register(request):
     
     print("=" * 50)
     print("📝 REGISTRATION REQUEST RECEIVED")
+    print(f"📝 Request data: {request.data}")
+    print(f"📝 FILES: {request.FILES}")
     
     logo = request.FILES.get('logo')
     school = None
     
-    email = request.data.get('email')
-    username = request.data.get('username')
+    # Use the serializer for validation
+    serializer = RegisterSerializer(data=request.data)
+    
+    if not serializer.is_valid():
+        print(f"❌ Serializer errors: {serializer.errors}")
+        return Response({
+            'success': False,
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    validated_data = serializer.validated_data
+    email = validated_data['email']
+    username = validated_data['username']
+    password = validated_data['password']
     school_code = request.data.get('school_code', '').upper()
     school_name = request.data.get('school_name')
+    first_name = validated_data.get('first_name', '')
+    last_name = validated_data.get('last_name', '')
+    phone = request.data.get('phone', '')
     
-    if User.objects.filter(email=email).exists():
-        return Response({
-            'success': False,
-            'errors': {'email': 'This email is already registered. Please use a different email.'}
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    if User.objects.filter(username=username).exists():
-        return Response({
-            'success': False,
-            'errors': {'username': 'This username is already taken. Please choose another.'}
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
+    # Check if school code exists
     from schools.models import School
     if School.objects.filter(code=school_code).exists():
         return Response({
             'success': False,
-            'errors': {'school_code': f'School code "{school_code}" already exists. Please use a different code.'}
+            'error': f'School code "{school_code}" already exists. Please use a different code.'
         }, status=status.HTTP_400_BAD_REQUEST)
     
     try:
+        # Create school
         school = School.objects.create(
             name=school_name,
             code=school_code,
-            phone=request.data.get('phone', ''),
+            phone=phone,
             email=email,
             address='',
             bank_name='',
@@ -351,53 +358,57 @@ def register(request):
             logo=logo if logo else None,
             subscription_active=False
         )
-        print(f"✅ School created: {school.name} (Code: {school.code})")
+        print(f"✅ School created: {school.name} (Code: {school.code}) - ID: {school.id}")
         
-        serializer = RegisterSerializer(data=request.data)
-        if serializer.is_valid():
-            user = serializer.save(is_active=False)
-            print(f"✅ User created: {user.username}")
-            
-            password = request.data.get('password')
-            save_password_history(user, password)
-            
-            UserProfile.objects.create(
-                user=user,
-                school_id=school.id,
-                role='school_admin',
-                is_email_verified=True
-            )
-            print(f"✅ UserProfile created")
-            
-            from schools.models import SchoolAdminProfile
-            SchoolAdminProfile.objects.create(
-                user=user,
-                school=school,
-                is_active=True
-            )
-            print(f"✅ SchoolAdminProfile created")
-            
-            return Response({
-                'success': True,
-                'message': 'Registration submitted. Waiting for Super Admin approval.',
-                'user': {
-                    'id': user.id,
-                    'username': user.username,
-                    'email': user.email,
-                    'school_id': school.id,
-                    'school_name': school.name
-                }
-            }, status=status.HTTP_201_CREATED)
+        # Create user (is_active=False for approval)
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            first_name=first_name,
+            last_name=last_name,
+            is_active=False  # Pending approval
+        )
+        print(f"✅ User created: {user.username}")
         
-        print(f"❌ Serializer errors: {serializer.errors}")
-        school.delete()
+        # Create UserProfile
+        UserProfile.objects.create(
+            user=user,
+            school_id=school.id,
+            role='school_admin',
+            is_email_verified=True,
+            phone=phone
+        )
+        print(f"✅ UserProfile created")
+        
+        # Create SchoolAdminProfile
+        from schools.models import SchoolAdminProfile
+        SchoolAdminProfile.objects.create(
+            user=user,
+            school=school,
+            is_active=True
+        )
+        print(f"✅ SchoolAdminProfile created")
+        
+        # Save password to history
+        save_password_history(user, password)
+        
         return Response({
-            'success': False,
-            'errors': serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
+            'success': True,
+            'message': 'Registration submitted. Waiting for Super Admin approval.',
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'school_id': school.id,
+                'school_name': school.name
+            }
+        }, status=status.HTTP_201_CREATED)
         
     except Exception as e:
         print(f"❌ Registration error: {e}")
+        import traceback
+        traceback.print_exc()
         if school:
             try:
                 school.delete()
