@@ -170,8 +170,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://felege-selam-payment-system.vercel.app",
-    "https://felege-selam-payment-system.vercel.app",
     "https://*.vercel.app",
+    "https://felege-selam-payment-system.onrender.com",
 ]
 
 CSRF_TRUSTED_ORIGINS = [
@@ -179,6 +179,7 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:3000",
     "https://felege-selam-payment-system.vercel.app",
     "https://*.vercel.app",
+    "https://felege-selam-payment-system.onrender.com",
 ]
 
 # ✅ Add this for production
