@@ -57,58 +57,64 @@ function AdminRegister() {
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  
+  // Check password match
+  if (formData.password !== formData.confirm_password) {
+    setError('Passwords do not match');
+    return;
+  }
 
-    // Check password match
-    if (formData.password !== formData.confirm_password) {
-      setError('Passwords do not match');
-      setLoading(false);
-      return;
+  setLoading(true);
+  setError('');
+
+  try {
+    const submitData = new FormData();
+    submitData.append('email', formData.email);
+    submitData.append('username', formData.username);
+    submitData.append('password', formData.password);
+    submitData.append('confirm_password', formData.confirm_password);
+    submitData.append('first_name', formData.first_name);
+    submitData.append('last_name', formData.last_name);
+    submitData.append('phone', formData.phone);
+    submitData.append('role', formData.role);
+    submitData.append('school_name', formData.school_name);
+    submitData.append('school_code', formData.school_code);
+    
+    if (logoFile) {
+      submitData.append('logo', logoFile);
     }
 
-    try {
-      // Create FormData for multipart/form-data (for file upload)
-      const submitData = new FormData();
-      submitData.append('email', formData.email);
-      submitData.append('username', formData.username);
-      submitData.append('password', formData.password);
-      submitData.append('confirm_password', formData.confirm_password);
-      submitData.append('first_name', formData.first_name);
-      submitData.append('last_name', formData.last_name);
-      submitData.append('phone', formData.phone);
-      submitData.append('role', formData.role);
-      submitData.append('school_name', formData.school_name);
-      submitData.append('school_code', formData.school_code);
-      
-      // ADD LOGO FILE
-      if (logoFile) {
-        submitData.append('logo', logoFile);
-      }
+    const response = await api.post('/admin/register/', submitData);
 
-      // FIXED: Removed manual Content-Type header - let axios handle it automatically
-      const response = await api.post('/admin/register/', submitData);
-
-      if (response.data.success) {
-        setSuccess(true);
-        setTimeout(() => {
-          navigate('/admin/login');
-        }, 3000);
-      } else {
-        const errors = response.data.errors;
-        const firstError = Object.values(errors)[0];
-        setError(Array.isArray(firstError) ? firstError[0] : firstError);
-      }
-    } catch (err) {
-      console.error('Registration error:', err);
-      setError(err.response?.data?.error || 'Registration failed. Please try again.');
-    } finally {
-      setLoading(false);
+    // ✅ FIX: Check response.data.success, not just response.status
+    if (response.data && response.data.success === true) {
+      setSuccess(true);
+      setTimeout(() => {
+        navigate('/admin/login');
+      }, 3000);
+    } else {
+      // Handle error response
+      const errorMsg = response.data?.error || response.data?.message || 'Registration failed';
+      setError(errorMsg);
     }
-  };
-
+  } catch (err) {
+    console.error('Registration error:', err);
+    // ✅ Check if there's a response with error data
+    if (err.response && err.response.data) {
+      const errorMsg = err.response.data.error || 
+                       err.response.data.message || 
+                       JSON.stringify(err.response.data.errors) ||
+                       'Registration failed. Please try again.';
+      setError(errorMsg);
+    } else {
+      setError('Registration failed. Please try again.');
+    }
+  } finally {
+    setLoading(false);
+  }
+};
   if (success) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
