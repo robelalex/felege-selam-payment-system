@@ -795,3 +795,53 @@ def delete_staff(request, user_id):
     except Exception as e:
         print(f"Error in delete_staff: {e}")
         return Response({'error': str(e)}, status=500)
+    
+    # ===== TEMPORARY: Create Super Admin Endpoint =====
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def create_super_admin(request):
+    """Temporary endpoint to create a super admin"""
+    email = request.data.get('email')
+    password = request.data.get('password', 'Admin123!')
+    
+    if not email:
+        return Response({'error': 'Email required'}, status=400)
+    
+    try:
+        user = User.objects.get(email=email)
+        user.is_superuser = True
+        user.is_staff = True
+        user.save()
+        
+        # Update or create profile
+        profile, created = UserProfile.objects.get_or_create(user=user)
+        profile.role = 'super_admin'
+        profile.is_email_verified = True
+        profile.save()
+        
+        return Response({
+            'success': True,
+            'message': f'{email} is now super admin',
+            'username': user.username
+        })
+    except User.DoesNotExist:
+        # Create new user
+        username = email.split('@')[0]
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            is_superuser=True,
+            is_staff=True,
+            is_active=True
+        )
+        UserProfile.objects.create(
+            user=user,
+            role='super_admin',
+            is_email_verified=True
+        )
+        return Response({
+            'success': True,
+            'message': f'Super admin {email} created',
+            'username': user.username
+        })
