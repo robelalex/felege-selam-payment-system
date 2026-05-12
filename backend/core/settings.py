@@ -160,12 +160,16 @@ SESSION_SAVE_EVERY_REQUEST = True
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'None'
 SESSION_COOKIE_SECURE = True
-SESSION_COOKIE_DOMAIN = '.onrender.com'
+# ✅ Only set cookie domain in production, not in local development
+if not DEBUG:
+    SESSION_COOKIE_DOMAIN = '.onrender.com'
 
 CSRF_COOKIE_SAMESITE = 'None'
 CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SECURE = True
-CSRF_COOKIE_DOMAIN = '.onrender.com'
+# ✅ Only set cookie domain in production, not in local development
+if not DEBUG:
+    CSRF_COOKIE_DOMAIN = '.onrender.com'
 
 # ===== CORS SETTINGS - PRODUCTION READY =====
 CORS_ALLOWED_ORIGINS = [
@@ -179,6 +183,8 @@ CORS_ALLOWED_ORIGINS = [
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:8000",      # ✅ For local Django admin
+    "http://127.0.0.1:8000",      # ✅ For local Django admin
     "https://felege-selam-payment-system.vercel.app",
     "https://*.vercel.app",
     "https://felege-selam-payment-system.onrender.com",
