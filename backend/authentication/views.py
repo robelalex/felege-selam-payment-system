@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.decorators import throttle_classes
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.hashers import make_password, check_password
 import uuid
 from .serializers import (
@@ -50,6 +51,7 @@ def check_password_history(user, new_password):
 # ===== OTP 2FA: ADMIN LOGIN WITH 2FA =====
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@csrf_exempt
 def admin_login_step1(request):
     """Step 1: Admin login with email and password - PRODUCTION FIXED OTP"""
     email = request.data.get('email')
@@ -97,6 +99,7 @@ def admin_login_step1(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@csrf_exempt
 def admin_login_step2(request):
     """Step 2: Verify OTP and complete admin login"""
     user_id = request.data.get('user_id')
@@ -205,6 +208,7 @@ def admin_login_step2(request):
 # ===== OTP 2FA: PARENT LOGIN WITH OTP ONLY =====
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@csrf_exempt
 def parent_login_step1(request):
     """Step 1: Parent sends email, receives OTP - TEST MODE"""
     email = request.data.get('email')
@@ -256,6 +260,7 @@ def parent_login_step1(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@csrf_exempt
 def parent_login_step2(request):
     """Step 2: Verify OTP and return success - ACCEPTS 123456 FOR TESTING"""
     user_id = request.data.get('user_id')

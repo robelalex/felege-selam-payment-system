@@ -209,4 +209,21 @@ export const promoteStudents = (fromYearId, toYearId) => {
   });
 };
 
+// ✅ Function to fetch CSRF token from backend
+export const fetchCSRFToken = async () => {
+  try {
+    const response = await api.get('/csrf/');
+    const csrfToken = response.data.csrfToken;
+    if (csrfToken) {
+      api.defaults.headers.common['X-CSRFToken'] = csrfToken;
+      document.cookie = `csrftoken=${csrfToken}; path=/; SameSite=None; Secure`;
+      console.log('✅ CSRF token fetched and set:', csrfToken);
+    }
+    return csrfToken;
+  } catch (error) {
+    console.error('Failed to fetch CSRF token:', error);
+    return null;
+  }
+};
+
 export default api;
