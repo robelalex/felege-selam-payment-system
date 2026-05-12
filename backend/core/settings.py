@@ -7,6 +7,7 @@ import logging
 import cloudinary
 import cloudinary.uploader
 import cloudinary.api
+import sys
 
 logging.basicConfig(level=logging.DEBUG)
 load_dotenv()
@@ -244,3 +245,13 @@ DEFAULT_FROM_EMAIL = 'Felege Selam Payment <robelalex95@gmail.com>'
 
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
 BACKEND_URL = os.environ.get('BACKEND_URL', 'https://felege-selam-payment-system.onrender.com')
+
+# ===== FIX FOR RENDER STATIC FILES =====
+if not DEBUG:
+    # Tell WhiteNoise to serve static files from STATIC_ROOT
+    WHITENOISE_ROOT = STATIC_ROOT
+    
+    # Ensure staticfiles directory exists
+    import os
+    if not os.path.exists(STATIC_ROOT):
+        os.makedirs(STATIC_ROOT, exist_ok=True)
