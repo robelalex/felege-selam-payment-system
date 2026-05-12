@@ -32,7 +32,7 @@ ALLOWED_HOSTS = [
     '10.141.130.95',
     '.onrender.com',
     'felege-selam-api.onrender.com',
-    'felege-selam-payment-system.onrender.com',  # ✅ Add this
+    'felege-selam-payment-system.onrender.com',
     'testserver', 
 ]
 
@@ -71,7 +71,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'common.middleware.SchoolMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',  # ← Moved to the END
+    'django.middleware.csrf.CsrfViewMiddleware',
 ]
 
 ROOT_URLCONF = 'core.urls'
@@ -80,7 +80,7 @@ ROOT_URLCONF = 'core.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [os.path.join(BASE_DIR, 'staticfiles_build')],  # ✅ React build folder
+        'DIRS': [os.path.join(BASE_DIR, 'staticfiles_build')],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -119,10 +119,10 @@ USE_I18N = True
 USE_TZ = True
 
 # ===== STATIC FILES CONFIGURATION =====
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'staticfiles_build'),  # ✅ Different folder from STATIC_ROOT
+    os.path.join(BASE_DIR, 'staticfiles_build'),
 ]
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
@@ -132,7 +132,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# ===== DJANGO REST FRAMEWORK WITH OPTIMIZED RATE LIMITING =====
+# ===== DJANGO REST FRAMEWORK =====
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
@@ -146,32 +146,28 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        # ✅ Increased for normal usage
-        'anon': '200/minute',      # Anonymous users: 200 requests per minute
-        'user': '500/minute',      # Authenticated users: 500 requests per minute
-        'login': '10/hour',        # Login attempts: 10 per hour (security)
+        'anon': '200/minute',
+        'user': '500/minute',
+        'login': '10/hour',
     }
 }
 
 # ===== SESSION SETTINGS =====
-# Session timeout: Auto logout after 30 minutes of inactivity
-SESSION_COOKIE_AGE = 1800  # 30 minutes in seconds
+SESSION_COOKIE_AGE = 1800
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'None'
 SESSION_COOKIE_SECURE = True
-# ✅ Only set cookie domain in production, not in local development
 if not DEBUG:
     SESSION_COOKIE_DOMAIN = '.onrender.com'
 
 CSRF_COOKIE_SAMESITE = 'None'
 CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SECURE = True
-# ✅ Only set cookie domain in production, not in local development
 if not DEBUG:
     CSRF_COOKIE_DOMAIN = '.onrender.com'
 
-# ===== CORS SETTINGS - PRODUCTION READY =====
+# ===== CORS SETTINGS =====
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -183,15 +179,14 @@ CORS_ALLOWED_ORIGINS = [
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://localhost:8000",      # ✅ For local Django admin
-    "http://127.0.0.1:8000",      # ✅ For local Django admin
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
     "https://felege-selam-payment-system.vercel.app",
     "https://*.vercel.app",
     "https://felege-selam-payment-system.onrender.com",
 ]
 
-# ✅ Add this for production
-CORS_ALLOW_ALL_ORIGINS = False  # Don't allow all, only specified
+CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
 CORS_ALLOW_HEADERS = [
@@ -199,6 +194,7 @@ CORS_ALLOW_HEADERS = [
     'dnt', 'origin', 'user-agent', 'x-csrftoken', 'x-requested-with',
     'x-school-id',
 ]
+
 # ===== PRODUCTION SETTINGS =====
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
 if RENDER_EXTERNAL_HOSTNAME:
@@ -208,7 +204,6 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
-    # ✅ These are required for cross-domain cookies
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     USE_X_FORWARDED_HOST = True
 
@@ -238,17 +233,14 @@ DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
 RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')
 
-# ===== EMAIL CONFIGURATION - Gmail SMTP =====
+# ===== EMAIL CONFIGURATION =====
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'robelalex95@gmail.com'
-EMAIL_HOST_PASSWORD = 'ginz gqid bfxe mjqf'  # Your App Password
+EMAIL_HOST_PASSWORD = 'ginz gqid bfxe mjqf'
 DEFAULT_FROM_EMAIL = 'Felege Selam Payment <robelalex95@gmail.com>'
 
-# Frontend URL for password reset links
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
-
-# Add this line at the end of settings.py (after FRONTEND_URL)
 BACKEND_URL = os.environ.get('BACKEND_URL', 'https://felege-selam-payment-system.onrender.com')
