@@ -88,22 +88,22 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
             return Response(serializer.data)
         return Response({'error': 'No academic year found for this school'}, status=404)
     
-@method_decorator(csrf_exempt, name='dispatch')
-@action(detail=True, methods=['post'], url_path='set_current', permission_classes=[AllowAny])
-def set_current(self, request, pk=None):
-    """Set this academic year as current for its school"""
-    year = self.get_object()
-    
-    # ✅ Only update current for this school
-    if year.school:
-        AcademicYear.objects.filter(school=year.school, is_current=True).update(is_current=False)
-    
-    # Set this year as current
-    year.is_current = True
-    year.save()
-    
-    serializer = self.get_serializer(year)
-    return Response(serializer.data)
+    @method_decorator(csrf_exempt, name='dispatch')
+    @action(detail=True, methods=['post'], url_path='set_current', permission_classes=[AllowAny])
+    def set_current(self, request, pk=None):
+        """Set this academic year as current for its school"""
+        year = self.get_object()
+        
+        # ✅ Only update current for this school
+        if year.school:
+            AcademicYear.objects.filter(school=year.school, is_current=True).update(is_current=False)
+        
+        # Set this year as current
+        year.is_current = True
+        year.save()
+        
+        serializer = self.get_serializer(year)
+        return Response(serializer.data)
     
     @action(detail=True, methods=['post'], url_path='promote_students')
     def promote_students(self, request, pk=None):
