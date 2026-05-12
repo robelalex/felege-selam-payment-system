@@ -67,11 +67,11 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'common.middleware.SchoolMiddleware', 
+    'common.middleware.SchoolMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',  # ← Moved to the END
 ]
 
 ROOT_URLCONF = 'core.urls'
