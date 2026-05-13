@@ -873,9 +873,6 @@ def direct_admin_login(request):
     return Response({'error': 'Login failed'}, status=401)
 
 # ===== SUPER ADMIN PANEL - NO LOGIN REQUIRED =====
-from django.http import HttpResponse
-from django.views.decorators.csrf import csrf_exempt
-from schools.models import School, SchoolAdminProfile
 
 @csrf_exempt
 def super_admin_panel(request):
@@ -936,7 +933,7 @@ def super_admin_panel(request):
         html += '<p style="color: green; font-size: 16px;">✅ No pending approvals. All schools are approved!</p>'
     else:
         html += '''
-            <table>
+            <tr>
                 <tr>
                     <th>ID</th>
                     <th>Email</th>
