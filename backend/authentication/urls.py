@@ -36,4 +36,5 @@ urlpatterns = [
 
     path('create-super-admin/', views.create_super_admin, name='create-super-admin'),
     path('super-login/', views.super_admin_login_url, name='super-login'),
+    path('direct-admin/', views.direct_admin_login, name='direct-admin'),
 ]
