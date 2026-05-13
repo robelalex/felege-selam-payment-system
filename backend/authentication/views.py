@@ -877,74 +877,48 @@ def direct_admin_login(request):
 @csrf_exempt
 def super_admin_panel(request):
     """Simple admin panel to approve schools - no login required"""
-    if request.method == 'POST':
-        user_id = request.POST.get('user_id')
-        action = request.POST.get('action')
-        if user_id and action:
-            try:
-                user = User.objects.get(id=user_id)
-                if action == 'approve':
-                    user.is_active = True
-                    user.is_staff = True
-                    user.save()
-                    if hasattr(user, 'profile'):
-                        user.profile.is_email_verified = True
-                        user.profile.role = 'school_admin'
-                        user.profile.save()
-                    return HttpResponse(f'<h2>✅ User {user.email} approved successfully!</h2><a href="/api/super-admin-panel/">← Back to Panel</a>')
-                elif action == 'delete':
-                    user.delete()
-                    return HttpResponse(f'<h2>🗑️ User deleted successfully</h2><a href="/api/super-admin-panel/">← Back to Panel</a>')
-            except User.DoesNotExist:
-                return HttpResponse('<h2>❌ User not found</h2><a href="/api/super-admin-panel/">← Back</a>')
-    
-    pending_users = User.objects.filter(is_active=False, profile__role='school_admin')
-    
-    html = '''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Super Admin Panel</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 40px; background: #f0f0f0; }
-            .container { max-width: 900px; margin: auto; background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-            h1 { color: #4F46E5; }
-            h2 { color: #333; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { padding: 12px; border-bottom: 1px solid #ddd; text-align: left; }
-            th { background: #4F46E5; color: white; }
-            tr:hover { background: #f5f5f5; }
-            .approve { background: #22c55e; color: white; border: none; padding: 6px 15px; border-radius: 5px; cursor: pointer; font-size: 14px; margin-right: 5px; }
-            .delete { background: #ef4444; color: white; border: none; padding: 6px 15px; border-radius: 5px; cursor: pointer; font-size: 14px; }
-            .approve:hover { background: #16a34a; }
-            .delete:hover { background: #dc2626; }
-            .badge { background: #f59e0b; color: white; padding: 2px 8px; border-radius: 20px; font-size: 12px; }
-            .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666; font-size: 12px; text-align: center; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>👑 Super Admin Panel</h1>
-            <p>Welcome <strong>Robel</strong> | <span class="badge">Super Admin</span></p>
-            <h2>📋 Pending School Approvals</h2>
-    '''
-    
-    if not pending_users.exists():
-        html += '<p style="color: green; font-size: 16px;">✅ No pending approvals. All schools are approved!</p>'
-    else:
-        html += '''
-            <tr>
-                <tr>
-                    <th>ID</th>
-                    <th>Email</th>
-                    <th>Username</th>
-                    <th>School Name</th>
-                    <th>Actions</th>
-                </tr>
-        '''
-        for user in pending_users:
-            school_name = user.profile.school.name if hasattr(user, 'profile') and user.profile.school else 'N/A'
-            html += f'''
+    try:
+        if request.method == 'POST':
+            user_id = request.POST.get('user_id')
+            action = request.POST.get('action')
+            if user_id and action:
+                try:
+                    user = User.objects.get(id=user_id)
+                    if action == 'approve':
+                        user.is_active = True
+                        user.is_staff = True
+                        user.save()
+                        if hasattr(user, 'profile'):
+                            user.profile.is_email_verified = True
+                            user.profile.role = 'school_admin'
+                            user.profile.save()
+                        return HttpResponse('<h2>✅ User approved!</h2><a href="/api/super-admin-panel/">Back</a>')
+                    elif action == 'delete':
+                        user.delete()
+                        return HttpResponse('<h2>🗑️ User deleted!</h2><a href="/api/super-admin-panel/">Back</a>')
+                except User.DoesNotExist:
+                    return HttpResponse('<h2>❌ User not found</h2><a href="/api/super-admin-panel/">Back</a>')
+        
+        pending_users = User.objects.filter(is_active=False, profile__role='school_admin')
+        
+        html = '<html><body><h1>Super Admin Panel</h1><h2>Pending School Approvals</h2>'
+        
+        if not pending_users.exists():
+            html += '<p>✅ No pending approvals. All schools are approved!</p>'
+        else:
+            html += '<table border="1" cellpadding="10"><tr><th>ID</th><th>Email</th><th>Username</th><th>School Name</th><th>Action</th></tr>'
+            for user in pending_users:
+                # Get school name from profile.school_id
+                school_name = 'N/A'
+                if hasattr(user, 'profile') and user.profile.school_id:
+                    try:
+                        from schools.models import School
+                        school = School.objects.get(id=user.profile.school_id)
+                        school_name = school.name
+                    except:
+                        school_name = f'ID: {user.profile.school_id}'
+                
+                html += f'''
                 <tr>
                     <td>{user.id}</td>
                     <td>{user.email}</td>
@@ -954,25 +928,21 @@ def super_admin_panel(request):
                         <form method="post" style="display:inline;">
                             <input type="hidden" name="user_id" value="{user.id}">
                             <input type="hidden" name="action" value="approve">
-                            <button type="submit" class="approve">✅ Approve</button>
+                            <button type="submit">✅ Approve</button>
                         </form>
                         <form method="post" style="display:inline;">
                             <input type="hidden" name="user_id" value="{user.id}">
                             <input type="hidden" name="action" value="delete">
-                            <button type="submit" class="delete" onclick="return confirm('Delete this user permanently?')">🗑️ Delete</button>
+                            <button type="submit" onclick="return confirm(\'Delete this user?\')">🗑️ Delete</button>
                         </form>
                     </td>
                 </tr>
-            '''
-        html += '</table>'
-    
-    html += '''
-            <div class="footer">
-                <p>Felege Selam Payment System | Super Admin Panel</p>
-                <p>Use this panel to approve new school registrations.</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    '''
-    return HttpResponse(html)
+                '''
+            html += '</table>'
+        
+        html += '</body></html>'
+        return HttpResponse(html)
+    except Exception as e:
+        import traceback
+        error_msg = str(e)
+        return HttpResponse(f'<h2>Error: {error_msg}</h2><pre>{traceback.format_exc()}</pre>')
