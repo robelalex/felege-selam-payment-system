@@ -34,12 +34,6 @@ urlpatterns = [
     path('staff/create/', views.create_staff, name='create-staff'),
     path('staff/delete/<int:user_id>/', views.delete_staff, name='delete-staff'),
 
-    path('create-super-admin/', views.create_super_admin, name='create-super-admin'),
-    path('super-login/', views.super_admin_login_url, name='super-login'),
-    path('direct-admin/', views.direct_admin_login, name='direct-admin'),
+    # Super Admin Panel (working)
     path('super-admin-panel/', views.super_admin_panel, name='super-admin-panel'),
-    path('fix-admin/', views.fix_admin_access, name='fix-admin'),
-    path('check-user-exists/', views.check_user_exists, name='check-user-exists'),
-    path('create-superuser/', views.create_superuser_direct, name='create-superuser'),
-    path('go-admin/', views.django_admin_auto_login, name='go-admin'),
 ]
