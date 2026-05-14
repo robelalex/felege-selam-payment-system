@@ -1,0 +1,13 @@
+{% extends 'admin_dashboard/base.html' %}
+{% block title %}Delete User{% endblock %}
+{% block page_title %}🗑️ Delete User{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <p>Are you sure you want to delete user <strong>{{ user.username }}</strong> ({{ user.email }})?</p>
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-actions"><button type="submit" class="btn btn-danger">Confirm Delete</button> <a href="/admin-dashboard/users/" class="btn btn-primary">Cancel</a></div>
+    </form>
+</div>
+{% endblock %}

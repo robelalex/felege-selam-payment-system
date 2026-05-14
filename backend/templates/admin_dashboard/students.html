@@ -1,0 +1,22 @@
+{% extends 'admin_dashboard/base.html' %}
+{% block title %}Students{% endblock %}
+{% block page_title %}🎓 Student Management{% endblock %}
+
+{% block content %}
+<table class="data-table">
+    <thead><tr><th>ID</th><th>Student ID</th><th>Name</th><th>Grade</th><th>School</th><th>Parent</th><th>Actions</th></tr></thead>
+    <tbody>
+        {% for student in students %}
+        <tr>
+            <td>{{ student.id }}</td>
+            <td>{{ student.student_id }}</td>
+            <td>{{ student.full_name }}</td>
+            <td>{{ student.grade }}</td>
+            <td>{{ student.school.name|default:"N/A" }}</td>
+            <td>{{ student.parent_full_name }}</td>
+            <td><a href="/admin-dashboard/students/edit/{{ student.id }}/" class="btn btn-primary btn-sm">Edit</a> <a href="/admin-dashboard/students/delete/{{ student.id }}/" class="btn btn-danger btn-sm">Delete</a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

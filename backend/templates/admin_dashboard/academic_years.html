@@ -1,0 +1,25 @@
+{% extends 'admin_dashboard/base.html' %}
+{% block title %}Academic Years{% endblock %}
+{% block page_title %}📅 Academic Year Management{% endblock %}
+
+{% block content %}
+<a href="/admin-dashboard/academic-years/create/" class="btn btn-primary">➕ Add Academic Year</a>
+<table class="data-table" style="margin-top: 20px;">
+    <thead><tr><th>ID</th><th>Year EC</th><th>Name</th><th>Start Date</th><th>End Date</th><th>Current</th><th>Actions</th></tr></thead>
+    <tbody>
+        {% for year in years %}
+        <tr>
+            <td>{{ year.id }}</td>
+            <td>{{ year.year_ec }}</td>
+            <td>{{ year.name }}</td>
+            <td>{{ year.start_date|date:"Y-m-d" }}</td>
+            <td>{{ year.end_date|date:"Y-m-d" }}</td>
+            <td>{% if year.is_current %}✅{% else %}❌{% endif %}</td>
+            <td>
+                {% if not year.is_current %}<a href="/admin-dashboard/academic-years/set-current/{{ year.id }}/" class="btn btn-primary btn-sm">Set Current</a>{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

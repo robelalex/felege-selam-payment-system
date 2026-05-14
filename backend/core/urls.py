@@ -56,6 +56,9 @@ urlpatterns = [
     path('api/admin/pending-approvals/', pending_approvals, name='pending-approvals'),
     path('api/admin/approve/<int:user_id>/', approve_school, name='approve-school'),
     path('api/admin/reject/<int:user_id>/', reject_school, name='reject-school'),
+    
+    # ✅ CUSTOM ADMIN DASHBOARD - MUST BE BEFORE React catch-all
+    path('admin-dashboard/', include('admin_dashboard.urls')),
 ]
 
 # Serve static files
@@ -68,7 +71,8 @@ if settings.DEBUG:
 urlpatterns += [
     path('', TemplateView.as_view(template_name='index.html')),
     path('admin-login/', TemplateView.as_view(template_name='index.html')),
-    path('admin-dashboard/', TemplateView.as_view(template_name='index.html')),
+    # ❌ REMOVE this line - it's capturing your admin-dashboard
+    # path('admin-dashboard/', TemplateView.as_view(template_name='index.html')),
     path('parent-login/', TemplateView.as_view(template_name='index.html')),
     path('parent-dashboard/', TemplateView.as_view(template_name='index.html')),
 ]
