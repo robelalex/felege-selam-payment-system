@@ -13,18 +13,50 @@ from payments.models import Payment, PaymentDeadline, PaymentSlip
 from academics.models import AcademicYear, YearPromotionLog
 from authentication.models import UserProfile
 
+def custom_login(request):
+    """Custom professional login page"""
+    return render(request, 'admin_dashboard/login.html')
 # ===== DIRECT ACCESS - NO LOGIN REQUIRED =====
 def auto_login_and_redirect(request):
-    """Direct access to dashboard - bypass all authentication"""
-    try:
-        user = User.objects.get(username='robelalex')
-        login(request, user)
-        return redirect('/admin-dashboard/dashboard/')
-    except User.DoesNotExist:
-        return HttpResponse('Super admin user "robelalex" not found. Please create this user first.')
-
+    """Direct access to dashboard - creates user and profile if needed"""
+    from authentication.models import UserProfile
+    
+    # Get or create user
+    user, created = User.objects.get_or_create(
+        username='robelalex',
+        defaults={
+            'email': 'robelalex95@gmail.com',
+            'is_superuser': True,
+            'is_staff': True,
+            'is_active': True
+        }
+    )
+    
+    if created:
+        user.set_password('Ru1744/15robel')
+        user.save()
+    
+    # ✅ CRITICAL: Create or get UserProfile
+    profile, profile_created = UserProfile.objects.get_or_create(
+        user=user,
+        defaults={
+            'role': 'super_admin',
+            'is_email_verified': True
+        }
+    )
+    
+    if profile_created:
+        print(f"✅ Created UserProfile for {user.username}")
+    
+    # Force login
+    login(request, user)
+    return redirect('/admin-dashboard/dashboard/')
 # ===== DASHBOARD - SIMPLIFIED FOR SUPER ADMIN =====
 def dashboard(request):
+    # ✅ CHECK IF USER IS LOGGED IN FIRST
+    if not request.user.is_authenticated:
+        return redirect('/admin-dashboard/login/')
+    
     # Handle POST actions (approve/reject)
     if request.method == 'POST':
         action = request.POST.get('action')

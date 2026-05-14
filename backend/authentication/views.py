@@ -122,6 +122,9 @@ def admin_login_step2(request):
         # Login the user
         auth_login(request, user)
         
+        # ✅ FORCE SESSION SAVE - ADD THIS LINE
+        request.session.save()
+        
         # Get school info
         school_info = None
         try:
@@ -175,6 +178,9 @@ def admin_login_step2(request):
     
     # Login the user
     auth_login(request, user)
+    
+    # ✅ FORCE SESSION SAVE - ADD THIS LINE
+    request.session.save()
     
     # Get school info
     school_info = None
@@ -586,17 +592,17 @@ def change_password(request):
     })
 
 
-@api_view(['POST'])
+@api_view(['GET', 'POST'])  # Change to accept both GET and POST
 @permission_classes([IsAuthenticated])
 def logout(request):
     """Logout user"""
     user = request.user
     log_action(user, 'LOGOUT', 'User logged out', request)
     auth_logout(request)
-    return Response({
-        'success': True,
-        'message': 'Logged out successfully'
-    })
+    
+    # Redirect to login page instead of returning JSON
+    from django.shortcuts import redirect
+    return redirect('/admin-dashboard/login/')
 
 
 @api_view(['GET'])
