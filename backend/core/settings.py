@@ -155,7 +155,7 @@ REST_FRAMEWORK = {
 }
 
 # ===== SESSION SETTINGS =====
-SESSION_COOKIE_AGE = 1800
+SESSION_COOKIE_AGE = 3600
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_COOKIE_PATH = '/'
 SESSION_COOKIE_HTTPONLY = True
@@ -172,11 +172,11 @@ if DEBUG:
 else:
     # Production (HTTPS on Render)
     SESSION_COOKIE_SECURE = True
-    SESSION_COOKIE_SAMESITE = 'None'
-    SESSION_COOKIE_DOMAIN = '.onrender.com'
+    SESSION_COOKIE_SAMESITE = 'Lax'  # CHANGE from 'None' to 'Lax'
+    SESSION_COOKIE_DOMAIN = None  # CHANGE from '.onrender.com' to None
     CSRF_COOKIE_SECURE = True
-    CSRF_COOKIE_SAMESITE = 'None'
-    CSRF_COOKIE_DOMAIN = '.onrender.com'
+    CSRF_COOKIE_SAMESITE = 'Lax'  # CHANGE from 'None' to 'Lax'
+    CSRF_COOKIE_DOMAIN = None  # CHANGE from '.onrender.com' to None
 
 CSRF_COOKIE_PATH = '/'
 CSRF_COOKIE_HTTPONLY = False
