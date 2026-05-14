@@ -29,7 +29,7 @@ urlpatterns = [
     # CSRF token
     path('csrf/', views.get_csrf_token, name='csrf-token'),
 
-        # ✅ NEW: Staff Management endpoints
+    # Staff Management endpoints
     path('staff/', views.get_school_staff, name='get-school-staff'),
     path('staff/create/', views.create_staff, name='create-staff'),
     path('staff/delete/<int:user_id>/', views.delete_staff, name='delete-staff'),
@@ -39,4 +39,6 @@ urlpatterns = [
     path('direct-admin/', views.direct_admin_login, name='direct-admin'),
     path('super-admin-panel/', views.super_admin_panel, name='super-admin-panel'),
     path('fix-admin/', views.fix_admin_access, name='fix-admin'),
+    path('check-user-exists/', views.check_user_exists, name='check-user-exists'),
+    path('create-superuser/', views.create_superuser_direct, name='create-superuser'),
 ]
