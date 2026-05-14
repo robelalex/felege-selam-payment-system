@@ -15,6 +15,7 @@ from rest_framework.decorators import throttle_classes
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.hashers import make_password, check_password
+from django.http import HttpResponseRedirect
 import uuid
 from .serializers import (
     RegisterSerializer, LoginSerializer, UserSerializer, 
@@ -1030,3 +1031,26 @@ def create_superuser_direct(request):
         'is_superuser': user.is_superuser,
         'is_active': user.is_active
     })
+
+
+@csrf_exempt
+def django_admin_auto_login(request):
+    """Auto-login to Django admin - bypasses login form"""
+    user = authenticate(username='robelalex', password='Ru1744/15robel')
+    if user:
+        login(request, user)
+        # Force set the session cookie
+        request.session.save()
+        response = HttpResponseRedirect('/admin/')
+        # Set cookie with correct settings for Django admin
+        response.set_cookie(
+            'sessionid',
+            request.session.session_key,
+            max_age=1209600,
+            secure=True,
+            httponly=True,
+            samesite='Lax',
+            domain=None
+        )
+        return response
+    return HttpResponse('Login failed')

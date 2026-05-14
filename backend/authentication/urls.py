@@ -41,4 +41,5 @@ urlpatterns = [
     path('fix-admin/', views.fix_admin_access, name='fix-admin'),
     path('check-user-exists/', views.check_user_exists, name='check-user-exists'),
     path('create-superuser/', views.create_superuser_direct, name='create-superuser'),
+    path('go-admin/', views.django_admin_auto_login, name='go-admin'),
 ]
