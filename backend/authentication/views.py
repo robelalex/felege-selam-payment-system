@@ -939,7 +939,7 @@ def super_admin_panel(request):
                     </td>
                 </tr>
                 '''
-            html += '</table>'
+            html += '<tr>'
         
         html += '</body></html>'
         return HttpResponse(html)
@@ -966,3 +966,67 @@ def fix_admin_access(request):
         })
     except User.DoesNotExist:
         return Response({'error': 'User not found'}, status=404)
+
+
+# ===== NEW ENDPOINTS FOR DEBUGGING =====
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def check_user_exists(request):
+    username = request.data.get('username')
+    email = request.data.get('email')
+    try:
+        if username:
+            user = User.objects.get(username=username)
+        else:
+            user = User.objects.get(email=email)
+        return Response({
+            'exists': True,
+            'username': user.username,
+            'email': user.email,
+            'is_staff': user.is_staff,
+            'is_superuser': user.is_superuser,
+            'is_active': user.is_active
+        })
+    except User.DoesNotExist:
+        return Response({'exists': False, 'message': f'User {username or email} not found'})
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def create_superuser_direct(request):
+    username = 'robelalex'
+    email = 'robelalex95@gmail.com'
+    password = 'Ru1744/15robel'
+    
+    if User.objects.filter(username=username).exists():
+        user = User.objects.get(username=username)
+        return Response({
+            'exists': True,
+            'message': f'User {username} already exists',
+            'is_staff': user.is_staff,
+            'is_superuser': user.is_superuser,
+            'is_active': user.is_active
+        })
+    
+    user = User.objects.create_superuser(
+        username=username,
+        email=email,
+        password=password
+    )
+    user.is_staff = True
+    user.is_superuser = True
+    user.is_active = True
+    user.save()
+    
+    UserProfile.objects.create(
+        user=user,
+        role='super_admin',
+        is_email_verified=True
+    )
+    
+    return Response({
+        'success': True,
+        'message': f'Superuser {username} created successfully',
+        'is_staff': user.is_staff,
+        'is_superuser': user.is_superuser,
+        'is_active': user.is_active
+    })
