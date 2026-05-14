@@ -26,7 +26,7 @@ router.register(r'deadlines', PaymentDeadlineViewSet, basename='deadline')
 router.register(r'schools', SchoolViewSet, basename='school')
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    # path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
     path('api-auth/', include('rest_framework.urls')),
     path('api/auth/change-password/', change_password, name='change-password'),

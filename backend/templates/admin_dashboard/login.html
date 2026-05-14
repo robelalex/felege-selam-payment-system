@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>Super Admin Login</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .login-container {
+            max-width: 450px;
+            width: 100%;
+        }
+        .login-card {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .login-header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .login-header h1 { font-size: 28px; margin-bottom: 5px; }
+        .login-header p { opacity: 0.8; font-size: 14px; }
+        .login-body { padding: 30px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: 600; color: #333; font-size: 14px; }
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+        }
+        .login-btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .login-btn:hover { transform: translateY(-2px); }
+        .login-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .error-message {
+            background: #fee;
+            color: #c00;
+            padding: 12px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 14px;
+            display: none;
+        }
+        .otp-section {
+            display: none;
+            animation: fadeIn 0.5s ease;
+        }
+        .otp-section.show { display: block; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #fff;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .back-link {
+            text-align: center;
+            margin-top: 15px;
+        }
+        .back-link a {
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .back-link a:hover { text-decoration: underline; }
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            color: rgba(255,255,255,0.7);
+            font-size: 12px;
+        }
+        
+        /* Mobile Responsive */
+        @media (max-width: 480px) {
+            .login-header h1 { font-size: 24px; }
+            .login-header p { font-size: 12px; }
+            .login-body { padding: 20px; }
+            .form-group input { padding: 10px 12px; font-size: 14px; }
+            .login-btn { padding: 10px; font-size: 14px; }
+        }
+    </style>
+    <meta name="csrf-token" content="{{ csrf_token }}">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <h1>👑 Super Admin</h1>
+                <p>Secure Access Portal</p>
+            </div>
+            <div class="login-body">
+                <div id="errorMessage" class="error-message"></div>
+                
+                <form id="loginForm">
+                    <div id="step1Section">
+                        <div class="form-group">
+                            <label>Username</label>
+                            <input type="text" id="username" placeholder="Enter your username" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" id="password" placeholder="Enter your password">
+                        </div>
+                        <button type="button" class="login-btn" onclick="sendOTP()">Continue →</button>
+                    </div>
+                    
+                    <div id="step2Section" class="otp-section">
+                        <div class="form-group">
+                            <label>Verification Code (OTP)</label>
+                            <input type="text" id="otpCode" placeholder="Enter 6-digit code" maxlength="6">
+                        </div>
+                        <button type="button" class="login-btn" onclick="verifyOTP()">Verify & Login →</button>
+                        <div class="back-link">
+                            <a href="#" onclick="backToLogin()">← Back</a>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="footer">
+            <p>Felege Selam Payment System | Secure Access</p>
+        </div>
+    </div>
+
+<script>
+    let currentUserId = null;
+    
+    function getCSRFToken() {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, 10) === 'csrftoken=') {
+                    cookieValue = decodeURIComponent(cookie.substring(10));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+    
+    function showError(message) {
+        const errorDiv = document.getElementById('errorMessage');
+        errorDiv.textContent = message;
+        errorDiv.style.display = 'block';
+        setTimeout(() => {
+            errorDiv.style.display = 'none';
+        }, 5000);
+    }
+    
+    function showLoading(button) {
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner"></span> Please wait...';
+    }
+    
+    function hideLoading(button, text) {
+        button.disabled = false;
+        button.innerHTML = text;
+    }
+    
+    async function sendOTP() {
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        
+        if (!username || !password) {
+            showError('Please enter both username and password');
+            return;
+        }
+        
+        const email = 'robelalex95@gmail.com';
+        const btn = event.target;
+        showLoading(btn);
+        
+        try {
+            const response = await fetch('/api/login/', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken()
+                },
+                credentials: 'include',
+                body: JSON.stringify({ email: email, password: password })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success && data.user_id) {
+                currentUserId = data.user_id;
+                document.getElementById('step1Section').style.display = 'none';
+                document.getElementById('step2Section').classList.add('show');
+                hideLoading(btn, 'Continue →');
+            } else {
+                showError('Invalid username or password');
+                hideLoading(btn, 'Continue →');
+            }
+        } catch (err) {
+            console.error('Login error:', err);
+            showError('Connection error. Please try again.');
+            hideLoading(btn, 'Continue →');
+        }
+    }
+    
+    async function verifyOTP() {
+        const otpCode = document.getElementById('otpCode').value.trim();
+        
+        if (!otpCode || otpCode.length !== 6) {
+            showError('Please enter a valid 6-digit OTP code');
+            return;
+        }
+        
+        const btn = event.target;
+        showLoading(btn);
+        
+        try {
+            const response = await fetch('/api/verify/', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken()
+                },
+                credentials: 'include',
+                body: JSON.stringify({ user_id: currentUserId, otp_code: otpCode })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                window.location.href = '/admin-dashboard/dashboard/';
+            } else {
+                showError('Invalid OTP code. Please try again.');
+                hideLoading(btn, 'Verify & Login →');
+            }
+        } catch (err) {
+            console.error('Verification error:', err);
+            showError('Verification failed. Please try again.');
+            hideLoading(btn, 'Verify & Login →');
+        }
+    }
+    
+    function backToLogin() {
+        document.getElementById('step1Section').style.display = 'block';
+        document.getElementById('step2Section').classList.remove('show');
+        document.getElementById('otpCode').value = '';
+        currentUserId = null;
+    }
+    
+    // Enter key support
+    document.getElementById('password').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') sendOTP();
+    });
+    document.getElementById('otpCode').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') verifyOTP();
+    });
+</script>
+</body>
+</html>

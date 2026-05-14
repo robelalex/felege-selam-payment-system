@@ -110,13 +110,16 @@
     </div>
     
     <div class="main-content">
-        <div class="top-bar">
-            <h1 class="page-title">{% block page_title %}Dashboard{% endblock %}</h1>
-            <div>
-                <span class="user-info">Welcome, {{ request.user.username }}</span>
-                <a href="/api/logout/" class="logout-btn" onclick="return confirm('Are you sure you want to logout?')">🚪 Logout</a>
-            </div>
-        </div>
+<div class="top-bar">
+    <h1 class="page-title">{% block page_title %}Dashboard{% endblock %}</h1>
+    <div>
+        <span class="user-info">Welcome, {{ request.user.username }}</span>
+        <form method="post" action="/api/logout/" style="display: inline;">
+            {% csrf_token %}
+            <button type="submit" class="logout-btn" onclick="return confirm('Are you sure you want to logout?')">🚪 Logout</button>
+        </form>
+    </div>
+</div>
         {% block content %}{% endblock %}
     </div>
     
