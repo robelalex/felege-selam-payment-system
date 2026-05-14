@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'authentication',
     'academics',
     'common',
+    'admin_dashboard',
 ]
 
 MIDDLEWARE = [
@@ -81,7 +82,7 @@ ROOT_URLCONF = 'core.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [os.path.join(BASE_DIR, 'staticfiles_build')],
+        'DIRS': [os.path.join(BASE_DIR, 'templates'), os.path.join(BASE_DIR, 'staticfiles_build')],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -246,6 +247,10 @@ DEFAULT_FROM_EMAIL = 'Felege Selam Payment <robelalex95@gmail.com>'
 
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
 BACKEND_URL = os.environ.get('BACKEND_URL', 'https://felege-selam-payment-system.onrender.com')
+
+# ===== LOGIN URL FOR ADMIN DASHBOARD =====
+LOGIN_URL = '/admin/login/'
+LOGIN_REDIRECT_URL = '/admin-dashboard/'
 
 # ===== FIX FOR RENDER STATIC FILES =====
 if not DEBUG:

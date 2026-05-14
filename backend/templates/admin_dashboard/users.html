@@ -1,0 +1,16 @@
+{% extends 'admin_dashboard/base.html' %}
+{% block title %}Users - Super Admin{% endblock %}
+{% block page_title %}👥 User Management{% endblock %}
+
+{% block content %}
+<table class="data-table">
+    <thead><tr><th>ID</th><th>Username</th><th>Email</th><th>Role</th><th>Staff</th><th>Superuser</th><th>Active</th><th>Actions</th></tr></thead>
+    <tbody>{% for user in users %}<tr>
+        <td>{{ user.id }}</td><td>{{ user.username }}</td><td>{{ user.email }}</td><td>{{ user.profile.role|default:"staff" }}</td>
+        <td>{% if user.is_staff %}✅{% else %}❌{% endif %}</td>
+        <td>{% if user.is_superuser %}✅{% else %}❌{% endif %}</td>
+        <td>{% if user.is_active %}✅{% else %}❌{% endif %}</td>
+        <td><a href="/admin-dashboard/users/edit/{{ user.id }}/" class="btn btn-primary btn-sm">Edit</a> <a href="/admin-dashboard/users/delete/{{ user.id }}/" class="btn btn-danger btn-sm">Delete</a></td>
+    </tr>{% endfor %}</tbody>
+</table>
+{% endblock %}

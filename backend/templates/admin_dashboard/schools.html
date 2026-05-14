@@ -1,0 +1,8 @@
+{% extends 'admin_dashboard/base.html' %}
+{% block title %}Schools{% endblock %}
+{% block page_title %}🏫 School Management{% endblock %}
+{% block content %}
+<a href="/admin-dashboard/schools/create/" class="btn btn-primary">➕ Add School</a>
+<table class="data-table" style="margin-top: 20px;"><thead><tr><th>ID</th><th>Name</th><th>Code</th><th>Email</th><th>Phone</th><th>Actions</th></tr></thead>
+<tbody>{% for school in schools %}<tr><td>{{ school.id }}</td><td>{{ school.name }}</td><td>{{ school.code }}</td><td>{{ school.email }}</td><td>{{ school.phone }}</td><td><a href="/admin-dashboard/schools/edit/{{ school.id }}/" class="btn btn-primary btn-sm">Edit</a> <a href="/admin-dashboard/schools/delete/{{ school.id }}/" class="btn btn-danger btn-sm">Delete</a></td></tr>{% endfor %}</tbody></table>
+{% endblock %}

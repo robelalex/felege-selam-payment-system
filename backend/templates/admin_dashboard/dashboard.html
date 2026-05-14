@@ -1,0 +1,87 @@
+{% extends 'admin_dashboard/base.html' %}
+
+{% block title %}Super Admin Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-number">{{ total_schools }}</div><div class="stat-label">Total Schools</div></div>
+    <div class="stat-card"><div class="stat-number">{{ pending_approvals }}</div><div class="stat-label">Pending Approvals</div></div>
+    <div class="stat-card"><div class="stat-number">{{ approved_schools }}</div><div class="stat-label">Approved Schools</div></div>
+</div>
+
+<div style="background: white; border-radius: 10px; padding: 20px;">
+    <h2>📋 Pending School Approvals</h2>
+    {% if pending_schools %}
+    <table class="data-table" style="margin-top: 15px;">
+        <thead>
+            <tr>
+                <th>School Name</th>
+                <th>School Code</th>
+                <th>Admin Name</th>
+                <th>Admin Email</th>
+                <th>Admin Phone</th>
+                <th>Registered Date</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for school in pending_schools %}
+            <tr>
+                <td>{{ school.name }}</td>
+                <td>{{ school.code }}</td>
+                <td>{{ school.admin_name }}</td>
+                <td>{{ school.admin_email }}</td>
+                <td>{{ school.admin_phone }}</td>
+                <td>{{ school.created_at|date:"Y-m-d" }}</td>
+                <td>
+                    <form method="post" style="display:inline;">
+                        {% csrf_token %}
+                        <input type="hidden" name="user_id" value="{{ school.admin_id }}">
+                        <input type="hidden" name="action" value="approve_school">
+                        <button type="submit" class="btn btn-success btn-sm">✅ Approve</button>
+                    </form>
+                    <form method="post" style="display:inline;">
+                        {% csrf_token %}
+                        <input type="hidden" name="user_id" value="{{ school.admin_id }}">
+                        <input type="hidden" name="action" value="reject_school">
+                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Reject this school registration?')">❌ Reject</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: green; text-align: center; padding: 40px;">✅ No pending approvals. All schools are approved!</p>
+    {% endif %}
+</div>
+
+<div style="background: white; border-radius: 10px; padding: 20px; margin-top: 20px;">
+    <h2>✅ Approved Schools</h2>
+    <table class="data-table" style="margin-top: 15px;">
+        <thead>
+            <tr>
+                <th>School Name</th>
+                <th>School Code</th>
+                <th>Admin Email</th>
+                <th>Approved Date</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for school in approved_schools_list %}
+            <tr>
+                <td>{{ school.name }}</td>
+                <td>{{ school.code }}</td>
+                <td>{{ school.admin_email }}</td>
+                <td>{{ school.approved_date|date:"Y-m-d" }}</td>
+                <td><span class="badge badge-success">Active</span></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" style="text-align: center;">No approved schools yet</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
