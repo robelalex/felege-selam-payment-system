@@ -125,20 +125,26 @@ function ParentDashboard() {
     }
   };
 
-  const handleBankTransfer = (payment) => {
-    setShowBankInfo({
-      payment: payment,
-      amount: payment.amount,
-      instructions: [
-        'Bank: Commercial Bank of Ethiopia',
-        'Account Name: School Name',
-        'Account Number: 10000001234567',
-        `Reference: Use Student ID: ${student?.student_id}`,
-        `Month: ${payment.month_name}`,
-        'After transfer, upload the bank slip'
-      ]
-    });
-  };
+const handleBankTransfer = (payment) => {
+  // Get school bank details from the student object
+  const schoolName = student?.school_name || 'School Name';
+  const bankName = student?.bank_name || 'Commercial Bank of Ethiopia';
+  const accountName = student?.bank_account_holder || schoolName;
+  const accountNumber = student?.bank_account_number || 'Not provided';
+  
+  setShowBankInfo({
+    payment: payment,
+    amount: payment.amount,
+    instructions: [
+      `Bank: ${bankName}`,
+      `Account Name: ${accountName}`,
+      `Account Number: ${accountNumber}`,
+      `Reference: Use Student ID: ${student?.student_id}`,
+      `Month: ${payment.month_name}`,
+      'After transfer, upload the bank slip'
+    ]
+  });
+};
 
   const handleUploadClick = (deadline) => {
     setSelectedDeadline(deadline);
