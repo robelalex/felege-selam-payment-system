@@ -83,7 +83,7 @@ def admin_login_step1(request):
     if hasattr(user, 'profile') and not user.profile.is_email_verified:
         return Response({'error': 'Please verify your email first'}, status=401)
     
-    # Generate real OTP
+    # Generate OTP
     otp_code = generate_otp()
     
     profile = user.profile
@@ -91,17 +91,12 @@ def admin_login_step1(request):
     profile.otp_created_at = timezone.now()
     profile.save()
     
-    # Try to send email, but don't fail if it doesn't work
-    try:
-        success, message = send_otp_email(email, otp_code, user_type='admin')
-        if not success:
-            print(f"Failed to send OTP: {message}")
-    except Exception as e:
-        print(f"Email error: {e}")
+    # ✅ Email sending removed - use 123456 for testing
+    print(f"🔐 LOGIN - User: {email}, OTP: {otp_code} (Use 123456 for testing)")
     
     return Response({
         'success': True,
-        'message': 'OTP sent to your email (Use: 123456 for testing)',
+        'message': 'Use OTP: 123456',
         'user_id': user.id,
         'requires_otp': True
     })
@@ -229,16 +224,8 @@ def parent_login_step1(request):
     if not students.exists():
         return Response({'error': 'No student found with this email'}, status=404)
     
-    # Generate real OTP
+    # Generate OTP
     otp_code = generate_otp()
-    
-    # Try to send email, but don't fail if it doesn't work
-    try:
-        success, message = send_otp_email(email, otp_code, user_type='parent')
-        if not success:
-            print(f"Failed to send OTP: {message}")
-    except Exception as e:
-        print(f"Email error: {e}")
     
     # Create or update user profile for this email
     username = f"parent_{email.replace('@', '_').replace('.', '_')}"
@@ -263,11 +250,12 @@ def parent_login_step1(request):
     profile.otp_created_at = timezone.now()
     profile.save()
     
-    print(f"✅ OTP saved for {email}: {profile.otp_code}")
+    # ✅ Email sending removed - use 123456 for testing
+    print(f"🔐 PARENT LOGIN - Email: {email}, OTP: {otp_code} (Use 123456 for testing)")
     
     return Response({
         'success': True,
-        'message': 'OTP sent to your email (Use: 123456 for testing)',
+        'message': 'Use OTP: 123456',
         'user_id': user.id
     })
 
