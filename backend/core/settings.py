@@ -48,7 +48,8 @@ INSTALLED_APPS = [
     # Third-party apps
     'rest_framework',
     'corsheaders',
-    
+    'anymail',
+
     # Cloudinary for media storage
     'cloudinary_storage',
     'cloudinary',
@@ -249,12 +250,13 @@ DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')
 
 # ===== EMAIL CONFIGURATION =====
+# Using Gmail SMTP with App Password
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'robelalex95@gmail.com'
-EMAIL_HOST_PASSWORD = 'ginz gqid bfxe mjqf'
+EMAIL_HOST_PASSWORD = 'didc suua dcaw ewkg'  # Remove spaces: didcsuuadcawe wkg? Actually keep as is
 DEFAULT_FROM_EMAIL = 'Felege Selam Payment <robelalex95@gmail.com>'
 
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
