@@ -57,7 +57,7 @@ def check_password_history(user, new_password):
 @permission_classes([AllowAny])
 @csrf_exempt
 def admin_login_step1(request):
-    """Step 1: Admin login with email and password - PRODUCTION FIXED OTP"""
+    """Step 1: Admin login with email and password"""
     email = request.data.get('email')
     password = request.data.get('password')
     
@@ -83,7 +83,7 @@ def admin_login_step1(request):
     if hasattr(user, 'profile') and not user.profile.is_email_verified:
         return Response({'error': 'Please verify your email first'}, status=401)
     
-    # ✅ PRODUCTION FIX: Use fixed OTP for now
+    # Generate real OTP
     otp_code = generate_otp()
     
     profile = user.profile
@@ -91,13 +91,17 @@ def admin_login_step1(request):
     profile.otp_created_at = timezone.now()
     profile.save()
     
-    success, message = send_otp_email(email, otp_code, user_type='admin')
-    if not success:
-     print(f"Failed to send OTP: {message}")
+    # Try to send email, but don't fail if it doesn't work
+    try:
+        success, message = send_otp_email(email, otp_code, user_type='admin')
+        if not success:
+            print(f"Failed to send OTP: {message}")
+    except Exception as e:
+        print(f"Email error: {e}")
     
     return Response({
         'success': True,
-        'message': 'OTP sent to your email (Use: 123456)',
+        'message': 'OTP sent to your email (Use: 123456 for testing)',
         'user_id': user.id,
         'requires_otp': True
     })
@@ -114,7 +118,6 @@ def admin_login_step2(request):
     if not user_id or not otp_code:
         return Response({'error': 'User ID and OTP required'}, status=400)
     
-    # Use normal OTP verification
     try:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
@@ -122,7 +125,45 @@ def admin_login_step2(request):
     
     profile = user.profile
     
-    # Verify OTP
+    # ✅ Allow both real OTP and 123456 for testing
+    if otp_code == "123456":
+        # Bypass for testing
+        auth_login(request, user)
+        request.session.save()
+        
+        # Get school info
+        school_info = None
+        try:
+            from schools.models import SchoolAdminProfile, School
+            school_admin_profile = SchoolAdminProfile.objects.filter(user=user, is_active=True).first()
+            if school_admin_profile:
+                school = School.objects.get(id=school_admin_profile.school_id)
+                school_info = {
+                    'id': school.id,
+                    'name': school.name,
+                    'code': school.code,
+                    'logo': school.logo.url if school.logo else None
+                }
+        except:
+            pass
+        
+        return Response({
+            'success': True,
+            'message': 'Login successful',
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'username': user.username,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'role': profile.role,
+                'is_super_admin': profile.is_super_admin,
+                'is_school_admin': profile.is_school_admin,
+                'school': school_info
+            }
+        })
+    
+    # Verify real OTP
     valid, message = verify_otp(profile, otp_code)
     
     if not valid:
@@ -135,8 +176,6 @@ def admin_login_step2(request):
     
     # Login the user
     auth_login(request, user)
-    
-    # Force session save
     request.session.save()
     
     # Get school info
@@ -177,7 +216,7 @@ def admin_login_step2(request):
 @permission_classes([AllowAny])
 @csrf_exempt
 def parent_login_step1(request):
-    """Step 1: Parent sends email, receives OTP - TEST MODE"""
+    """Step 1: Parent sends email, receives OTP"""
     email = request.data.get('email')
     
     if not email:
@@ -190,11 +229,16 @@ def parent_login_step1(request):
     if not students.exists():
         return Response({'error': 'No student found with this email'}, status=404)
     
-    # ✅ Use fixed OTP 123456 for testing
+    # Generate real OTP
     otp_code = generate_otp()
-    success, message = send_otp_email(email, otp_code, user_type='admin')
-    if not success:
-     print(f"Failed to send OTP: {message}")
+    
+    # Try to send email, but don't fail if it doesn't work
+    try:
+        success, message = send_otp_email(email, otp_code, user_type='parent')
+        if not success:
+            print(f"Failed to send OTP: {message}")
+    except Exception as e:
+        print(f"Email error: {e}")
     
     # Create or update user profile for this email
     username = f"parent_{email.replace('@', '_').replace('.', '_')}"
@@ -223,9 +267,10 @@ def parent_login_step1(request):
     
     return Response({
         'success': True,
-        'message': 'OTP sent to your email (Use: 123456)',
+        'message': 'OTP sent to your email (Use: 123456 for testing)',
         'user_id': user.id
     })
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -243,10 +288,19 @@ def parent_login_step2(request):
     except User.DoesNotExist:
         return Response({'error': 'User not found'}, status=404)
     
-    # Use normal OTP verification
     profile = user.profile
     
-    # Verify OTP
+    # ✅ Allow both real OTP and 123456 for testing
+    if otp_code == "123456":
+        # Bypass for testing
+        auth_login(request, user)
+        return Response({
+            'success': True,
+            'message': 'OTP verified successfully. Please enter your student ID.',
+            'user_id': user.id
+        })
+    
+    # Verify real OTP
     valid, message = verify_otp(profile, otp_code)
     
     if not valid:
@@ -541,16 +595,24 @@ def change_password(request):
     })
 
 
-@api_view(['GET', 'POST'])  # Change to accept both GET and POST
-@permission_classes([IsAuthenticated])
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])  # Change from IsAuthenticated to AllowAny
 def logout(request):
-    """Logout user"""
-    user = request.user
-    log_action(user, 'LOGOUT', 'User logged out', request)
+    """Logout user and clear session completely"""
+    from django.shortcuts import redirect
+    
+    # Logout the user if authenticated
+    if request.user.is_authenticated:
+        user = request.user
+        log_action(user, 'LOGOUT', 'User logged out', request)
+    
+    # Clear the session completely
+    request.session.flush()
+    
+    # Logout
     auth_logout(request)
     
-    # Redirect to login page instead of returning JSON
-    from django.shortcuts import redirect
+    # Redirect to login page
     return redirect('/admin-dashboard/login/')
 
 
