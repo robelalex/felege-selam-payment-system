@@ -133,7 +133,7 @@ useEffect(() => {
     { path: '/admin/deadlines', label: 'Payment Deadlines', icon: Calendar },
     { path: '/admin/reports', label: 'Reports', icon: BarChart3 },
     { path: '/admin/reminders', label: 'Reminders', icon: Bell },
-    { path: '/admin/staff', label: 'Staff Management', icon: UsersIcon },
+    // { path: '/admin/staff', label: 'Staff Management', icon: UsersIcon },
   ];
 
   // Registrar Navigation (Only Students)
