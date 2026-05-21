@@ -141,10 +141,11 @@ class StudentViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['get'], url_path='pending_payments')
     def pending_payments(self, request, pk=None):
-        """Get all pending payments for a student - ONLY for their academic year"""
+        """Get all pending payments for a student - ONLY for their academic year AND grade"""
         try:
             student = self.get_object()
             print(f"📚 Getting pending payments for student ID: {student.id} - {student.student_id}")
+            print(f"📚 Student grade: {student.grade}")
             
             # Get verified/paid deadlines
             paid_deadlines = Payment.objects.filter(
@@ -161,11 +162,17 @@ class StudentViewSet(viewsets.ModelViewSet):
                 is_active=True
             ).exclude(id__in=paid_deadlines)
             
-            print(f"📚 Found {pending_deadlines.count()} pending deadlines")
-            
-            # Format the response with all required fields
-            data = []
+            # Filter deadlines by student's grade
+            filtered_deadlines = []
             for deadline in pending_deadlines:
+                if deadline.grade is None or deadline.grade == student.grade:
+                    filtered_deadlines.append(deadline)
+            
+            print(f"📚 Found {len(filtered_deadlines)} pending deadlines for grade {student.grade}")
+            
+            # Format the response
+            data = []
+            for deadline in filtered_deadlines:
                 data.append({
                     'id': deadline.id,
                     'deadline_id': deadline.id,
@@ -178,7 +185,7 @@ class StudentViewSet(viewsets.ModelViewSet):
                     'grade': deadline.grade,
                     'is_active': deadline.is_active
                 })
-                print(f"📚 Added pending: {deadline.get_month_display()} - Amount: {deadline.amount}")
+                print(f"📚 Added pending: {deadline.get_month_display()} - Grade: {deadline.grade if deadline.grade else 'All Grades'}")
             
             return Response(data)
             

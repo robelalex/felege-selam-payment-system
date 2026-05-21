@@ -10,7 +10,8 @@ from .serializers import PaymentSerializer, PaymentDeadlineSerializer
 from .services.reminder_service import ReminderService
 from academics.models import AcademicYear
 from schools.models import School
-
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 class PaymentViewSet(viewsets.ModelViewSet):
     serializer_class = PaymentSerializer
     
@@ -200,13 +201,14 @@ class PaymentViewSet(viewsets.ModelViewSet):
             print(f"❌ Bulk delete error: {e}")
             return Response({'error': str(e)}, status=500)
 
+@method_decorator(csrf_exempt, name='dispatch')
 class PaymentDeadlineViewSet(viewsets.ModelViewSet):
     serializer_class = PaymentDeadlineSerializer
     
     def get_queryset(self):
         """Filter PaymentDeadlines by school from header"""
         school_id = self.request.headers.get('X-School-ID')
-        grade = self.request.query_params.get('grade')  # ✅ NEW
+        grade = self.request.query_params.get('grade')
         print(f"📅 PaymentDeadlineViewSet - X-School-ID: {school_id}, grade: {grade}")
         
         if not school_id:
@@ -215,7 +217,7 @@ class PaymentDeadlineViewSet(viewsets.ModelViewSet):
         try:
             queryset = PaymentDeadline.objects.filter(school_id=int(school_id))
             
-            # ✅ Filter by grade if specified
+            # Filter by grade if specified
             if grade:
                 queryset = queryset.filter(
                     models.Q(grade=int(grade)) | models.Q(grade__isnull=True)
@@ -233,7 +235,7 @@ class PaymentDeadlineViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         school_id = self.request.headers.get('X-School-ID')
-        grade = self.request.data.get('grade')  # ✅ NEW
+        grade = self.request.data.get('grade')
         if school_id:
             try:
                 serializer.save(school_id=int(school_id), grade=grade if grade else None)
@@ -249,7 +251,7 @@ class PaymentDeadlineViewSet(viewsets.ModelViewSet):
     def active_deadlines(self, request):
         """Get all active payment deadlines for the current school"""
         school_id = request.headers.get('X-School-ID')
-        grade = request.query_params.get('grade')  # ✅ NEW
+        grade = request.query_params.get('grade')
         
         if not school_id:
             return Response([], status=200)
@@ -260,7 +262,7 @@ class PaymentDeadlineViewSet(viewsets.ModelViewSet):
                 is_active=True
             )
             
-            # ✅ Filter by grade if specified
+            # Filter by grade if specified
             if grade:
                 deadlines = deadlines.filter(
                     models.Q(grade=int(grade)) | models.Q(grade__isnull=True)
