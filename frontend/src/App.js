@@ -40,6 +40,7 @@ import RegistrarDashboard from './pages/RegistrarDashboard';
 import PaymentManagerDashboard from './pages/PaymentManagerDashboard';
 import ReportingDashboard from './pages/ReportingDashboard';
 import ReminderDashboard from './pages/ReminderDashboard';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 // Styles
 import './index.css';
 
@@ -240,6 +241,7 @@ function App() {
   </ProtectedRoute>
 } />
 
+
           {/* Test Routes */}
           <Route path="/login-test" element={<LoginTest />} />
           <Route path="/simple-test" element={<SimpleTest />} />
@@ -252,9 +254,11 @@ function App() {
           
           {/* Keep for backward compatibility */}
           <Route path="/parent/select-student" element={<SelectStudent />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
           
           {/* ✅ Old StudentSearch - you can remove this route if not needed */}
           {/* <Route path="/" element={<StudentSearch />} /> */}
+          
         </Routes>
       </Router>
       </YearProvider>
