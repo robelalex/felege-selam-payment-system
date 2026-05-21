@@ -82,23 +82,46 @@ function StaffManagement() {
     setTimeout(() => setMessage(null), 5000);
   };
 
-  const handleCreateStaff = async (e) => {
-    e.preventDefault();
-    setSubmitting(true);
+const handleCreateStaff = async (e) => {
+  e.preventDefault();
+  setSubmitting(true);
+  
+  try {
+    // ✅ First check if user is authenticated
+    console.log('🔍 Checking authentication before creating staff...');
+    const meResponse = await api.get('/me/');
+    console.log('📡 Auth check response:', meResponse.data);
     
-    try {
-      await api.post('/staff/create/', formData);
-      showMessage('success', 'Staff member created successfully');
-      setShowModal(false);
-      resetForm();
-      fetchStaff();
-    } catch (err) {
-      console.error('Error creating staff:', err);
-      showMessage('error', err.response?.data?.error || 'Failed to create staff member');
-    } finally {
+    if (!meResponse.data?.user) {
+      showMessage('error', 'Please login again. Your session may have expired.');
       setSubmitting(false);
+      return;
     }
-  };
+    
+    console.log('✅ User is authenticated:', meResponse.data.user);
+    console.log('📤 Creating staff with data:', formData);
+    
+    const response = await api.post('/staff/create/', formData);
+    console.log('✅ Staff creation response:', response.data);
+    
+    showMessage('success', 'Staff member created successfully');
+    setShowModal(false);
+    resetForm();
+    fetchStaff();
+  } catch (err) {
+    console.error('❌ Error creating staff:', err);
+    console.error('❌ Error response:', err.response?.data);
+    console.error('❌ Error status:', err.response?.status);
+    
+    if (err.response?.status === 401) {
+      showMessage('error', 'Authentication failed. Please logout and login again.');
+    } else {
+      showMessage('error', err.response?.data?.error || 'Failed to create staff member');
+    }
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   const handleDeleteStaff = async (userId, userName) => {
     if (window.confirm(`Are you sure you want to delete ${userName}?`)) {
