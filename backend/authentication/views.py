@@ -711,7 +711,8 @@ def get_school_staff(request):
         return Response({'error': str(e)}, status=500)
 
 @api_view(['POST'])
-@permission_classes([AllowAny]) 
+@permission_classes([IsAuthenticated])  # Change from AllowAny to IsAuthenticated
+@csrf_exempt
 def create_staff(request):
     """Create a new staff member"""
     try:
