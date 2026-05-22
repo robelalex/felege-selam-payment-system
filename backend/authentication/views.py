@@ -91,12 +91,14 @@ def admin_login_step1(request):
     profile.otp_created_at = timezone.now()
     profile.save()
     
-    # ✅ Email sending removed - use 123456 for testing
-    print(f"🔐 LOGIN - User: {email}, OTP: {otp_code} (Use 123456 for testing)")
+    # ✅ Send real OTP email
+    success, message = send_otp_email(email, otp_code, user_type='admin')
+    if not success:
+        print(f"Failed to send OTP: {message}")
     
     return Response({
         'success': True,
-        'message': 'Use OTP: 123456',
+        'message': 'OTP sent to your email',
         'user_id': user.id,
         'requires_otp': True
     })
@@ -120,45 +122,7 @@ def admin_login_step2(request):
     
     profile = user.profile
     
-    # ✅ Allow both real OTP and 123456 for testing
-    if otp_code == "123456":
-        # Bypass for testing
-        auth_login(request, user)
-        request.session.save()
-        
-        # Get school info
-        school_info = None
-        try:
-            from schools.models import SchoolAdminProfile, School
-            school_admin_profile = SchoolAdminProfile.objects.filter(user=user, is_active=True).first()
-            if school_admin_profile:
-                school = School.objects.get(id=school_admin_profile.school_id)
-                school_info = {
-                    'id': school.id,
-                    'name': school.name,
-                    'code': school.code,
-                    'logo': school.logo.url if school.logo else None
-                }
-        except:
-            pass
-        
-        return Response({
-            'success': True,
-            'message': 'Login successful',
-            'user': {
-                'id': user.id,
-                'email': user.email,
-                'username': user.username,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-                'role': profile.role,
-                'is_super_admin': profile.is_super_admin,
-                'is_school_admin': profile.is_school_admin,
-                'school': school_info
-            }
-        })
-    
-    # Verify real OTP
+    # Verify real OTP (123456 bypass removed)
     valid, message = verify_otp(profile, otp_code)
     
     if not valid:
@@ -250,12 +214,14 @@ def parent_login_step1(request):
     profile.otp_created_at = timezone.now()
     profile.save()
     
-    # ✅ Email sending removed - use 123456 for testing
-    print(f"🔐 PARENT LOGIN - Email: {email}, OTP: {otp_code} (Use 123456 for testing)")
+    # ✅ Send real OTP email
+    success, message = send_otp_email(email, otp_code, user_type='parent')
+    if not success:
+        print(f"Failed to send OTP: {message}")
     
     return Response({
         'success': True,
-        'message': 'Use OTP: 123456',
+        'message': 'OTP sent to your email',
         'user_id': user.id
     })
 
@@ -278,17 +244,7 @@ def parent_login_step2(request):
     
     profile = user.profile
     
-    # ✅ Allow both real OTP and 123456 for testing
-    if otp_code == "123456":
-        # Bypass for testing
-        auth_login(request, user)
-        return Response({
-            'success': True,
-            'message': 'OTP verified successfully. Please enter your student ID.',
-            'user_id': user.id
-        })
-    
-    # Verify real OTP
+    # Verify real OTP (123456 bypass removed)
     valid, message = verify_otp(profile, otp_code)
     
     if not valid:
