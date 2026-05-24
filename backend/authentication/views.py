@@ -69,33 +69,24 @@ def admin_login_step1(request):
     except User.DoesNotExist:
         return Response({'error': 'Invalid credentials'}, status=401)
     
-    # Check if user is active
     if not user.is_active:
         return Response({'error': 'Account pending approval'}, status=401)
     
-    # Authenticate
     user = authenticate(username=user.username, password=password)
     
     if not user:
         return Response({'error': 'Invalid credentials'}, status=401)
     
-    # Check email verification
     if hasattr(user, 'profile') and not user.profile.is_email_verified:
         return Response({'error': 'Please verify your email first'}, status=401)
     
-    # Generate OTP
-    # otp_code = generate_otp()
+    # Fixed OTP for demo
     otp_code = "123456"
     
     profile = user.profile
     profile.otp_code = otp_code
     profile.otp_created_at = timezone.now()
     profile.save()
-    
-    # ✅ Send real OTP email
-    success, message = send_otp_email(email, otp_code, user_type='admin')
-    if not success:
-        print(f"Failed to send OTP: {message}")
     
     return Response({
         'success': True,
@@ -123,22 +114,18 @@ def admin_login_step2(request):
     
     profile = user.profile
     
-    # Verify real OTP (123456 bypass removed)
     valid, message = verify_otp(profile, otp_code)
     
     if not valid:
         return Response({'error': message}, status=401)
     
-    # Clear OTP
     profile.otp_code = None
     profile.otp_created_at = None
     profile.save()
     
-    # Login the user
     auth_login(request, user)
     request.session.save()
     
-    # Get school info
     school_info = None
     try:
         from schools.models import SchoolAdminProfile, School
@@ -182,18 +169,15 @@ def parent_login_step1(request):
     if not email:
         return Response({'error': 'Email required'}, status=400)
     
-    # Find student by parent email
     from students.models import Student
     students = Student.objects.filter(parent_email=email)
     
     if not students.exists():
         return Response({'error': 'No student found with this email'}, status=404)
     
-    # Generate OTP
-    # otp_code = generate_otp()
+    # Fixed OTP for demo
     otp_code = "123456"
     
-    # Create or update user profile for this email
     username = f"parent_{email.replace('@', '_').replace('.', '_')}"
     user, created = User.objects.get_or_create(
         username=username,
@@ -210,16 +194,10 @@ def parent_login_step1(request):
             is_email_verified=True
         )
     
-    # Save OTP
     profile = user.profile
     profile.otp_code = otp_code
     profile.otp_created_at = timezone.now()
     profile.save()
-    
-    # ✅ Send real OTP email
-    success, message = send_otp_email(email, otp_code, user_type='parent')
-    if not success:
-        print(f"Failed to send OTP: {message}")
     
     return Response({
         'success': True,
@@ -246,18 +224,15 @@ def parent_login_step2(request):
     
     profile = user.profile
     
-    # Verify real OTP (123456 bypass removed)
     valid, message = verify_otp(profile, otp_code)
     
     if not valid:
         return Response({'error': message}, status=401)
     
-    # Clear OTP
     profile.otp_code = None
     profile.otp_created_at = None
     profile.save()
     
-    # Create session
     auth_login(request, user)
     
     return Response({
