@@ -84,8 +84,8 @@ def admin_login_step1(request):
         return Response({'error': 'Please verify your email first'}, status=401)
     
     # Generate OTP
-    otp_code = generate_otp()
-    # otp_code = "123456"
+    # otp_code = generate_otp()
+    otp_code = "123456"
     
     profile = user.profile
     profile.otp_code = otp_code
@@ -190,8 +190,8 @@ def parent_login_step1(request):
         return Response({'error': 'No student found with this email'}, status=404)
     
     # Generate OTP
-    otp_code = generate_otp()
-    # otp_code = "123456"
+    # otp_code = generate_otp()
+    otp_code = "123456"
     
     # Create or update user profile for this email
     username = f"parent_{email.replace('@', '_').replace('.', '_')}"
