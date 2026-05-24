@@ -69,18 +69,21 @@ def admin_login_step1(request):
     except User.DoesNotExist:
         return Response({'error': 'Invalid credentials'}, status=401)
     
+    # Check if user is active
     if not user.is_active:
         return Response({'error': 'Account pending approval'}, status=401)
     
+    # Authenticate
     user = authenticate(username=user.username, password=password)
     
     if not user:
         return Response({'error': 'Invalid credentials'}, status=401)
     
+    # Check email verification
     if hasattr(user, 'profile') and not user.profile.is_email_verified:
         return Response({'error': 'Please verify your email first'}, status=401)
     
-    # Fixed OTP for demo
+    # ✅ Use fixed OTP 123456
     otp_code = "123456"
     
     profile = user.profile
@@ -88,9 +91,11 @@ def admin_login_step1(request):
     profile.otp_created_at = timezone.now()
     profile.save()
     
+    # ✅ NO EMAIL SENDING - just use 123456
+    
     return Response({
         'success': True,
-        'message': 'OTP sent to your email',
+        'message': 'Use OTP: 123456',
         'user_id': user.id,
         'requires_otp': True
     })
@@ -107,6 +112,52 @@ def admin_login_step2(request):
     if not user_id or not otp_code:
         return Response({'error': 'User ID and OTP required'}, status=400)
     
+    # ✅ Accept 123456
+    if otp_code == "123456":
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found'}, status=404)
+        
+        profile = user.profile
+        
+        # Login the user
+        auth_login(request, user)
+        request.session.save()
+        
+        # Get school info
+        school_info = None
+        try:
+            from schools.models import SchoolAdminProfile, School
+            school_admin_profile = SchoolAdminProfile.objects.filter(user=user, is_active=True).first()
+            if school_admin_profile:
+                school = School.objects.get(id=school_admin_profile.school_id)
+                school_info = {
+                    'id': school.id,
+                    'name': school.name,
+                    'code': school.code,
+                    'logo': school.logo.url if school.logo else None
+                }
+        except:
+            pass
+        
+        return Response({
+            'success': True,
+            'message': 'Login successful',
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'username': user.username,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'role': profile.role,
+                'is_super_admin': profile.is_super_admin,
+                'is_school_admin': profile.is_school_admin,
+                'school': school_info
+            }
+        })
+    
+    # Otherwise use normal OTP verification
     try:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
@@ -114,18 +165,22 @@ def admin_login_step2(request):
     
     profile = user.profile
     
+    # Verify OTP
     valid, message = verify_otp(profile, otp_code)
     
     if not valid:
         return Response({'error': message}, status=401)
     
+    # Clear OTP
     profile.otp_code = None
     profile.otp_created_at = None
     profile.save()
     
+    # Login the user
     auth_login(request, user)
     request.session.save()
     
+    # Get school info
     school_info = None
     try:
         from schools.models import SchoolAdminProfile, School
@@ -169,15 +224,17 @@ def parent_login_step1(request):
     if not email:
         return Response({'error': 'Email required'}, status=400)
     
+    # Find student by parent email
     from students.models import Student
     students = Student.objects.filter(parent_email=email)
     
     if not students.exists():
         return Response({'error': 'No student found with this email'}, status=404)
     
-    # Fixed OTP for demo
+    # ✅ Use fixed OTP 123456
     otp_code = "123456"
     
+    # Create or update user profile for this email
     username = f"parent_{email.replace('@', '_').replace('.', '_')}"
     user, created = User.objects.get_or_create(
         username=username,
@@ -194,14 +251,17 @@ def parent_login_step1(request):
             is_email_verified=True
         )
     
+    # Save OTP
     profile = user.profile
     profile.otp_code = otp_code
     profile.otp_created_at = timezone.now()
     profile.save()
     
+    # ✅ NO EMAIL SENDING
+    
     return Response({
         'success': True,
-        'message': 'OTP sent to your email',
+        'message': 'Use OTP: 123456',
         'user_id': user.id
     })
 
@@ -217,6 +277,22 @@ def parent_login_step2(request):
     if not user_id or not otp_code:
         return Response({'error': 'User ID and OTP required'}, status=400)
     
+    # ✅ Accept 123456
+    if otp_code == "123456":
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found'}, status=404)
+        
+        # Login the user
+        auth_login(request, user)
+        return Response({
+            'success': True,
+            'message': 'OTP verified successfully. Please enter your student ID.',
+            'user_id': user.id
+        })
+    
+    # Otherwise use normal OTP verification
     try:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
@@ -224,15 +300,18 @@ def parent_login_step2(request):
     
     profile = user.profile
     
+    # Verify OTP
     valid, message = verify_otp(profile, otp_code)
     
     if not valid:
         return Response({'error': message}, status=401)
     
+    # Clear OTP
     profile.otp_code = None
     profile.otp_created_at = None
     profile.save()
     
+    # Create session
     auth_login(request, user)
     
     return Response({
