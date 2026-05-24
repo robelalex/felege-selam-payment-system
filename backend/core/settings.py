@@ -48,7 +48,6 @@ INSTALLED_APPS = [
     # Third-party apps
     'rest_framework',
     'corsheaders',
-    'anymail',
 
     # Cloudinary for media storage
     'cloudinary_storage',
@@ -250,16 +249,14 @@ DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')
 
 # ===== EMAIL CONFIGURATION =====
-# Using Brevo SMTP
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp-relay.brevo.com'
+EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'abf20c001@smtp-brevo.com'
-EMAIL_HOST_PASSWORD = os.getenv('BREVO_SMTP_KEY', '')
-
-# ✅ Use the actual Brevo sender address (matches what Brevo uses)
-DEFAULT_FROM_EMAIL = 'Felege Selam <robelalex95@11268620.brevosend.com>'
+EMAIL_HOST_USER = os.getenv('GMAIL_USER')
+EMAIL_HOST_PASSWORD = os.getenv('GMAIL_APP_PASSWORD')
+DEFAULT_FROM_EMAIL = f'Felege Selam <{os.getenv("GMAIL_USER")}>'
+RESEND_API_KEY = ''
 
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
 BACKEND_URL = os.environ.get('BACKEND_URL', 'https://felege-selam-payment-system.onrender.com')
