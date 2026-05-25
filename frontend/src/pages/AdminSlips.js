@@ -41,7 +41,7 @@ function AdminSlips() {
     }
   }, [selectAll, slips]);
 
-  const fetchPendingSlips = async () => {
+const fetchPendingSlips = async () => {
     setLoading(true);
     setError('');
     try {
@@ -58,6 +58,7 @@ function AdminSlips() {
       
       console.log('📄 Fetching slips for year:', selectedYear?.name);
       const response = await api.get(url);
+      console.log('SLIP IMAGE URL:', response.data[0]?.slip_image); // ADD THIS
       setSlips(response.data);
       setSelectedSlips([]);
       setSelectAll(false);
@@ -68,7 +69,7 @@ function AdminSlips() {
       setLoading(false);
     }
   };
-
+  
   const handleVerify = async (slipId, action) => {
     setProcessing(slipId);
     try {
