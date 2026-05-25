@@ -123,12 +123,16 @@ function AdminSlips() {
     setSelectAll(false);
   };
 
-  const getFullImageUrl = (imagePath) => {
+const getFullImageUrl = (imagePath) => {
     if (!imagePath) return null;
+    // Cloudinary or any full URL — use directly
     if (imagePath.startsWith('http')) return imagePath;
-    if (imagePath.startsWith('/media')) return `${API_BASE_URL}${imagePath}`;
-    return `${API_BASE_URL}/media/${imagePath}`;
-  };
+    // Local media file — strip /api from base URL
+    const backendRoot = (process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000')
+        .replace(/\/api\/?$/, '');
+    if (imagePath.startsWith('/media')) return `${backendRoot}${imagePath}`;
+    return `${backendRoot}/media/${imagePath}`;
+};
 
   if (loading) {
     return (
