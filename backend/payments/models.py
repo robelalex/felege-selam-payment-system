@@ -54,6 +54,7 @@ class Payment(models.Model):
         ('cash', 'Cash'),
         ('telebirr', 'Telebirr'),
         ('bank_transfer', 'Bank Transfer'),
+        ('chapa', 'Chapa'),          # ADD THIS
         ('other', 'Other'),
     ]
     
@@ -61,62 +62,72 @@ class Payment(models.Model):
         ('pending', 'Pending Verification'),
         ('verified', 'Verified'),
         ('rejected', 'Rejected'),
+        ('failed', 'Failed'),        # ADD THIS
     ]
     
     student = models.ForeignKey(
-        Student, 
-        on_delete=models.CASCADE, 
-        related_name='payments'
+        Student, on_delete=models.CASCADE, related_name='payments'
     )
-    
     deadline = models.ForeignKey(
-        PaymentDeadline, 
-        on_delete=models.CASCADE, 
-        related_name='payments'
+        PaymentDeadline, on_delete=models.CASCADE, related_name='payments'
     )
-    
     amount = models.DecimalField(
-        max_digits=10, 
-        decimal_places=2,
-        validators=[MinValueValidator(0)]
+        max_digits=10, decimal_places=2, validators=[MinValueValidator(0)]
     )
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS)
-    
     transaction_reference = models.CharField(max_length=200, blank=True)
     
-    payment_proof = models.FileField(
-        upload_to='payment_proofs/%Y/%m/', 
-        blank=True, 
-        null=True
-    )
+    # ADD THESE NEW FIELDS
+    invoice_number = models.CharField(max_length=50, blank=True, unique=True, null=True)
+    chapa_reference = models.CharField(max_length=200, blank=True)
+    webhook_received = models.BooleanField(default=False)
+    webhook_received_at = models.DateTimeField(null=True, blank=True)
     
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    payment_proof = models.FileField(
+        upload_to='payment_proofs/%Y/%m/', blank=True, null=True
+    )
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default='pending'
+    )
     verified_by = models.ForeignKey(
-        'auth.User', 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True,
-        related_name='verified_payments'
+        'auth.User', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='verified_payments'
     )
     verified_at = models.DateTimeField(null=True, blank=True)
     rejection_reason = models.TextField(blank=True)
-    
     paid_by = models.CharField(max_length=200)
     paid_by_phone = models.CharField(max_length=20)
-    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['status']),
             models.Index(fields=['transaction_reference']),
             models.Index(fields=['student', 'deadline']),
+            models.Index(fields=['invoice_number']),  # ADD THIS
         ]
-    
+
     def __str__(self):
         return f"{self.student.student_id} - {self.amount} Birr"
+
+    def generate_invoice_number(self):
+        """Generate unique invoice number like INV-2024-0001"""
+        from django.utils import timezone
+        year = timezone.now().year
+        last = Payment.objects.filter(
+            invoice_number__startswith=f'INV-{year}-'
+        ).order_by('-invoice_number').first()
+        if last and last.invoice_number:
+            try:
+                last_num = int(last.invoice_number.split('-')[-1])
+                new_num = last_num + 1
+            except (ValueError, IndexError):
+                new_num = 1
+        else:
+            new_num = 1
+        return f'INV-{year}-{new_num:04d}'
 
 class PaymentReminder(models.Model):
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='reminders')
