@@ -132,9 +132,16 @@ def initiate_chapa_payment(request):
 
 
 # Keep test_payment as alias — same logic
-@api_view(['POST'])
+@api_view(['POST', 'OPTIONS'])  # ← ADD 'OPTIONS' here
 @permission_classes([AllowAny])
 def test_payment(request):
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        response = JsonResponse({'status': 'ok'})
+        response['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-School-ID'
+        return response
+    
     return initiate_chapa_payment(request)
 
 
