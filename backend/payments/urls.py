@@ -13,9 +13,12 @@ from .views.sms_views import (
     send_payment_reminder, send_bulk_reminders
 )
 from .views.chapa_views import (
-    initiate_chapa_payment, chapa_webhook, 
-    verify_chapa_payment, get_chapa_banks, test_payment, payment_status
+    initiate_chapa_payment, chapa_webhook,
+    verify_chapa_payment, get_chapa_banks, payment_status
 )
+
+# test_payment is the same as initiate_chapa_payment
+test_payment = initiate_chapa_payment
 from .views.reminder_views import pending_reminders_filtered
 
 router = DefaultRouter()
