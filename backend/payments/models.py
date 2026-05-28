@@ -3,21 +3,12 @@ from django.core.validators import MinValueValidator
 from students.models import Student
 from schools.models import School
 
+
 class PaymentDeadline(models.Model):
     MONTH_CHOICES = [
-        (1, 'መስከረም'),
-        (2, 'ጥቅምት'),
-        (3, 'ህዳር'),
-        (4, 'ታህሳስ'),
-        (5, 'ጥር'),
-        (6, 'የካቲት'),
-        (7, 'መጋቢት'),
-        (8, 'ሚያዝያ'),
-        (9, 'ግንቦት'),
-        (10, 'ሰኔ'),
-        (11, 'ሐምሌ'),
-        (12, 'ነሐሴ'),
-        (13, 'ጳጉሜ'),
+        (1, 'መስከረም'), (2, 'ጥቅምት'), (3, 'ህዳር'), (4, 'ታህሳስ'),
+        (5, 'ጥር'), (6, 'የካቲት'), (7, 'መጋቢት'), (8, 'ሚያዝያ'),
+        (9, 'ግንቦት'), (10, 'ሰኔ'), (11, 'ሐምሌ'), (12, 'ነሐሴ'), (13, 'ጳጉሜ'),
     ]
 
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='deadlines')
@@ -28,9 +19,7 @@ class PaymentDeadline(models.Model):
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     grade = models.IntegerField(
-        choices=Student.GRADE_CHOICES,
-        null=True,
-        blank=True,
+        choices=Student.GRADE_CHOICES, null=True, blank=True,
         help_text="Leave blank to apply to all grades"
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -63,15 +52,9 @@ class Payment(models.Model):
         ('failed', 'Failed'),
     ]
 
-    student = models.ForeignKey(
-        Student, on_delete=models.CASCADE, related_name='payments'
-    )
-    deadline = models.ForeignKey(
-        PaymentDeadline, on_delete=models.CASCADE, related_name='payments'
-    )
-    amount = models.DecimalField(
-        max_digits=10, decimal_places=2, validators=[MinValueValidator(0)]
-    )
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='payments')
+    deadline = models.ForeignKey(PaymentDeadline, on_delete=models.CASCADE, related_name='payments')
+    amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS)
     transaction_reference = models.CharField(max_length=200, blank=True)
 
@@ -80,17 +63,12 @@ class Payment(models.Model):
     webhook_received = models.BooleanField(default=False)
     webhook_received_at = models.DateTimeField(null=True, blank=True)
 
-    # Soft delete fields — verified payments are never hard deleted
-    is_deleted = models.BooleanField(default=False)
-    deleted_at = models.DateTimeField(null=True, blank=True)
-    deleted_reason = models.TextField(blank=True)
+    # Archive instead of delete — keeps parent portal working correctly
+    is_archived = models.BooleanField(default=False)
+    archived_at = models.DateTimeField(null=True, blank=True)
 
-    payment_proof = models.FileField(
-        upload_to='payment_proofs/%Y/%m/', blank=True, null=True
-    )
-    status = models.CharField(
-        max_length=20, choices=STATUS_CHOICES, default='pending'
-    )
+    payment_proof = models.FileField(upload_to='payment_proofs/%Y/%m/', blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     verified_by = models.ForeignKey(
         'auth.User', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='verified_payments'
@@ -109,7 +87,7 @@ class Payment(models.Model):
             models.Index(fields=['transaction_reference']),
             models.Index(fields=['student', 'deadline']),
             models.Index(fields=['invoice_number']),
-            models.Index(fields=['is_deleted']),
+            models.Index(fields=['is_archived']),
         ]
 
     def __str__(self):
@@ -123,8 +101,7 @@ class Payment(models.Model):
         ).order_by('-invoice_number').first()
         if last and last.invoice_number:
             try:
-                last_num = int(last.invoice_number.split('-')[-1])
-                new_num = last_num + 1
+                new_num = int(last.invoice_number.split('-')[-1]) + 1
             except (ValueError, IndexError):
                 new_num = 1
         else:

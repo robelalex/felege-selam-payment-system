@@ -3,6 +3,7 @@ import YearSelector from '../Admin/YearSelector';
 import AcademicYearSelector from '../Admin/AcademicYearSelector';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Archive } from 'lucide-react';
 import { 
   LayoutDashboard, 
   LogOut,
@@ -133,6 +134,7 @@ useEffect(() => {
     { path: '/admin/deadlines', label: 'Payment Deadlines', icon: Calendar },
     { path: '/admin/reports', label: 'Reports', icon: BarChart3 },
     { path: '/admin/reminders', label: 'Reminders', icon: Bell },
+    { path: '/admin-dashboard/payment-history', label: 'Payment History', icon: Archive }
     // { path: '/admin/staff', label: 'Staff Management', icon: UsersIcon },
   ];
 

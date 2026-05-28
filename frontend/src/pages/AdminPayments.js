@@ -159,37 +159,36 @@ function AdminPayments() {
     }
   };
 
-  const deletePayment = async (paymentId) => {
-    if (window.confirm('Are you sure you want to delete this payment? This action cannot be undone.')) {
-      try {
-        await api.delete(`/payments/${paymentId}/`);
-        await fetchPayments();
-        setShowDetails(false);
-      } catch (err) {
-        console.error('Error deleting payment:', err);
-        alert('Failed to delete payment. Please try again.');
-      }
+const removePayment = async (paymentId) => {
+  if (window.confirm('Move this payment to Payment History?')) {
+    try {
+      await api.post(`/payments/${paymentId}/archive_payment/`);
+      await fetchPayments();
+      setShowDetails(false);
+    } catch (err) {
+      console.error('Error archiving payment:', err);
+      alert('Failed to remove payment. Please try again.');
     }
-  };
+  }
+};
 
-  const bulkDeletePayments = async () => {
-    if (selectedPayments.length === 0) {
-      alert('Please select at least one payment to delete.');
-      return;
+const bulkRemovePayments = async () => {
+  if (selectedPayments.length === 0) {
+    alert('Please select at least one payment to remove.');
+    return;
+  }
+  if (window.confirm(`Move ${selectedPayments.length} payment(s) to Payment History?`)) {
+    try {
+      await api.post('/payments/bulk_archive/', { payment_ids: selectedPayments });
+      await fetchPayments();
+      setSelectedPayments([]);
+      setSelectAll(false);
+    } catch (err) {
+      console.error('Error bulk archiving payments:', err);
+      alert('Failed to remove payments. Please try again.');
     }
-    
-    if (window.confirm(`Are you sure you want to delete ${selectedPayments.length} payment(s)? This action cannot be undone.`)) {
-      try {
-        await api.post('/payments/bulk-delete/', { payment_ids: selectedPayments });
-        await fetchPayments();
-        setSelectedPayments([]);
-        setSelectAll(false);
-      } catch (err) {
-        console.error('Error bulk deleting payments:', err);
-        alert('Failed to delete payments. Please try again.');
-      }
-    }
-  };
+  }
+};
 
   const toggleSelectPayment = (paymentId) => {
     setSelectedPayments(prev => 
@@ -401,13 +400,13 @@ function AdminPayments() {
         
         <div className="flex gap-2 flex-wrap">
           {selectedPayments.length > 0 && (
-            <button 
-              onClick={bulkDeletePayments}
-              className="bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 tap-target text-sm"
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete ({selectedPayments.length})
-            </button>
+<button 
+  onClick={bulkRemovePayments}
+  className="bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 tap-target text-sm"
+>
+  <Trash2 className="h-4 w-4" />
+  Delete ({selectedPayments.length})
+</button>
           )}
           <button onClick={handleExport} className="btn-outline flex items-center gap-2 tap-target">
             <Download className="h-4 w-4" />
@@ -628,7 +627,7 @@ function AdminPayments() {
                               <Eye className="h-4 w-4" />
                             </button>
 <button
-  onClick={() => deletePayment(payment.id)}
+  onClick={() => removePayment(payment.id)}
   className={`tap-target p-1 ${payment.status === 'verified' ? 'text-gray-400 hover:text-gray-600' : 'text-red-600 hover:text-red-800'}`}
   title={payment.status === 'verified' ? 'Remove from view' : 'Delete payment'}
 >
@@ -797,7 +796,7 @@ function AdminPayments() {
                     </button>
                   )}
 <button
-  onClick={() => deletePayment(selectedPayment.id)}
+  onClick={() => removePayment(selectedPayment.id)}
   className={`px-4 py-2 rounded-lg transition-colors tap-target text-white ${selectedPayment.status === 'verified' ? 'bg-gray-500 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}
 >
   {selectedPayment.status === 'verified' ? 'Remove' : 'Delete'}

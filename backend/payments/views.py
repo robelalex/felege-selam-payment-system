@@ -25,14 +25,11 @@ class PaymentViewSet(viewsets.ModelViewSet):
             return Payment.objects.none()
 
         try:
-            school_id_int = int(school_id)
-            # Never show soft-deleted payments in normal listing
-            queryset = Payment.objects.filter(
-                student__school_id=school_id_int,
-                is_deleted=False
+            # Main payments page never shows archived payments
+            return Payment.objects.filter(
+                student__school_id=int(school_id),
+                is_archived=False
             )
-            print(f"💰 Filtered payments by school ID: {school_id_int}, count: {queryset.count()}")
-            return queryset
         except ValueError:
             return Payment.objects.none()
 
@@ -48,15 +45,14 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 academic_year = AcademicYear.objects.get(
                     id=int(year_id), school_id=int(school_id)
                 )
-                print(f"💰 Academic year: {academic_year.name}")
                 student_ids = Student.objects.filter(
                     academic_year=academic_year.name,
                     school_id=int(school_id)
                 ).values_list('id', flat=True)
                 queryset = queryset.filter(student_id__in=student_ids)
-                print(f"💰 After academic year filter, count: {queryset.count()}")
+                print(f"💰 After year filter, count: {queryset.count()}")
             except AcademicYear.DoesNotExist:
-                print(f"💰 Academic year not found for this school")
+                pass
 
         serializer = self.get_serializer(queryset, many=True)
         print(f"💰 Returning {len(serializer.data)} payments")
@@ -82,13 +78,9 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 return Response({'error': 'Deadline does not belong to your school'}, status=403)
 
             payment = Payment.objects.create(
-                student=student,
-                deadline=deadline,
-                amount=amount,
-                payment_method=payment_method,
-                paid_by=paid_by,
-                paid_by_phone=paid_by_phone,
-                status='pending'
+                student=student, deadline=deadline, amount=amount,
+                payment_method=payment_method, paid_by=paid_by,
+                paid_by_phone=paid_by_phone, status='pending'
             )
             serializer = self.get_serializer(payment)
             return Response({
@@ -98,9 +90,9 @@ class PaymentViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_201_CREATED)
 
         except Student.DoesNotExist:
-            return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'error': 'Student not found'}, status=404)
         except PaymentDeadline.DoesNotExist:
-            return Response({'error': 'Payment deadline not found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'error': 'Payment deadline not found'}, status=404)
 
     @action(detail=True, methods=['post'])
     def verify_payment(self, request, pk=None):
@@ -123,20 +115,18 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
         pending = Payment.objects.filter(
             status='pending',
-            is_deleted=False,
+            is_archived=False,
             student__school_id=int(school_id)
         )
-        print(f"💰 Pending verifications: {pending.count()}")
         serializer = self.get_serializer(pending, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['delete'])
-    def delete_payment(self, request, pk=None):
+    @action(detail=True, methods=['post'])
+    def archive_payment(self, request, pk=None):
         """
-        Pending payments: hard delete.
-        Verified payments: soft delete (mark is_deleted=True).
-        This keeps verified payment records so parent portal
-        does not show the month as unpaid again.
+        Move a payment to history (archive).
+        Does NOT delete — verified payments still count as paid
+        so the parent portal does not show the month as unpaid again.
         """
         payment = self.get_object()
         school_id = request.headers.get('X-School-ID')
@@ -144,22 +134,16 @@ class PaymentViewSet(viewsets.ModelViewSet):
         if school_id and str(payment.student.school_id) != school_id:
             return Response({'error': 'Payment does not belong to your school'}, status=403)
 
-        if payment.status == 'verified':
-            payment.is_deleted = True
-            payment.deleted_at = timezone.now()
-            payment.deleted_reason = request.data.get('reason', 'Deleted by admin')
-            payment.save()
-            print(f"🗃️ Soft-deleted verified payment {payment.id}")
-            return Response({'success': True, 'message': 'Payment removed successfully'}, status=200)
-        else:
-            payment.delete()
-            print(f"🗑️ Hard-deleted pending payment {payment.id}")
-            return Response({'success': True, 'message': 'Payment deleted successfully'}, status=200)
+        payment.is_archived = True
+        payment.archived_at = timezone.now()
+        payment.save()
+        print(f"🗃️ Archived payment {payment.id}")
+        return Response({'success': True, 'message': 'Payment moved to history'}, status=200)
 
     @action(detail=False, methods=['post'])
-    def bulk_delete(self, request):
+    def bulk_archive(self, request):
         """
-        Same logic as delete_payment but for multiple records.
+        Move multiple payments to history at once.
         """
         payment_ids = request.data.get('payment_ids', [])
         school_id = request.headers.get('X-School-ID')
@@ -172,37 +156,86 @@ class PaymentViewSet(viewsets.ModelViewSet):
         try:
             payments = Payment.objects.filter(
                 id__in=payment_ids,
-                student__school_id=int(school_id)
+                student__school_id=int(school_id),
+                is_archived=False
             )
 
-            if payments.count() != len(payment_ids):
-                return Response({'error': 'Some payments do not belong to your school'}, status=403)
+            if payments.count() == 0:
+                return Response({'error': 'No matching payments found'}, status=404)
 
-            archived = 0
-            deleted = 0
+            now = timezone.now()
+            count = payments.count()
+            payments.update(is_archived=True, archived_at=now)
 
-            for payment in payments:
-                if payment.status == 'verified':
-                    payment.is_deleted = True
-                    payment.deleted_at = timezone.now()
-                    payment.deleted_reason = 'Bulk removed by admin'
-                    payment.save()
-                    archived += 1
-                else:
-                    payment.delete()
-                    deleted += 1
-
-            print(f"🗃️ Archived {archived}, deleted {deleted} for school {school_id}")
+            print(f"🗃️ Bulk archived {count} payments for school {school_id}")
             return Response({
                 'success': True,
-                'message': f'Removed {archived + deleted} payment(s)',
-                'archived_count': archived,
-                'deleted_count': deleted,
+                'message': f'Moved {count} payment(s) to history',
+                'archived_count': count,
             }, status=200)
 
         except Exception as e:
-            print(f"❌ Bulk delete error: {e}")
+            print(f"❌ Bulk archive error: {e}")
             return Response({'error': str(e)}, status=500)
+
+    @action(detail=False, methods=['get'])
+    def history(self, request):
+        """
+        Return all archived payments for this school.
+        Used by the Payment History page.
+        """
+        school_id = request.headers.get('X-School-ID')
+        if not school_id:
+            return Response([], status=200)
+
+        try:
+            queryset = Payment.objects.filter(
+                student__school_id=int(school_id),
+                is_archived=True
+            )
+
+            year_id = request.query_params.get('academic_year_id')
+            if year_id:
+                try:
+                    academic_year = AcademicYear.objects.get(
+                        id=int(year_id), school_id=int(school_id)
+                    )
+                    student_ids = Student.objects.filter(
+                        academic_year=academic_year.name,
+                        school_id=int(school_id)
+                    ).values_list('id', flat=True)
+                    queryset = queryset.filter(student_id__in=student_ids)
+                except AcademicYear.DoesNotExist:
+                    pass
+
+            serializer = self.get_serializer(queryset, many=True)
+            print(f"💰 Returning {len(serializer.data)} archived payments")
+            return Response(serializer.data)
+
+        except ValueError:
+            return Response([], status=200)
+
+    @action(detail=True, methods=['delete'])
+    def permanent_delete(self, request, pk=None):
+        """
+        Permanently delete from history page only.
+        Only works on already-archived payments.
+        """
+        payment = self.get_object()
+        school_id = request.headers.get('X-School-ID')
+
+        if school_id and str(payment.student.school_id) != school_id:
+            return Response({'error': 'Payment does not belong to your school'}, status=403)
+
+        if not payment.is_archived:
+            return Response(
+                {'error': 'Only archived payments can be permanently deleted. Archive it first.'},
+                status=400
+            )
+
+        payment.delete()
+        print(f"🗑️ Permanently deleted payment {pk}")
+        return Response({'success': True, 'message': 'Payment permanently deleted'}, status=200)
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -212,7 +245,6 @@ class PaymentDeadlineViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         school_id = self.request.headers.get('X-School-ID')
         grade = self.request.query_params.get('grade')
-        print(f"📅 PaymentDeadlineViewSet - X-School-ID: {school_id}, grade: {grade}")
 
         if not school_id:
             return PaymentDeadline.objects.none()
@@ -238,13 +270,12 @@ class PaymentDeadlineViewSet(viewsets.ModelViewSet):
         if school_id:
             try:
                 serializer.save(school_id=int(school_id), grade=grade if grade else None)
-                print(f"📅 Created deadline for school ID: {school_id}, grade: {grade}")
             except ValueError:
-                from rest_framework import serializers as drf_serializers
-                raise drf_serializers.ValidationError({"error": "Invalid school ID"})
+                from rest_framework import serializers as s
+                raise s.ValidationError({"error": "Invalid school ID"})
         else:
-            from rest_framework import serializers as drf_serializers
-            raise drf_serializers.ValidationError({"error": "School ID required"})
+            from rest_framework import serializers as s
+            raise s.ValidationError({"error": "School ID required"})
 
     @action(detail=False, methods=['get'])
     def active_deadlines(self, request):
@@ -256,14 +287,12 @@ class PaymentDeadlineViewSet(viewsets.ModelViewSet):
 
         try:
             deadlines = PaymentDeadline.objects.filter(
-                school_id=int(school_id),
-                is_active=True
+                school_id=int(school_id), is_active=True
             )
             if grade:
                 deadlines = deadlines.filter(
                     models.Q(grade=int(grade)) | models.Q(grade__isnull=True)
                 )
-            print(f"📅 Active deadlines: {deadlines.count()}")
         except ValueError:
             deadlines = PaymentDeadline.objects.none()
 
@@ -295,10 +324,8 @@ class ReminderViewSet(viewsets.ViewSet):
 
         service = ReminderService()
         results = service.get_pending_students(
-            month=month,
-            grade=grade,
-            academic_year=academic_year_name,
-            school_id=school_id
+            month=month, grade=grade,
+            academic_year=academic_year_name, school_id=school_id
         )
         return Response(results)
 
@@ -333,9 +360,6 @@ def payments_filtered_by_year(request):
     year_id = request.query_params.get('academic_year_id')
     school_id = request.headers.get('X-School-ID')
 
-    print(f"💰 ===== PAYMENTS FILTERED =====")
-    print(f"💰 year_id: {year_id}, school_id: {school_id}")
-
     if not year_id or not school_id:
         return Response([], status=200)
 
@@ -350,8 +374,6 @@ def payments_filtered_by_year(request):
     except AcademicYear.DoesNotExist:
         return Response([], status=200)
 
-    print(f"💰 Academic year: {academic_year.name}")
-
     student_ids = Student.objects.filter(
         academic_year=academic_year.name,
         school_id=school_id
@@ -360,12 +382,10 @@ def payments_filtered_by_year(request):
     if not student_ids:
         return Response([], status=200)
 
-    # Never show soft-deleted payments
     payments = Payment.objects.filter(
         student_id__in=student_ids,
-        is_deleted=False
+        is_archived=False
     )
-    print(f"💰 Payment count: {payments.count()}")
 
     serializer = PaymentSerializer(payments, many=True)
     return Response(serializer.data)

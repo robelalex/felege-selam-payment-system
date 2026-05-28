@@ -41,6 +41,7 @@ import PaymentManagerDashboard from './pages/PaymentManagerDashboard';
 import ReportingDashboard from './pages/ReportingDashboard';
 import ReminderDashboard from './pages/ReminderDashboard';
 import PrivacyPolicy from './pages/PrivacyPolicy';
+import AdminPaymentHistory from './pages/AdminPaymentHistory';
 // Styles
 import './index.css';
 
@@ -255,6 +256,7 @@ function App() {
           {/* Keep for backward compatibility */}
           <Route path="/parent/select-student" element={<SelectStudent />} />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+          <Route path="/admin-dashboard/payment-history" element={<AdminPaymentHistory />} />
           
           {/* ✅ Old StudentSearch - you can remove this route if not needed */}
           {/* <Route path="/" element={<StudentSearch />} /> */}
