@@ -21,8 +21,8 @@ from authentication import views as auth_views  # ✅ ADD THIS
 router = DefaultRouter()
 router.register(r'students', StudentViewSet, basename='student')
 router.register(r'academic-years', AcademicYearViewSet, basename='academic-year')
-router.register(r'payments', PaymentViewSet, basename='payment')
-router.register(r'deadlines', PaymentDeadlineViewSet, basename='deadline')
+# router.register(r'payments', PaymentViewSet, basename='payment')
+# router.register(r'deadlines', PaymentDeadlineViewSet, basename='deadline')
 router.register(r'schools', SchoolViewSet, basename='school')
 
 urlpatterns = [

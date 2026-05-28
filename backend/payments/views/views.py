@@ -10,21 +10,20 @@ from academics.models import AcademicYear
 
 
 class PaymentViewSet(viewsets.ModelViewSet):
-    queryset = Payment.objects.all()  # ✅ REQUIRED for router
+    queryset = Payment.objects.all()
     serializer_class = PaymentSerializer
     
     def get_queryset(self):
-        """Filter payments by school from header AND academic year"""
+        """Filter payments - Main page ONLY shows pending payments"""
         school_id = self.request.headers.get('X-School-ID')
         year_id = self.request.query_params.get('academic_year_id')
         
         print(f"💰 PaymentViewSet.get_queryset - X-School-ID: {school_id}")
         print(f"💰 PaymentViewSet.get_queryset - year_id: {year_id}")
         
-        # Start with base queryset
-        queryset = Payment.objects.all()
+        # ✅ ONLY pending payments on main page
+        queryset = Payment.objects.filter(status='pending')
         
-        # ✅ FILTER BY SCHOOL (CRITICAL FIX)
         if school_id:
             try:
                 school_id_int = int(school_id)
@@ -37,20 +36,17 @@ class PaymentViewSet(viewsets.ModelViewSet):
             print(f"💰 No school header - returning empty")
             return Payment.objects.none()
         
-        # ✅ FILTER BY ACADEMIC YEAR
         if year_id:
             try:
                 academic_year = AcademicYear.objects.get(id=year_id)
                 print(f"💰 Academic year: {academic_year.name}")
                 
-                # Get student IDs in this academic year for this school
                 student_ids = Student.objects.filter(
                     academic_year=academic_year.name,
                     school_id=int(school_id)
                 ).values_list('id', flat=True)
                 print(f"💰 Student IDs for this school/year: {list(student_ids)}")
                 
-                # Filter payments by those students
                 queryset = queryset.filter(student_id__in=student_ids)
                 print(f"💰 Payment count after year filter: {queryset.count()}")
                 
@@ -67,77 +63,67 @@ class PaymentViewSet(viewsets.ModelViewSet):
         print(f"💰 Returning {len(serializer.data)} payments")
         return Response(serializer.data)
     
-@action(detail=False, methods=['post'])
-def initiate_payment(self, request):
-    """Parent initiates a payment for a specific student and deadline (ONE at a time)"""
-    student_id = request.data.get('student_id')
-    deadline_id = request.data.get('deadline_id')
-    amount = request.data.get('amount')
-    payment_method = request.data.get('payment_method', 'telebirr')
-    paid_by = request.data.get('paid_by')
-    paid_by_phone = request.data.get('paid_by_phone')
-    school_id = request.headers.get('X-School-ID')
-    
-    # Validate required fields
-    if not student_id:
-        return Response({'error': 'student_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-    if not deadline_id:
-        return Response({'error': 'deadline_id is required (pay one at a time)'}, status=status.HTTP_400_BAD_REQUEST)
-    if not amount:
-        return Response({'error': 'amount is required'}, status=status.HTTP_400_BAD_REQUEST)
-    
-    try:
-        student = Student.objects.get(student_id=student_id)
+    @action(detail=False, methods=['post'])
+    def initiate_payment(self, request):
+        """Parent initiates a payment for a specific student and deadline (ONE at a time)"""
+        student_id = request.data.get('student_id')
+        deadline_id = request.data.get('deadline_id')
+        amount = request.data.get('amount')
+        payment_method = request.data.get('payment_method', 'telebirr')
+        paid_by = request.data.get('paid_by')
+        paid_by_phone = request.data.get('paid_by_phone')
+        school_id = request.headers.get('X-School-ID')
         
-        # Verify student belongs to this school
-        if school_id and str(student.school_id) != school_id:
-            return Response({'error': 'Student does not belong to your school'}, status=403)
+        if not student_id:
+            return Response({'error': 'student_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if not deadline_id:
+            return Response({'error': 'deadline_id is required (pay one at a time)'}, status=status.HTTP_400_BAD_REQUEST)
+        if not amount:
+            return Response({'error': 'amount is required'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Get the SPECIFIC deadline (only ONE payment item)
-        deadline = PaymentDeadline.objects.get(id=deadline_id)
-        
-        # Verify deadline belongs to this school
-        if school_id and str(deadline.school_id) != school_id:
-            return Response({'error': 'Deadline does not belong to your school'}, status=403)
-        
-        # FIX: Provide a default value for paid_by if not provided
-        # Since paid_by is required (not null in model), we must provide a value
-        if not paid_by:
-            # Use 'Anonymous' or get from request user if available
-            if request.user and request.user.is_authenticated:
-                paid_by = request.user.get_full_name() or request.user.username
-            else:
-                paid_by = 'Anonymous User'  # Default value
-        
-        # Provide default for paid_by_phone if not provided
-        if not paid_by_phone:
-            paid_by_phone = 'Not provided'
-        
-        # Create payment for THIS SPECIFIC deadline only (NOT the whole year)
-        payment = Payment.objects.create(
-            student=student,
-            deadline=deadline,  # ← Only ONE specific deadline/payment item
-            amount=amount,
-            payment_method=payment_method,
-            paid_by=paid_by,  # Now this will never be null
-            paid_by_phone=paid_by_phone,
-            status='pending'
-        )
-        
-        serializer = self.get_serializer(payment)
-        return Response({
-            'success': True,
-            'message': f'Payment initiated successfully for {deadline.description if deadline.description else deadline.get_month_display()} {deadline.academic_year}',
-            'payment': serializer.data,
-            'instructions': 'Please complete the payment using Telebirr or bank transfer'
-        }, status=status.HTTP_201_CREATED)
-        
-    except Student.DoesNotExist:
-        return Response({'error': f'Student with ID {student_id} not found'}, status=404)
-    except PaymentDeadline.DoesNotExist:
-        return Response({'error': f'Payment deadline with ID {deadline_id} not found'}, status=404)
-    except Exception as e:
-        return Response({'error': f'Payment initiation failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        try:
+            student = Student.objects.get(student_id=student_id)
+            
+            if school_id and str(student.school_id) != school_id:
+                return Response({'error': 'Student does not belong to your school'}, status=403)
+            
+            deadline = PaymentDeadline.objects.get(id=deadline_id)
+            
+            if school_id and str(deadline.school_id) != school_id:
+                return Response({'error': 'Deadline does not belong to your school'}, status=403)
+            
+            if not paid_by:
+                if request.user and request.user.is_authenticated:
+                    paid_by = request.user.get_full_name() or request.user.username
+                else:
+                    paid_by = 'Anonymous User'
+            
+            if not paid_by_phone:
+                paid_by_phone = 'Not provided'
+            
+            payment = Payment.objects.create(
+                student=student,
+                deadline=deadline,
+                amount=amount,
+                payment_method=payment_method,
+                paid_by=paid_by,
+                paid_by_phone=paid_by_phone,
+                status='pending'
+            )
+            
+            serializer = self.get_serializer(payment)
+            return Response({
+                'success': True,
+                'message': f'Payment initiated successfully',
+                'payment': serializer.data,
+            }, status=status.HTTP_201_CREATED)
+            
+        except Student.DoesNotExist:
+            return Response({'error': f'Student with ID {student_id} not found'}, status=404)
+        except PaymentDeadline.DoesNotExist:
+            return Response({'error': f'Payment deadline with ID {deadline_id} not found'}, status=404)
+        except Exception as e:
+            return Response({'error': f'Payment initiation failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=True, methods=['post'])
     def verify_payment(self, request, pk=None):
@@ -145,7 +131,6 @@ def initiate_payment(self, request):
         payment = self.get_object()
         school_id = request.headers.get('X-School-ID')
         
-        # ✅ Verify payment belongs to this school
         if school_id and str(payment.student.school_id) != school_id:
             return Response({'error': 'Payment does not belong to your school'}, status=403)
         
@@ -170,10 +155,68 @@ def initiate_payment(self, request):
         )
         serializer = self.get_serializer(pending_payments, many=True)
         return Response(serializer.data)
+    
+    # ===== ADD THESE THREE METHODS =====
+    @action(detail=True, methods=['post'])
+    def archive_payment(self, request, pk=None):
+        """Move a payment to history (archive)"""
+        payment = self.get_object()
+        school_id = request.headers.get('X-School-ID')
+        
+        if school_id and str(payment.student.school_id) != school_id:
+            return Response({'error': 'Payment does not belong to your school'}, status=403)
+        
+        payment.is_archived = True
+        payment.archived_at = timezone.now()
+        payment.save()
+        return Response({'success': True, 'message': 'Payment moved to history'}, status=200)
+    
+    @action(detail=False, methods=['post'])
+    def bulk_archive(self, request):
+        """Move multiple payments to history at once"""
+        payment_ids = request.data.get('payment_ids', [])
+        school_id = request.headers.get('X-School-ID')
+        
+        if not payment_ids:
+            return Response({'error': 'No payment IDs provided'}, status=400)
+        if not school_id:
+            return Response({'error': 'School ID required'}, status=400)
+        
+        payments = Payment.objects.filter(
+            id__in=payment_ids,
+            student__school_id=int(school_id),
+            is_archived=False
+        )
+        
+        if payments.count() == 0:
+            return Response({'error': 'No matching payments found'}, status=404)
+        
+        count = payments.count()
+        payments.update(is_archived=True, archived_at=timezone.now())
+        
+        return Response({
+            'success': True,
+            'message': f'Moved {count} payment(s) to history',
+            'archived_count': count,
+        }, status=200)
+    
+    @action(detail=False, methods=['get'])
+    def history(self, request):
+        """Return all archived payments for this school"""
+        school_id = request.headers.get('X-School-ID')
+        if not school_id:
+            return Response([], status=200)
+        
+        queryset = Payment.objects.filter(
+            student__school_id=int(school_id),
+            is_archived=True
+        )
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
 
 class PaymentDeadlineViewSet(viewsets.ModelViewSet):
-    queryset = PaymentDeadline.objects.all()  # ✅ REQUIRED for router
+    queryset = PaymentDeadline.objects.all()
     serializer_class = PaymentDeadlineSerializer
     
     def get_queryset(self):
@@ -234,7 +277,6 @@ def payments_filtered_by_year(request):
     
     print(f"💰 Academic year: {academic_year.name}")
     
-    # Get student IDs for this specific school and academic year
     student_ids = Student.objects.filter(
         academic_year=academic_year.name,
         school_id=school_id
@@ -246,7 +288,6 @@ def payments_filtered_by_year(request):
         print(f"💰 No students found, returning empty list")
         return Response([], status=200)
     
-    # Get payments for these students
     payments = Payment.objects.filter(student_id__in=student_ids)
     print(f"💰 Payment count: {payments.count()}")
     
