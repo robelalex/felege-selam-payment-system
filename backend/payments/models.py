@@ -19,7 +19,7 @@ class PaymentDeadline(models.Model):
         (12, 'ነሐሴ'),
         (13, 'ጳጉሜ'),
     ]
-    
+
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='deadlines')
     academic_year = models.CharField(max_length=20)
     month = models.IntegerField(choices=MONTH_CHOICES)
@@ -27,44 +27,42 @@ class PaymentDeadline(models.Model):
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
-    
-    # ✅ NEW: Grade-specific deadline (null = applies to all grades)
     grade = models.IntegerField(
         choices=Student.GRADE_CHOICES,
         null=True,
         blank=True,
         help_text="Leave blank to apply to all grades"
     )
-    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
-        unique_together = ['school', 'academic_year', 'month', 'grade']  # ✅ Updated
+        unique_together = ['school', 'academic_year', 'month', 'grade']
         ordering = ['academic_year', 'month', 'grade']
-    
+
     def __str__(self):
         month_name = dict(self.MONTH_CHOICES)[self.month]
         if self.grade:
             return f"{self.academic_year} - {month_name} (Grade {self.grade})"
         return f"{self.academic_year} - {month_name} (All Grades)"
 
+
 class Payment(models.Model):
     PAYMENT_METHODS = [
         ('cash', 'Cash'),
         ('telebirr', 'Telebirr'),
         ('bank_transfer', 'Bank Transfer'),
-        ('chapa', 'Chapa'),          # ADD THIS
+        ('chapa', 'Chapa'),
         ('other', 'Other'),
     ]
-    
+
     STATUS_CHOICES = [
         ('pending', 'Pending Verification'),
         ('verified', 'Verified'),
         ('rejected', 'Rejected'),
-        ('failed', 'Failed'),        # ADD THIS
+        ('failed', 'Failed'),
     ]
-    
+
     student = models.ForeignKey(
         Student, on_delete=models.CASCADE, related_name='payments'
     )
@@ -76,13 +74,17 @@ class Payment(models.Model):
     )
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS)
     transaction_reference = models.CharField(max_length=200, blank=True)
-    
-    # ADD THESE NEW FIELDS
+
     invoice_number = models.CharField(max_length=50, blank=True, unique=True, null=True)
     chapa_reference = models.CharField(max_length=200, blank=True)
     webhook_received = models.BooleanField(default=False)
     webhook_received_at = models.DateTimeField(null=True, blank=True)
-    
+
+    # Soft delete fields — verified payments are never hard deleted
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_reason = models.TextField(blank=True)
+
     payment_proof = models.FileField(
         upload_to='payment_proofs/%Y/%m/', blank=True, null=True
     )
@@ -106,14 +108,14 @@ class Payment(models.Model):
             models.Index(fields=['status']),
             models.Index(fields=['transaction_reference']),
             models.Index(fields=['student', 'deadline']),
-            models.Index(fields=['invoice_number']),  # ADD THIS
+            models.Index(fields=['invoice_number']),
+            models.Index(fields=['is_deleted']),
         ]
 
     def __str__(self):
         return f"{self.student.student_id} - {self.amount} Birr"
 
     def generate_invoice_number(self):
-        """Generate unique invoice number like INV-2024-0001"""
         from django.utils import timezone
         year = timezone.now().year
         last = Payment.objects.filter(
@@ -129,6 +131,7 @@ class Payment(models.Model):
             new_num = 1
         return f'INV-{year}-{new_num:04d}'
 
+
 class PaymentReminder(models.Model):
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='reminders')
     deadline = models.ForeignKey(PaymentDeadline, on_delete=models.CASCADE)
@@ -136,40 +139,40 @@ class PaymentReminder(models.Model):
     sent_to = models.CharField(max_length=20)
     message = models.TextField()
     status = models.CharField(max_length=20)
-    
+
     class Meta:
         ordering = ['-sent_at']
 
+
 class SMSHistory(models.Model):
-    """Track all sent SMS messages"""
-    
     STATUS_CHOICES = [
         ('sent', 'Sent'),
         ('delivered', 'Delivered'),
         ('failed', 'Failed'),
     ]
-    
+
     recipient = models.CharField(max_length=20)
     message = models.TextField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='sent')
     message_id = models.CharField(max_length=100, blank=True)
-    related_to = models.CharField(max_length=50, blank=True, help_text="e.g., payment_123, reminder_bulk")
-    
+    related_to = models.CharField(max_length=50, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
-    
+
     class Meta:
         ordering = ['-created_at']
-    
+
     def __str__(self):
         return f"SMS to {self.recipient} - {self.status}"
+
+
 class PaymentSlip(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending Verification'),
         ('verified', 'Verified'),
         ('rejected', 'Rejected'),
     ]
-    
+
     student = models.ForeignKey('students.Student', on_delete=models.CASCADE, related_name='slips')
     deadline = models.ForeignKey('payments.PaymentDeadline', on_delete=models.CASCADE)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
@@ -181,16 +184,14 @@ class PaymentSlip(models.Model):
     uploaded_at = models.DateTimeField(auto_now_add=True)
     verified_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
     verified_at = models.DateTimeField(null=True, blank=True)
-    
-    # ✅ These fields are now properly indented inside the class
-    ai_confidence = models.IntegerField(default=0, help_text="AI confidence score (0-100)")
+    ai_confidence = models.IntegerField(default=0)
     ai_extracted_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     ai_message = models.TextField(blank=True)
-    ai_reviewed = models.BooleanField(default=False, help_text="Whether AI has reviewed this slip")
-    auto_verified = models.BooleanField(default=False, help_text="Whether AI auto-verified this slip")
+    ai_reviewed = models.BooleanField(default=False)
+    auto_verified = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['-uploaded_at']
-    
+
     def __str__(self):
         return f"Slip for {self.student.full_name} - {self.amount} Birr"
