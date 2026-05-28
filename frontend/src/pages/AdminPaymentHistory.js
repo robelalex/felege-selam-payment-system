@@ -13,6 +13,9 @@ function AdminPaymentHistory() {
   const [filtered, setFiltered] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterMonth, setFilterMonth] = useState('all');
+  const [filterGrade, setFilterGrade] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
@@ -24,18 +27,44 @@ function AdminPaymentHistory() {
     'መጋቢት', 'ሚያዝያ', 'ግንቦት', 'ሰኔ', 'ሐምሌ', 'ነሐሴ', 'ጳጉሜ'
   ];
 
+  const grades = ['1', '2', '3', '4', '5', '6', '7', '8'];
+
   useEffect(() => { fetchHistory(); }, [selectedYear]);
 
   useEffect(() => {
-    if (!searchTerm) { setFiltered(payments); return; }
-    const term = searchTerm.toLowerCase();
-    setFiltered(payments.filter(p =>
-      (getStudentName(p).toLowerCase().includes(term)) ||
-      (getStudentId(p).toLowerCase().includes(term)) ||
-      (p.transaction_reference?.toLowerCase().includes(term))
-    ));
+    let filteredData = [...payments];
+    
+    // Search filter
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filteredData = filteredData.filter(p =>
+        (getStudentName(p).toLowerCase().includes(term)) ||
+        (getStudentId(p).toLowerCase().includes(term)) ||
+        (p.transaction_reference?.toLowerCase().includes(term))
+      );
+    }
+    
+    // Status filter
+    if (filterStatus !== 'all') {
+      filteredData = filteredData.filter(p => p.status === filterStatus);
+    }
+    
+    // Month filter
+    if (filterMonth !== 'all') {
+      filteredData = filteredData.filter(p => getMonthName(p) === filterMonth);
+    }
+    
+    // Grade filter
+    if (filterGrade !== 'all') {
+      filteredData = filteredData.filter(p => {
+        const studentGrade = p.student?.grade || p.grade;
+        return String(studentGrade) === filterGrade;
+      });
+    }
+    
+    setFiltered(filteredData);
     setCurrentPage(1);
-  }, [searchTerm, payments]);
+  }, [searchTerm, filterStatus, filterMonth, filterGrade, payments]);
 
   const fetchHistory = async () => {
     setLoading(true);
@@ -73,6 +102,11 @@ function AdminPaymentHistory() {
 
   const getStudentId = (p) =>
     p.student_id || p.student?.student_id || 'N/A';
+
+  const getStudentGrade = (p) => {
+    const grade = p.student?.grade || p.grade;
+    return grade ? `Grade ${grade}` : 'N/A';
+  };
 
   const getMonthName = (p) => {
     if (p.deadline_month) return p.deadline_month;
@@ -150,6 +184,51 @@ function AdminPaymentHistory() {
         </div>
       </div>
 
+      {/* Status, Month, and Grade Filters */}
+      <div className="bg-white rounded-xl shadow-lg p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+            <select 
+              value={filterStatus} 
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="input-field py-2 text-sm w-full"
+            >
+              <option value="all">All Status</option>
+              <option value="verified">Verified</option>
+              <option value="pending">Pending</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Month</label>
+            <select 
+              value={filterMonth} 
+              onChange={(e) => setFilterMonth(e.target.value)}
+              className="input-field py-2 text-sm w-full"
+            >
+              <option value="all">All Months</option>
+              {months.map((month, index) => (
+                <option key={index} value={month}>{month}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Grade</label>
+            <select 
+              value={filterGrade} 
+              onChange={(e) => setFilterGrade(e.target.value)}
+              className="input-field py-2 text-sm w-full"
+            >
+              <option value="all">All Grades</option>
+              {grades.map((grade) => (
+                <option key={grade} value={grade}>Grade {grade}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
       {/* Table */}
       {filtered.length === 0 ? (
         <div className="bg-white rounded-xl shadow-lg p-12 text-center">
@@ -167,6 +246,7 @@ function AdminPaymentHistory() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Student</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Grade</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Month</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Method</th>
@@ -182,6 +262,7 @@ function AdminPaymentHistory() {
                         <p className="font-medium text-gray-900">{getStudentName(payment)}</p>
                         <p className="text-xs text-gray-500">{getStudentId(payment)}</p>
                       </td>
+                      <td className="px-4 py-3 text-gray-600">{getStudentGrade(payment)}</td>
                       <td className="px-4 py-3 font-semibold text-gray-900">
                         {parseFloat(payment.amount).toLocaleString()} Birr
                       </td>
@@ -290,6 +371,7 @@ function AdminPaymentHistory() {
               {[
                 ['Student', getStudentName(selectedPayment)],
                 ['Student ID', getStudentId(selectedPayment)],
+                ['Grade', getStudentGrade(selectedPayment)],
                 ['Amount', `${parseFloat(selectedPayment.amount).toLocaleString()} Birr`],
                 ['Month', getMonthName(selectedPayment)],
                 ['Method', selectedPayment.payment_method || 'N/A'],

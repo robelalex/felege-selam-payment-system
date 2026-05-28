@@ -22,18 +22,33 @@ test_payment = initiate_chapa_payment
 from .views.reminder_views import pending_reminders_filtered
 
 router = DefaultRouter()
-router.register(r'payments', PaymentViewSet, basename='payment')  # ✅ ADD THIS LINE
 router.register(r'deadlines', PaymentDeadlineViewSet)
 router.register(r'reminders', ReminderViewSet, basename='reminder')
 
+# ✅ DON'T register payments with router - use direct paths instead
+payment_viewset = PaymentViewSet.as_view({
+    'get': 'list',
+    'post': 'create',
+    'put': 'update',
+    'delete': 'destroy'
+})
+
 urlpatterns = [
-    # Include router URLs (this gives you archive_payment, bulk_archive, history, etc.)
-    path('', include(router.urls)),
-    
-    # Keep your existing direct paths if needed
+    # ✅ Payments endpoints - direct paths
+    path('payments/', payment_viewset, name='payments'),
     path('payments/initiate-payment/', PaymentViewSet.as_view({'post': 'initiate_payment'}), name='initiate-payment'),
     path('payments/verify-payment/<int:pk>/', PaymentViewSet.as_view({'post': 'verify_payment'}), name='verify-payment'),
     path('payments/pending-verifications/', PaymentViewSet.as_view({'get': 'pending_verifications'}), name='pending-verifications'),
+    path('payments/delete-payment/<int:pk>/', PaymentViewSet.as_view({'delete': 'delete_payment'}), name='delete-payment'),
+    path('payments/bulk-delete/', PaymentViewSet.as_view({'post': 'bulk_delete'}), name='bulk-delete'),
+    
+    # Archive/History endpoints
+    path('payments/<int:pk>/archive_payment/', PaymentViewSet.as_view({'post': 'archive_payment'}), name='archive-payment'),
+    path('payments/bulk_archive/', PaymentViewSet.as_view({'post': 'bulk_archive'}), name='bulk-archive'),
+    path('payments/history/', PaymentViewSet.as_view({'get': 'history'}), name='payment-history'),
+    
+    # Deadlines and reminders (via router)
+    path('', include(router.urls)),
     
     path('send-reminders/', send_reminders, name='send-reminders'),
     path('payment-confirmation/<int:payment_id>/', send_payment_confirmation, name='payment-confirmation'),
@@ -72,7 +87,7 @@ urlpatterns += [
     path('chapa/verify/', verify_chapa_payment, name='chapa-verify'),
     path('chapa/banks/', get_chapa_banks, name='chapa-banks'),
     path('chapa/test-payment/', test_payment, name='test-payment'),
-    path('payments/status/<str:tx_ref>/', payment_status, name='payment-status'),
+    path('payments/status/<str:tx_ref>/', payment_status, name='payment-status'),  # ← ONLY NEW LINE
 ]
 
 urlpatterns += [
