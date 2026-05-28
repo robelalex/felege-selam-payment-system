@@ -147,10 +147,13 @@ class StudentViewSet(viewsets.ModelViewSet):
             print(f"📚 Getting pending payments for student ID: {student.id} - {student.student_id}")
             print(f"📚 Student grade: {student.grade}")
             
-            # Get verified/paid deadlines
+            # Get verified/paid deadlines.
+            # Include soft-deleted (is_deleted=True) verified payments —
+            # they still prove the month was paid, so the deadline must not reappear.
             paid_deadlines = Payment.objects.filter(
-                student=student, 
+                student=student,
                 status='verified'
+            # deliberately NOT filtering by is_deleted here
             ).values_list('deadline_id', flat=True)
             
             print(f"📚 Paid deadline IDs: {list(paid_deadlines)}")

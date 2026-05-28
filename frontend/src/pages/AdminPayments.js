@@ -627,13 +627,13 @@ function AdminPayments() {
                             >
                               <Eye className="h-4 w-4" />
                             </button>
-                            <button
-                              onClick={() => deletePayment(payment.id)}
-                              className="text-red-600 hover:text-red-800 tap-target p-1"
-                              title="Delete"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
+<button
+  onClick={() => deletePayment(payment.id)}
+  className={`tap-target p-1 ${payment.status === 'verified' ? 'text-gray-400 hover:text-gray-600' : 'text-red-600 hover:text-red-800'}`}
+  title={payment.status === 'verified' ? 'Remove from view' : 'Delete payment'}
+>
+  <Trash2 className="h-4 w-4" />
+</button>
                           </div>
                         </td>
                       </tr>
@@ -796,9 +796,12 @@ function AdminPayments() {
                       Verify Payment
                     </button>
                   )}
-                  <button onClick={() => deletePayment(selectedPayment.id)} className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors tap-target">
-                    Delete
-                  </button>
+<button
+  onClick={() => deletePayment(selectedPayment.id)}
+  className={`px-4 py-2 rounded-lg transition-colors tap-target text-white ${selectedPayment.status === 'verified' ? 'bg-gray-500 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'}`}
+>
+  {selectedPayment.status === 'verified' ? 'Remove' : 'Delete'}
+</button>
                   <button onClick={() => setShowDetails(false)} className="btn-secondary tap-target">
                     Close
                   </button>
