@@ -19,7 +19,7 @@ class Student(models.Model):
         max_length=50, 
         unique=True, 
         blank=True, 
-        null=True,  # ✅ Allow null temporarily
+        null=True,
         help_text="Format: SCHOOLCODE-YEAR-SEQUENCE (e.g., FS-2024-1001). Auto-generated if left blank."
     )
     
@@ -127,18 +127,30 @@ class Student(models.Model):
             self.academic_year = self._format_academic_year(self.academic_year)
     
     def save(self, *args, **kwargs):
-        """Auto-format academic_year and auto-generate student_id before saving"""
+        """Auto-format academic_year and auto-generate student_id ONLY for new students"""
         self.clean()
         
-        # ✅ Generate ID if not exists
-        if not self.student_id or self.student_id == '':
-            new_id = self._generate_student_id()
-            if new_id:
-                self.student_id = new_id
-                print(f"Generated ID for {self.first_name}: {self.student_id}")
+        # ✅ Check if this is a NEW student (not yet saved to database)
+        is_new = self.pk is None
+        
+        if is_new:
+            # Only generate ID for new students
+            if not self.student_id or self.student_id == '':
+                new_id = self._generate_student_id()
+                if new_id:
+                    self.student_id = new_id
+                    print(f"✅ Generated NEW student ID: {self.student_id}")
+        else:
+            # For existing students, NEVER change the ID
+            # Get the original ID from database before save
+            original = Student.objects.get(pk=self.pk)
+            if original.student_id != self.student_id:
+                # Restore the original ID if it was changed
+                self.student_id = original.student_id
+                print(f"⚠️ Attempted to change ID from {original.student_id} to {self.student_id} - REVERTED")
         
         super().save(*args, **kwargs)
-        # Add to Student class in students/models.py
+    
     def update_monthly_fee(self, new_fee):
         """Update student's monthly fee"""
         self.monthly_fee = new_fee

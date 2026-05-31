@@ -3,12 +3,14 @@ import React, { useState, useEffect } from 'react';
 import {
   Search, RefreshCw, AlertCircle, Trash2,
   ChevronLeft, ChevronRight, Eye, XCircle,
-  CheckCircle, Clock, Archive
+  CheckCircle, Clock, Archive, ArrowLeft
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useYear } from '../context/YearContext';
 
 function AdminPaymentHistory() {
+  const navigate = useNavigate();
   const [payments, setPayments] = useState([]);
   const [filtered, setFiltered] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -34,7 +36,6 @@ function AdminPaymentHistory() {
   useEffect(() => {
     let filteredData = [...payments];
     
-    // Search filter
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       filteredData = filteredData.filter(p =>
@@ -44,20 +45,17 @@ function AdminPaymentHistory() {
       );
     }
     
-    // Status filter
     if (filterStatus !== 'all') {
       filteredData = filteredData.filter(p => p.status === filterStatus);
     }
     
-    // Month filter
     if (filterMonth !== 'all') {
       filteredData = filteredData.filter(p => getMonthName(p) === filterMonth);
     }
     
-    // Grade filter
     if (filterGrade !== 'all') {
       filteredData = filteredData.filter(p => {
-        const studentGrade = p.student?.grade || p.grade;
+        const studentGrade = p.student_grade || p.student?.grade || p.grade;
         return String(studentGrade) === filterGrade;
       });
     }
@@ -104,7 +102,7 @@ function AdminPaymentHistory() {
     p.student_id || p.student?.student_id || 'N/A';
 
   const getStudentGrade = (p) => {
-    const grade = p.student?.grade || p.grade;
+    const grade = p.student_grade || p.student?.grade || p.grade;
     return grade ? `Grade ${grade}` : 'N/A';
   };
 
@@ -133,6 +131,13 @@ function AdminPaymentHistory() {
     }
   };
 
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterStatus('all');
+    setFilterMonth('all');
+    setFilterGrade('all');
+  };
+
   const totalPages = Math.ceil(filtered.length / itemsPerPage);
   const paginated = filtered.slice(
     (currentPage - 1) * itemsPerPage,
@@ -149,17 +154,26 @@ function AdminPaymentHistory() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header with Back Button */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-2">
-            <Archive className="h-7 w-7 text-primary-600" />
-            Payment History
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {filtered.length} archived payment{filtered.length !== 1 ? 's' : ''}
-            {selectedYear ? ` — ${selectedYear.name}` : ''}
-          </p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/admin/payments')}
+            className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition-colors flex items-center gap-2 tap-target"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </button>
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-2">
+              <Archive className="h-7 w-7 text-primary-600" />
+              Payment History
+            </h1>
+            <p className="text-sm text-gray-500 mt-1">
+              {filtered.length} archived payment{filtered.length !== 1 ? 's' : ''}
+              {selectedYear ? ` — ${selectedYear.name}` : ''}
+            </p>
+          </div>
         </div>
         <button
           onClick={fetchHistory}
@@ -186,6 +200,14 @@ function AdminPaymentHistory() {
 
       {/* Status, Month, and Grade Filters */}
       <div className="bg-white rounded-xl shadow-lg p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base md:text-lg font-semibold text-gray-900">Filters</h2>
+          {(searchTerm || filterStatus !== 'all' || filterMonth !== 'all' || filterGrade !== 'all') && (
+            <button onClick={clearFilters} className="text-sm text-primary-600 hover:text-primary-700 font-medium tap-target">
+              Clear Filters
+            </button>
+          )}
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
@@ -235,7 +257,7 @@ function AdminPaymentHistory() {
           <Archive className="h-12 w-12 mx-auto mb-3 text-gray-300" />
           <p className="text-gray-500 font-medium">No archived payments</p>
           <p className="text-gray-400 text-sm mt-1">
-            Payments you remove from the main page will appear here.
+            Payments you archive from the main page will appear here.
           </p>
         </div>
       ) : (

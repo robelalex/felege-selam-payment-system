@@ -17,6 +17,7 @@ class PaymentDeadlineSerializer(serializers.ModelSerializer):
 class PaymentSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.full_name', read_only=True)
     student_id = serializers.CharField(source='student.student_id', read_only=True)
+    student_grade = serializers.CharField(source='student.grade', read_only=True)  # ✅ ADD THIS
     deadline_month = serializers.CharField(source='deadline.get_month_display', read_only=True)
     
     class Meta:
