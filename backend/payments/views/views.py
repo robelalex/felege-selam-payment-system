@@ -14,15 +14,15 @@ class PaymentViewSet(viewsets.ModelViewSet):
     serializer_class = PaymentSerializer
     
     def get_queryset(self):
-        """Filter payments - Main page ONLY shows pending payments"""
+        """Filter payments - Main page shows ALL payments that are NOT archived"""
         school_id = self.request.headers.get('X-School-ID')
         year_id = self.request.query_params.get('academic_year_id')
         
         print(f"💰 PaymentViewSet.get_queryset - X-School-ID: {school_id}")
         print(f"💰 PaymentViewSet.get_queryset - year_id: {year_id}")
         
-        # ✅ ONLY pending payments on main page
-        queryset = Payment.objects.filter(status='pending')
+        # ✅ Show ALL payments (pending + verified) that are NOT archived
+        queryset = Payment.objects.filter(is_archived=False)
         
         if school_id:
             try:

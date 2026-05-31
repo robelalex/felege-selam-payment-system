@@ -3,7 +3,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import PaymentViewSet, PaymentDeadlineViewSet, ReminderViewSet
 from .views import send_reminders, send_payment_confirmation
-from .views.report_views import monthly_report, student_report, annual_summary
+from .views.report_views import monthly_report, student_report, annual_summary, monthly_detailed_report
 from .views.slip_views import (
     upload_slip, pending_slips, verify_slip, ai_stats,
     delete_slip, bulk_delete_slips
@@ -66,6 +66,7 @@ urlpatterns += [
 # Report URLs
 urlpatterns += [
     path('reports/monthly/', monthly_report, name='monthly-report'),
+    path('reports/monthly-detailed/', monthly_detailed_report, name='monthly-detailed-report'),
     path('reports/student/<str:student_id>/', student_report, name='student-report'),
     path('reports/annual/', annual_summary, name='annual-summary'),
 ]

@@ -49,51 +49,63 @@ function Reports() {
     { value: '13', name: 'ጳጉሜ' }
   ];
 
-const fetchReport = async () => {
-  setLoading(true);
-  setError('');
-  
-  try {
-    // Build query parameters with academic year
-    const params = new URLSearchParams();
-    if (selectedYear && selectedYear.id) {
-      params.append('academic_year_id', selectedYear.id);
+  const fetchReport = async () => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      const savedSchool = localStorage.getItem('selectedSchool');
+      let schoolId = null;
+      if (savedSchool) {
+        try {
+          const school = JSON.parse(savedSchool);
+          schoolId = school.id;
+        } catch (e) {
+          console.error('Error parsing school:', e);
+        }
+      }
+      
+      const headers = schoolId ? { 'X-School-ID': schoolId } : {};
+      let endpoint = '';
+      
+      if (reportType === 'monthly') {
+        const params = new URLSearchParams();
+        if (selectedYear && selectedYear.name) {
+          params.append('year', selectedYear.name);
+        }
+        params.append('month', selectedMonth);
+        endpoint = `/reports/monthly/?${params.toString()}`;
+      } 
+      else if (reportType === 'annual') {
+        const params = new URLSearchParams();
+        if (selectedYear && selectedYear.name) {
+          params.append('year', selectedYear.name);
+        }
+        endpoint = `/reports/annual/?${params.toString()}`;
+      } 
+      else if (reportType === 'student') {
+        if (!selectedStudent) {
+          setError('Please enter a Student ID');
+          setLoading(false);
+          return;
+        }
+        endpoint = `/reports/student/${selectedStudent}/`;
+      }
+      
+      console.log('Fetching report endpoint:', endpoint);
+      console.log('Headers:', headers);
+      
+      const response = await api.get(endpoint, { headers });
+      console.log('Report response:', response.data);
+      
+      setReportData(response.data);
+    } catch (err) {
+      console.error('Error fetching report:', err);
+      setError(err.response?.data?.error || 'Failed to load report. Please try again.');
+    } finally {
+      setLoading(false);
     }
-    
-    const queryString = params.toString();
-    const queryPrefix = queryString ? '?' + queryString : '';
-    
-    let endpoint = '';
-    
-if (reportType === 'monthly') {
-  const params = new URLSearchParams();
-  if (selectedYear && selectedYear.id) {
-    params.append('academic_year_id', selectedYear.id);
-  }
-  params.append('month', selectedMonth);
-  endpoint = `/reports/monthly-filtered/?${params.toString()}`;
-} else if (reportType === 'annual') {
-  const params = new URLSearchParams();
-  if (selectedYear && selectedYear.id) {
-    params.append('academic_year_id', selectedYear.id);
-  }
-  endpoint = `/reports/annual/${params.toString() ? '?' + params.toString() : ''}`;
-}
-    
-    console.log('Fetching report endpoint:', endpoint);
-    console.log('Selected Year:', selectedYear);
-    
-    const response = await api.get(endpoint);
-    console.log('Report response:', response.data);
-    
-    setReportData(response.data);
-  } catch (err) {
-    console.error('Error fetching report:', err);
-    setError('Failed to load report. Please try again.');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const downloadCSV = () => {
     if (!reportData) return;
@@ -126,6 +138,15 @@ if (reportType === 'monthly') {
       csvContent += `Total Paid,${reportData.summary.total_paid} Birr\n`;
       csvContent += `Pending Months,${reportData.summary.pending_count}\n`;
       csvContent += `Pending Amount,${reportData.summary.pending_amount} Birr\n`;
+      
+    } else if (reportType === 'annual' && reportData.monthly_data) {
+      csvContent = 'Month,Payments Count,Collected (Birr)\n';
+      
+      reportData.monthly_data.forEach(month => {
+        csvContent += `${month.month},${month.paid_count || 0},${month.collected || 0}\n`;
+      });
+      
+      csvContent += `\nTotal,,${reportData.total_collected || 0}\n`;
     }
     
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -407,6 +428,77 @@ if (reportType === 'monthly') {
               </>
             )}
 
+            {/* Annual Summary */}
+            {reportType === 'annual' && reportData.monthly_data && (
+              <>
+                {/* Report Header */}
+                <div className="bg-white rounded-xl shadow-lg p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-xl font-bold text-gray-900">
+                        Annual Summary Report
+                      </h2>
+                      <p className="text-gray-600 mt-1">
+                        {selectedYear?.name || 'Academic Year'}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={downloadCSV}
+                        className="btn-outline flex items-center gap-2"
+                      >
+                        <Download className="h-4 w-4" />
+                        Download CSV
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Total Collected Card */}
+                <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl shadow-lg p-6 text-white">
+                  <p className="text-indigo-100 text-sm">Total Year Collection</p>
+                  <p className="text-3xl font-bold">{reportData.total_collected?.toLocaleString()} Birr</p>
+                </div>
+
+                {/* Monthly Breakdown Table */}
+                <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Month</th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Payments Count</th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Collected (Birr)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {reportData.monthly_data.map((month, index) => (
+                          <tr key={index} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm text-gray-900">{month.month}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600 text-right">{month.paid_count || 0}</td>
+                            <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
+                              {month.collected?.toLocaleString()} Birr
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-gray-50">
+                        <tr>
+                          <td className="px-4 py-3 text-sm font-bold text-gray-900">Total</td>
+                          <td className="px-4 py-3 text-sm font-bold text-gray-900 text-right">
+                            {reportData.monthly_data.reduce((sum, m) => sum + (m.paid_count || 0), 0)}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-bold text-indigo-600 text-right">
+                            {reportData.total_collected?.toLocaleString()} Birr
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
+
             {/* Student Report */}
             {reportType === 'student' && reportData.student && (
               <>
@@ -474,7 +566,7 @@ if (reportType === 'monthly') {
                               <td className="table-cell">{payment.date}</td>
                               <td className="table-cell capitalize">{payment.method}</td>
                               <td className="table-cell font-mono text-sm">{payment.reference || '—'}</td>
-                             </tr>
+                            </tr>
                           ))}
                         </tbody>
                       </table>
