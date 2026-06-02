@@ -25,7 +25,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
             return Payment.objects.none()
 
         try:
-            # Main payments page never shows archived payments
             return Payment.objects.filter(
                 student__school_id=int(school_id),
                 is_archived=False
@@ -45,14 +44,23 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 academic_year = AcademicYear.objects.get(
                     id=int(year_id), school_id=int(school_id)
                 )
-                student_ids = Student.objects.filter(
-                    academic_year=academic_year.name,
-                    school_id=int(school_id)
-                ).values_list('id', flat=True)
-                queryset = queryset.filter(student_id__in=student_ids)
-                print(f"💰 After year filter, count: {queryset.count()}")
+                queryset = queryset.filter(
+                    deadline__academic_year=academic_year.name,
+                    student__school_id=int(school_id),
+                    is_archived=False
+                )
+                print(f"💰 After year filter (deadline_academic_year={academic_year.name}), count: {queryset.count()}")
             except AcademicYear.DoesNotExist:
-                pass
+                print(f"💰 Academic year not found for id={year_id}")
+                queryset = queryset.none()
+        else:
+            if school_id:
+                queryset = queryset.filter(
+                    student__school_id=int(school_id),
+                    is_archived=False
+                )
+            else:
+                queryset = queryset.none()
 
         serializer = self.get_serializer(queryset, many=True)
         print(f"💰 Returning {len(serializer.data)} payments")

@@ -3,6 +3,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from .models import AcademicYear, YearPromotionLog
 from .serializers import AcademicYearSerializer, YearPromotionLogSerializer
@@ -11,6 +12,7 @@ from schools.models import School
 from datetime import timedelta
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+
 
 class AcademicYearViewSet(viewsets.ModelViewSet):
     serializer_class = AcademicYearSerializer
@@ -105,10 +107,14 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(year)
         return Response(serializer.data)
     
-    @action(detail=True, methods=['post'], url_path='promote_students')
+    @action(detail=True, methods=['post'], url_path='promote_students', permission_classes=[IsAuthenticated])
     def promote_students(self, request, pk=None):
-        """Promote all students to next grade"""
+        """Promote all students to next grade (Grades 1-7) or graduate (Grade 8)"""
         year = self.get_object()
+        
+        # ✅ Check if user is authenticated (School Admin)
+        if not request.user.is_authenticated:
+            return Response({'error': 'Authentication required'}, status=401)
         
         if not year.is_current:
             return Response({
@@ -127,20 +133,51 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
             }, status=400)
         
         # Promote students
-        promoted = year.promote_students()
+        promoted_count = 0
+        graduated_count = 0
+        
+        students = Student.objects.filter(
+            school=year.school,
+            status='active'
+        )
+        
+        for student in students:
+            if student.grade < 8:
+                # ✅ Promote to next grade (1 → 2, 2 → 3, ..., 7 → 8)
+                student.grade += 1
+                # ✅ UPDATE academic year to next year
+                student.academic_year = f"{year.year_ec + 1} E.C."  
+                # Keep the same student_id (NO change)
+                # Update monthly fee based on new grade
+                new_fee = year.get_default_fee_for_grade(student.grade, year.school.id)
+                if new_fee:
+                    student.monthly_fee = new_fee
+                student.save()
+                promoted_count += 1
+            elif student.grade == 8:
+                # ✅ Grade 8 students become graduated
+                student.status = 'graduated'
+                # Keep all other information (student_id remains same)
+                student.save()
+                graduated_count += 1
+            else:
+                # For any other grade (should not happen), just keep as is
+                pass
         
         # Create promotion log
         log = YearPromotionLog.objects.create(
             from_year=year,
             to_year=next_year,
-            students_promoted=promoted,
-            students_graduated=Student.objects.filter(grade=8, status='graduated').count(),
+            students_promoted=promoted_count,
+            students_graduated=graduated_count,
             promoted_by=request.user
         )
         
         return Response({
             'success': True,
-            'message': f'Promoted {promoted} students to next grade',
+            'message': f'Promoted {promoted_count} students to next grade, {graduated_count} students graduated',
+            'promoted_count': promoted_count,
+            'graduated_count': graduated_count,
             'log': YearPromotionLogSerializer(log).data
         })
     
@@ -194,7 +231,6 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(next_year)
         return Response(serializer.data, status=201)
     
-    # ✅ NEW: Archive an academic year (soft delete)
     @action(detail=True, methods=['patch'], url_path='archive')
     def archive_year(self, request, pk=None):
         """Soft delete - archive the academic year"""
@@ -204,7 +240,6 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
         year.save()
         return Response({'success': True, 'message': f'Year {year.name} archived'})
     
-    # ✅ NEW: Restore an archived academic year
     @action(detail=True, methods=['patch'], url_path='restore')
     def restore_year(self, request, pk=None):
         """Restore an archived academic year"""
@@ -214,7 +249,6 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
         year.save()
         return Response({'success': True, 'message': f'Year {year.name} restored'})
     
-    # ✅ NEW: Get all archived academic years for the school
     @action(detail=False, methods=['get'], url_path='archived')
     def get_archived(self, request):
         """Get all archived academic years for the school"""
