@@ -16,17 +16,27 @@ from users.views import CurrentUserView
 from schools.approval_views import pending_approvals, approve_school, reject_school
 from reports.views import dashboard_stats as reports_dashboard_stats, pending_payments_report
 from authentication.views import change_password
-from authentication import views as auth_views  # ✅ ADD THIS
+from authentication import views as auth_views
+
+# Import the specific action methods
+from academics.views import AcademicYearViewSet
 
 router = DefaultRouter()
 router.register(r'students', StudentViewSet, basename='student')
 router.register(r'academic-years', AcademicYearViewSet, basename='academic-year')
-# router.register(r'payments', PaymentViewSet, basename='payment')
-# router.register(r'deadlines', PaymentDeadlineViewSet, basename='deadline')
 router.register(r'schools', SchoolViewSet, basename='school')
 
 urlpatterns = [
-    # path('admin/', admin.site.urls),
+    # ✅ CUSTOM ACADEMIC YEAR ACTIONS - Must come BEFORE the router
+    path('api/academic-years/current/', AcademicYearViewSet.as_view({'get': 'current'}), name='academic-year-current'),
+    path('api/academic-years/archived/', AcademicYearViewSet.as_view({'get': 'get_archived'}), name='academic-year-archived'),
+    path('api/academic-years/create_next_year/', AcademicYearViewSet.as_view({'post': 'create_next_year'}), name='academic-year-create-next'),
+    path('api/academic-years/<int:pk>/promote_students/', AcademicYearViewSet.as_view({'post': 'promote_students'}), name='academic-year-promote'),
+    path('api/academic-years/<int:pk>/set_current/', AcademicYearViewSet.as_view({'post': 'set_current'}), name='academic-year-set-current'),
+    path('api/academic-years/<int:pk>/archive/', AcademicYearViewSet.as_view({'patch': 'archive_year'}), name='academic-year-archive'),
+    path('api/academic-years/<int:pk>/restore/', AcademicYearViewSet.as_view({'patch': 'restore_year'}), name='academic-year-restore'),
+    
+    # API routes
     path('api/', include(router.urls)),
     path('api-auth/', include('rest_framework.urls')),
     path('api/auth/change-password/', change_password, name='change-password'),
@@ -34,8 +44,6 @@ urlpatterns = [
     path('api/', include('authentication.urls')), 
     path('api/', include('payments.urls')),
     path('api/users/me/', CurrentUserView.as_view(), name='current_user'),
-    
-    # ✅ ADD THIS - The correct /me/ endpoint
     path('api/me/', auth_views.get_current_user, name='current-user'),
     
     # Payment endpoints
@@ -57,7 +65,7 @@ urlpatterns = [
     path('api/admin/approve/<int:user_id>/', approve_school, name='approve-school'),
     path('api/admin/reject/<int:user_id>/', reject_school, name='reject-school'),
     
-    # ✅ CUSTOM ADMIN DASHBOARD - MUST BE BEFORE React catch-all
+    # CUSTOM ADMIN DASHBOARD
     path('admin-dashboard/', include('admin_dashboard.urls')),
 ]
 
@@ -71,8 +79,6 @@ if settings.DEBUG:
 urlpatterns += [
     path('', TemplateView.as_view(template_name='index.html')),
     path('admin-login/', TemplateView.as_view(template_name='index.html')),
-    # ❌ REMOVE this line - it's capturing your admin-dashboard
-    # path('admin-dashboard/', TemplateView.as_view(template_name='index.html')),
     path('parent-login/', TemplateView.as_view(template_name='index.html')),
     path('parent-dashboard/', TemplateView.as_view(template_name='index.html')),
 ]

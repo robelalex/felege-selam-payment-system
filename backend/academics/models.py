@@ -78,29 +78,32 @@ class AcademicYear(models.Model):
         super().save(*args, **kwargs)
     
     def promote_students(self):
-        """Promote all students to next grade and update fees"""
+        """Promote all students to next grade (1-7) and graduate grade 8 students"""
         from students.models import Student
-        from payments.models import PaymentDeadline
         
-        students = Student.objects.filter(status='active')
+        students = Student.objects.filter(
+            school=self.school,
+            status='active'
+        )
         promoted_count = 0
+        graduated_count = 0
         
         for student in students:
             if student.grade < 8:
                 student.grade += 1
-                
-                # ✅ Get the default fee for the new grade from deadlines
-                new_fee = self.get_default_fee_for_grade(student.grade, student.school_id)
+                # Keep student_id unchanged
+                # Update fee for new grade
+                new_fee = self.get_default_fee_for_grade(student.grade, self.school.id)
                 if new_fee:
                     student.monthly_fee = new_fee
-                
                 student.save()
                 promoted_count += 1
-            else:
+            elif student.grade == 8:
                 student.status = 'graduated'
                 student.save()
+                graduated_count += 1
         
-        return promoted_count
+        return promoted_count, graduated_count
     
     def get_default_fee_for_grade(self, grade, school_id):
         """Get default monthly fee for a grade from active deadlines"""
