@@ -4,12 +4,12 @@ import { motion } from 'framer-motion';
 import { X, Download, Printer, CheckCircle } from 'lucide-react';
 
 function ReceiptModal({ payment, student, onClose }) {
-  const [schoolName, setSchoolName] = useState('ABFM Academy');
+  const [schoolName, setSchoolName] = useState('');
   const [studentInfo, setStudentInfo] = useState(null);
   const currentYear = new Date().getFullYear();
 
   useEffect(() => {
-    // ✅ Get student from prop first, then localStorage
+    // Get student from prop first, then localStorage
     let studentData = student;
     
     if (!studentData) {
@@ -21,11 +21,22 @@ function ReceiptModal({ payment, student, onClose }) {
     
     if (studentData) {
       setStudentInfo(studentData);
-      // Set school name from student data or default to ABFM Academy
+      // Get school name from student data
       if (studentData.school_name) {
         setSchoolName(studentData.school_name);
-      } else if (studentData.student_id && studentData.student_id.startsWith('ABFM')) {
-        setSchoolName('ABFM Academy');
+      } else {
+        // Try to get from localStorage
+        const savedSchool = localStorage.getItem('selectedSchool');
+        if (savedSchool) {
+          try {
+            const school = JSON.parse(savedSchool);
+            setSchoolName(school.name);
+          } catch {
+            setSchoolName('School Name');
+          }
+        } else {
+          setSchoolName('School Name');
+        }
       }
     }
   }, [student]);
@@ -159,7 +170,7 @@ function ReceiptModal({ payment, student, onClose }) {
 
         <div className="p-5 space-y-3">
           <div className="text-center">
-            <h3 className="font-bold text-primary-600 text-lg">{schoolName}</h3>
+            <h3 className="font-bold text-primary-600 text-lg">{schoolName || 'School Name'}</h3>
             <p className="text-xs text-gray-500">Official Payment Receipt</p>
           </div>
 

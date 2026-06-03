@@ -47,7 +47,7 @@ function PaymentSuccess() {
       grade: storedPayment.grade,
       section: storedPayment.section || 'A',
       academic_year: storedPayment.academic_year,
-      school_name: 'ABFM Academy',
+      school_name: storedPayment.school_name || 'School Name',
     };
     setStudent(studentData);
     localStorage.setItem('selectedStudent', JSON.stringify(studentData));
