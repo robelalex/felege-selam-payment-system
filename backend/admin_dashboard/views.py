@@ -138,7 +138,12 @@ def dashboard(request):
 
 # ===== USER MANAGEMENT (KEPT FOR REFERENCE - YOU MAY NOT NEED) =====
 def users_list(request):
-    users = User.objects.all().select_related('profile').order_by('-date_joined')
+    # Only show users with role 'school_admin' (school administrators)
+    # Exclude parents, staff, and super admins
+    users = User.objects.filter(
+        profile__role='school_admin',
+        is_superuser=False
+    ).select_related('profile').order_by('-date_joined')
     return render(request, 'admin_dashboard/users.html', {'users': users})
 
 def user_edit(request, user_id):
@@ -195,7 +200,8 @@ def school_edit(request, school_id):
         school.subscription_active = request.POST.get('subscription_active') == 'on'
         school.save()
         
-        return redirect('/admin-dashboard/schools/')
+        # return redirect('/admin-dashboard/schools/')
+        return redirect('admin-schools')
     
     return render(request, 'admin_dashboard/school_edit.html', {'school': school})
 
@@ -203,8 +209,8 @@ def school_delete(request, school_id):
     school = get_object_or_404(School, id=school_id)
     if request.method == 'POST':
         school.delete()
-        return redirect('/admin-dashboard/schools/')
-    
+        # return redirect('/admin-dashboard/schools/')
+        return redirect('admin-schools')
     return render(request, 'admin_dashboard/school_delete.html', {'school': school})
 
 def school_create(request):
@@ -217,6 +223,6 @@ def school_create(request):
             address=request.POST.get('address', ''),
             subscription_active=request.POST.get('subscription_active') == 'on'
         )
-        return redirect('/admin-dashboard/schools/')
-    
+        # return redirect('/admin-dashboard/schools/')
+        return redirect('admin-schools')
     return render(request, 'admin_dashboard/school_create.html')
