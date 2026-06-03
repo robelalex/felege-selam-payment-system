@@ -91,7 +91,8 @@ function ParentDashboard() {
         student_id: student.student_id,
         student_name: student.full_name,
         grade: student.grade,
-        section: student.section
+        section: student.section,
+        school_name: student.school_name || 'School Name',
       };
       sessionStorage.setItem('pendingPayment', JSON.stringify(pendingPaymentInfo));
       console.log('💾 Stored pending payment info:', pendingPaymentInfo);
