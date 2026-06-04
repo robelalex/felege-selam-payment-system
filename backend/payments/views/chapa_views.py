@@ -4,7 +4,7 @@ import uuid
 import hmac
 import hashlib
 import logging
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
@@ -40,7 +40,7 @@ def initiate_chapa_payment(request):
         email       = data.get('email', '')
         first_name  = data.get('first_name', 'Parent')
         last_name   = data.get('last_name', 'User')
-        platform    = data.get('platform', 'web')  # ← ADD THIS LINE
+        platform    = data.get('platform', 'web')
 
         if not all([student_id, deadline_id, amount]):
             return JsonResponse(
@@ -100,7 +100,7 @@ def initiate_chapa_payment(request):
 
         # Define return_url based on platform
         if platform == 'mobile':
-            return_url = f'parentpay://payment/success?tx_ref={tx_ref}'
+            return_url = f'https://felege-selam-payment-system.onrender.com/api/chapa/mobile-redirect/?tx_ref={tx_ref}'
         else:
             return_url = f'https://felege-selam-payment-system.vercel.app/payment/success?tx_ref={tx_ref}'
 
@@ -139,7 +139,7 @@ def initiate_chapa_payment(request):
 
 
 # Keep test_payment as alias — same logic
-@api_view(['POST', 'OPTIONS'])  # ← ADD 'OPTIONS' here
+@api_view(['POST', 'OPTIONS'])
 @permission_classes([AllowAny])
 def test_payment(request):
     # Handle preflight OPTIONS request
@@ -360,3 +360,74 @@ def get_chapa_banks(request):
         ],
         'mock': True
     })
+
+
+# ===== MOBILE REDIRECT ENDPOINT =====
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def mobile_redirect(request):
+    """Redirect page for Flutter app deep linking"""
+    tx_ref = request.GET.get('tx_ref')
+    html = f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Returning to App...</title>
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                margin: 0;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                text-align: center;
+            }}
+            .container {{
+                padding: 20px;
+            }}
+            .spinner {{
+                width: 50px;
+                height: 50px;
+                border: 4px solid rgba(255,255,255,0.3);
+                border-top-color: white;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin: 20px auto;
+            }}
+            @keyframes spin {{
+                to {{ transform: rotate(360deg); }}
+            }}
+            .btn {{
+                display: inline-block;
+                margin-top: 20px;
+                padding: 12px 24px;
+                background: white;
+                color: #667eea;
+                text-decoration: none;
+                border-radius: 25px;
+                font-weight: bold;
+            }}
+        </style>
+        <script>
+            function redirectToApp() {{
+                window.location.href = "parentpay://payment/success?tx_ref={tx_ref}";
+            }}
+            setTimeout(redirectToApp, 800);
+        </script>
+    </head>
+    <body>
+        <div class="container">
+            <div class="spinner"></div>
+            <h2>Payment Successful!</h2>
+            <p>Redirecting back to the app...</p>
+            <a href="parentpay://payment/success?tx_ref={tx_ref}" class="btn">Click here if not redirected</a>
+        </div>
+    </body>
+    </html>
+    '''
+    return HttpResponse(html)
