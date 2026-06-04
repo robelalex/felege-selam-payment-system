@@ -40,6 +40,7 @@ def initiate_chapa_payment(request):
         email       = data.get('email', '')
         first_name  = data.get('first_name', 'Parent')
         last_name   = data.get('last_name', 'User')
+        platform    = data.get('platform', 'web')  # ← ADD THIS LINE
 
         if not all([student_id, deadline_id, amount]):
             return JsonResponse(
@@ -97,6 +98,12 @@ def initiate_chapa_payment(request):
         month_amharic = deadline.get_month_display()
         month_english = ENGLISH_MONTHS.get(month_amharic, 'Monthly Fee')
 
+        # Define return_url based on platform
+        if platform == 'mobile':
+            return_url = f'parentpay://payment/success?tx_ref={tx_ref}'
+        else:
+            return_url = f'https://felege-selam-payment-system.vercel.app/payment/success?tx_ref={tx_ref}'
+
         service = ChapaService()
         result = service.initialize_payment(
             amount=float(amount),
@@ -106,7 +113,7 @@ def initiate_chapa_payment(request):
             last_name=last_name,
             tx_ref=tx_ref,
             callback_url='https://felege-selam-payment-system.onrender.com/api/chapa/webhook/',
-            return_url=f'https://felege-selam-payment-system.vercel.app/payment/success?tx_ref={tx_ref}',
+            return_url=return_url,
             title=f"{month_english} Fee",
             description=f"{month_english} {deadline.academic_year}",
         )
