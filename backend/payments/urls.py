@@ -14,7 +14,7 @@ from .views.sms_views import (
 )
 from .views.chapa_views import (
     initiate_chapa_payment, chapa_webhook,
-    verify_chapa_payment, get_chapa_banks, payment_status
+    verify_chapa_payment, get_chapa_banks, payment_status, mobile_redirect  # ✅ ADDED mobile_redirect
 )
 
 # test_payment is the same as initiate_chapa_payment
@@ -88,7 +88,8 @@ urlpatterns += [
     path('chapa/verify/', verify_chapa_payment, name='chapa-verify'),
     path('chapa/banks/', get_chapa_banks, name='chapa-banks'),
     path('chapa/test-payment/', test_payment, name='test-payment'),
-    path('payments/status/<str:tx_ref>/', payment_status, name='payment-status'),  # ← ONLY NEW LINE
+    path('chapa/mobile-redirect/', mobile_redirect, name='mobile-redirect'),  # ✅ ADDED THIS LINE
+    path('payments/status/<str:tx_ref>/', payment_status, name='payment-status'),
 ]
 
 urlpatterns += [
