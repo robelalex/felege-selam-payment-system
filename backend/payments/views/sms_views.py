@@ -18,6 +18,14 @@ def sms_balance(request):
     try:
         service = SMSService()
         balance = service.get_balance()
+        
+        # ✅ Extract just the balance string if it's an object
+        if isinstance(balance, dict) and balance.get('success'):
+            if isinstance(balance.get('balance'), dict):
+                user_data = balance['balance'].get('UserData', {})
+                balance_str = user_data.get('balance', 'Available')
+                return Response({'success': True, 'balance': balance_str})
+        
         return Response(balance)
     except Exception as e:
         return Response({'success': False, 'error': str(e)}, status=500)
