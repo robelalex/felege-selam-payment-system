@@ -238,10 +238,11 @@ if not DEBUG:
     USE_X_FORWARDED_HOST         = True
 
 # ===== SMS =====
-AFRICASTALKING_USERNAME = os.getenv('AFRICASTALKING_USERNAME', 'sandbox')
-AFRICASTALKING_API_KEY  = os.getenv('AFRICASTALKING_API_KEY', '')
-SMS_SANDBOX   = os.getenv('SMS_SANDBOX', 'True') == 'True'
-SMS_SENDER_ID = os.getenv('SMS_SENDER_ID', 'FELEGE-SELAM')
+# SMS Settings
+AFRICASTALKING_USERNAME = os.getenv('AFRICASTALKING_USERNAME')  # Remove 'sandbox' default
+AFRICASTALKING_API_KEY = os.getenv('AFRICASTALKING_API_KEY', '')
+SMS_SANDBOX = os.getenv('SMS_SANDBOX', 'False') == 'True'  # Default to False
+SMS_SENDER_ID = os.getenv('SMS_SENDER_ID', 'felege_selam')
 
 # ===== CHAPA =====
 CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY', '')
