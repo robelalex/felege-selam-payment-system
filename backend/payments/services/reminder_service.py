@@ -1,9 +1,10 @@
-# backend/payments/services/reminder_service.py - UPDATED with Multi-School Support
+# backend/payments/services/reminder_service.py - UPDATED with Grade-Specific Deadline Filtering
 from students.models import Student
 from payments.models import Payment, PaymentDeadline
 from academics.models import AcademicYear
 from datetime import date
 from collections import defaultdict
+from django.db import models  # ✅ ADDED for Q objects
 
 class ReminderService:
     """Service to handle payment reminders with multi-school support"""
@@ -17,13 +18,18 @@ class ReminderService:
             'students': []
         }
     
-    def get_pending_students(self, month=None, grade=None, academic_year=None, school_id=None):
+    def get_pending_students(self, month=None, grade=None, academic_year=None, school_id=None, student_search=None):
         """
-        Get all students with OVERDUE payments (past due date)
+        Get students with UNPAID payments for a specific month (not just overdue)
         
-        ✅ NEW: Added school_id parameter for multi-school filtering
+        Args:
+            month: Month number (1-13) or None/'all' for all months
+            grade: Grade number (1-8) or None for all grades
+            academic_year: Year name (e.g., '2017') - optional
+            school_id: School ID for filtering
+            student_search: Optional student ID or name search term
         """
-        print(f"📱 ReminderService.get_pending_students - school_id: {school_id}")
+        print(f"📱 ReminderService.get_pending_students - month: {month}, grade: {grade}, school_id: {school_id}, search: {student_search}")
         
         # ✅ Get the CURRENT academic year for this school
         if school_id:
@@ -43,10 +49,10 @@ class ReminderService:
             return {'error': 'No current academic year set', 'students': []}
         
         print(f"📱 CURRENT ACADEMIC YEAR: {current_year.name}")
-        year_name = current_year.name
+        year_name = academic_year if academic_year else current_year.name
         
-        # ✅ Get all active deadlines for CURRENT academic year AND this school
-        deadlines = PaymentDeadline.objects.filter(
+        # ✅ Get all active deadlines for the academic year (base query)
+        deadlines_base = PaymentDeadline.objects.filter(
             academic_year=year_name,
             is_active=True
         )
@@ -54,13 +60,19 @@ class ReminderService:
         # ✅ Filter deadlines by school
         if school_id:
             try:
-                deadlines = deadlines.filter(school_id=int(school_id))
+                deadlines_base = deadlines_base.filter(school_id=int(school_id))
                 print(f"📱 Deadlines filtered by school ID: {school_id}")
             except ValueError:
                 pass
         
-        if month:
-            deadlines = deadlines.filter(month=month)
+        # ✅ Filter by specific month if provided (and not 'all')
+        if month and month != 'all' and month != 'None':
+            try:
+                month_int = int(month)
+                deadlines_base = deadlines_base.filter(month=month_int)
+                print(f"📱 Filtered to month: {month_int}")
+            except (ValueError, TypeError):
+                pass
         
         # ✅ Get today's date
         today = date.today()
@@ -84,7 +96,7 @@ class ReminderService:
         for student_id, deadline_id in verified_payments:
             paid_set.add((student_id, deadline_id))
         
-        # ✅ Get all active students for CURRENT academic year AND this school
+        # ✅ Get all active students for the academic year
         students = Student.objects.filter(
             status='active',
             academic_year=year_name
@@ -98,12 +110,26 @@ class ReminderService:
             except ValueError:
                 pass
         
-        if grade:
-            students = students.filter(grade=grade)
+        # ✅ Filter by grade if provided
+        if grade and grade != 'all' and grade != 'None':
+            try:
+                students = students.filter(grade=int(grade))
+                print(f"📱 Filtered to grade: {grade}")
+            except (ValueError, TypeError):
+                pass
+        
+        # ✅ Filter by student ID or name search if provided
+        if student_search and student_search != '':
+            students = students.filter(
+                models.Q(student_id__icontains=student_search) |
+                models.Q(first_name__icontains=student_search) |
+                models.Q(last_name__icontains=student_search)
+            )
+            print(f"📱 Filtered by search: {student_search}")
         
         print(f"📱 Found {students.count()} active students for {year_name}")
         
-        # Find OVERDUE payments only
+        # Find UNPAID payments (not just overdue)
         pending_by_month = defaultdict(list)
         pending_by_grade = defaultdict(list)
         pending_students = []
@@ -111,16 +137,26 @@ class ReminderService:
         for student in students:
             student_pending = []
             
-            for deadline in deadlines:
-                # ✅ Check if deadline is PAST DUE (overdue)
-                is_overdue = deadline.due_date and deadline.due_date < today
-                
-                # ✅ Check if student hasn't paid this deadline
+            # ✅ CRITICAL FIX: Filter deadlines by student's grade
+            # Get deadlines that apply to this student's grade:
+            # - deadlines with grade = NULL (applies to all grades)
+            # - deadlines with grade = student.grade
+            student_deadlines = deadlines_base.filter(
+                models.Q(grade__isnull=True) | models.Q(grade=student.grade)
+            )
+            
+            print(f"📱 Student {student.student_id} (Grade {student.grade}) has {student_deadlines.count()} applicable deadlines")
+            
+            for deadline in student_deadlines:
+                # ✅ Check if student hasn't paid this deadline (regardless of due date)
                 is_unpaid = (student.id, deadline.id) not in paid_set
                 
-                # ✅ Only include if OVERDUE AND UNPAID
-                if is_overdue and is_unpaid:
-                    days_overdue = (today - deadline.due_date).days
+                # ✅ Include if UNPAID (no overdue check)
+                if is_unpaid:
+                    # Calculate days overdue if due date is past
+                    days_overdue = None
+                    if deadline.due_date and deadline.due_date < today:
+                        days_overdue = (today - deadline.due_date).days
                     
                     pending_info = {
                         'student_id': student.student_id,
@@ -129,11 +165,12 @@ class ReminderService:
                         'section': student.section,
                         'parent_phone': student.parent_phone,
                         'parent_name': student.parent_full_name,
+                        'parent_email': getattr(student, 'parent_email', ''),
                         'month': deadline.month,
                         'month_name': self.get_month_name(deadline.month),
                         'academic_year': deadline.academic_year,
                         'amount': float(deadline.amount),
-                        'due_date': deadline.due_date.strftime('%Y-%m-%d'),
+                        'due_date': deadline.due_date.strftime('%Y-%m-%d') if deadline.due_date else None,
                         'days_overdue': days_overdue,
                         'deadline_id': deadline.id
                     }
@@ -149,6 +186,7 @@ class ReminderService:
                     'grade': student.grade,
                     'section': student.section,
                     'parent_phone': student.parent_phone,
+                    'parent_email': getattr(student, 'parent_email', ''),
                     'parent_name': student.parent_full_name,
                     'pending_months': student_pending,
                     'total_due': sum(p['amount'] for p in student_pending),
@@ -193,7 +231,9 @@ class ReminderService:
             'መጋቢት', 'ሚያዝያ', 'ግንቦት', 'ሰኔ', 'ሐምሌ', 'ነሐሴ', 'ጳጉሜ'
         ]
         try:
-            return months[month_num - 1]
+            if month_num is None:
+                return "All Months"
+            return months[int(month_num) - 1]
         except:
             return f"ወር {month_num}"
     
@@ -218,7 +258,7 @@ class ReminderService:
         else:
             current_year = AcademicYear.objects.filter(is_current=True).first()
         
-        year_name = current_year.name if current_year else None
+        year_name = academic_year if academic_year else (current_year.name if current_year else None)
         
         results = []
         
@@ -247,7 +287,7 @@ class ReminderService:
                         'student_name': f"{student.first_name} {student.last_name}",
                         'phone': student.parent_phone,
                         'success': False,
-                        'message': f"Student is not in current academic year ({year_name})"
+                        'message': f"Student is not in academic year ({year_name})"
                     })
                     continue
                 

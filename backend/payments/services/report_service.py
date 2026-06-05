@@ -5,6 +5,7 @@ from academics.models import AcademicYear
 from collections import defaultdict
 from datetime import datetime
 import calendar
+from django.db import models
 
 class ReportService:
     """Service to generate financial reports with multi-school support"""
@@ -107,10 +108,12 @@ class ReportService:
         
         # Monthly breakdown
         monthly_data = {}
-        months = [
-            'Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yekatit',
-            'Megabit', 'Miazia', 'Ginbot', 'Sene', 'Hamle', 'Nehase', 'Pagume'
-        ]
+        # months = [
+        #     'Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yekatit',
+        #     'Megabit', 'Miazia', 'Ginbot', 'Sene', 'Hamle', 'Nehase', 'Pagume'
+        # ]
+        months = ['መስከረም', 'ጥቅምት', 'ህዳር', 'ታህሳስ', 'ጥር', 'የካቲት',
+                'መጋቢት', 'ሚያዝያ', 'ግንቦት', 'ሰኔ', 'ሐምሌ', 'ነሐሴ', 'ጳጉሜ']
         
         for month_num, month_name in enumerate(months, 1):
             month_payments = payments.filter(deadline__month=month_num)
@@ -151,11 +154,13 @@ class ReportService:
             student=student
         ).order_by('-created_at')
         
-        # Get all deadlines for this student's school and academic year
+        # Get deadlines for this student's specific GRADE only
         deadlines = PaymentDeadline.objects.filter(
-            school=student.school,
-            academic_year=student.academic_year,
-            is_active=True
+        school=student.school,
+        academic_year=student.academic_year,
+        is_active=True
+        ).filter(
+         models.Q(grade=student.grade) | models.Q(grade__isnull=True)
         ).order_by('month')
         
         payment_history = []

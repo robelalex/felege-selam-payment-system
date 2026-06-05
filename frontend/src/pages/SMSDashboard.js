@@ -1,5 +1,5 @@
 // src/pages/SMSDashboard.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Send, 
@@ -14,7 +14,8 @@ import {
   ChevronUp,
   ChevronDown,
   AlertTriangle,
-  Calendar
+  Calendar,
+  Search
 } from 'lucide-react';
 import api from '../services/api';
 import { useYear } from '../context/YearContext';
@@ -35,53 +36,38 @@ function SMSDashboard() {
   const [bulkResult, setBulkResult] = useState(null);
   const [filterGrade, setFilterGrade] = useState('all');
   const [filterMonth, setFilterMonth] = useState('all');
+  const [studentSearch, setStudentSearch] = useState(''); // ✅ NEW: Student search
   const [expandedSection, setExpandedSection] = useState('test');
   const [pendingStats, setPendingStats] = useState(null);
 
-const months = [
+  // ✅ Debounce timeout ref
+  const searchTimeout = useRef(null);
+
+  const months = [
     'መስከረም', 'ጥቅምት', 'ህዳር', 'ታህሳስ', 'ጥር', 'የካቲት',
     'መጋቢት', 'ሚያዝያ', 'ግንቦት', 'ሰኔ', 'ሐምሌ', 'ነሐሴ', 'ጳጉሜ'
-];
+  ];
 
   const { selectedYear } = useYear();
 
-  useEffect(() => {
-    fetchData();
-    fetchPendingStudents();
-  }, [selectedYear]);
-
-  const fetchData = async () => {
-    setLoading(true);
+  // ✅ Fetch pending students with all filters
+  const fetchPendingStudents = useCallback(async () => {
     try {
       const params = new URLSearchParams();
       if (selectedYear && selectedYear.id) {
         params.append('academic_year_id', selectedYear.id);
       }
-      
-      const queryString = params.toString();
-      
-      const [balanceRes, historyRes] = await Promise.all([
-        api.get('/sms/balance/'),
-        api.get(`/sms/history/?limit=50${queryString ? '&' + queryString : ''}`)
-      ]);
-      setBalance(balanceRes.data);
-      setHistory(historyRes.data);
-    } catch (err) {
-      console.error('Error fetching SMS data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchPendingStudents = async () => {
-    try {
-      const params = new URLSearchParams();
-      if (selectedYear && selectedYear.id) {
-        params.append('academic_year_id', selectedYear.id);
+      if (filterMonth && filterMonth !== 'all') {
+        params.append('month', filterMonth);
+      }
+      if (filterGrade && filterGrade !== 'all') {
+        params.append('grade', filterGrade);
+      }
+      if (studentSearch && studentSearch.trim() !== '') {
+        params.append('student_search', studentSearch);
       }
       
       const queryString = params.toString();
-      // ✅ USE THE NEW STANDALONE ENDPOINT
       const url = queryString ? `/reminders-filtered/?${queryString}` : '/reminders-filtered/';
       
       console.log('📱 Fetching pending students URL:', url);
@@ -107,7 +93,55 @@ const months = [
       setPendingStudents([]);
       setPendingStats(null);
     }
+  }, [selectedYear, filterMonth, filterGrade, studentSearch]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectedYear && selectedYear.id) {
+        params.append('academic_year_id', selectedYear.id);
+      }
+      
+      const queryString = params.toString();
+      
+      const [balanceRes, historyRes] = await Promise.all([
+        api.get('/sms/balance/'),
+        api.get(`/sms/history/?limit=50${queryString ? '&' + queryString : ''}`)
+      ]);
+      setBalance(balanceRes.data);
+      setHistory(historyRes.data);
+    } catch (err) {
+      console.error('Error fetching SMS data:', err);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  // ✅ Debounced search
+  useEffect(() => {
+    if (searchTimeout.current) {
+      clearTimeout(searchTimeout.current);
+    }
+    searchTimeout.current = setTimeout(() => {
+      fetchPendingStudents();
+    }, 500);
+    
+    return () => {
+      if (searchTimeout.current) {
+        clearTimeout(searchTimeout.current);
+      }
+    };
+  }, [studentSearch, fetchPendingStudents]);
+
+  // ✅ Fetch when filters change
+  useEffect(() => {
+    fetchPendingStudents();
+  }, [selectedYear, filterMonth, filterGrade, fetchPendingStudents]);
+
+  useEffect(() => {
+    fetchData();
+  }, [selectedYear]);
 
   const sendTestSMS = async () => {
     if (!testPhone) {
@@ -179,7 +213,7 @@ const months = [
         sent: response.data.successful || response.data.sent || 0,
         failed: response.data.failed || 0,
         total: response.data.total_processed || selectedStudents.length,
-        message: `Successfully sent ${response.data.successful || response.data.sent || 0} messages!`
+        message: `✅ Successfully sent ${response.data.successful || response.data.sent || 0} messages!`
       });
 
       setSelectedStudents([]);
@@ -190,7 +224,7 @@ const months = [
       console.error('Error sending bulk SMS:', err);
       setBulkResult({
         success: false,
-        message: 'Failed to send bulk messages. Please try again.'
+        message: '❌ Failed to send bulk messages. Please try again.'
       });
     } finally {
       setSendingBulk(false);
@@ -213,10 +247,8 @@ const months = [
     }
   };
 
-  const filteredStudents = pendingStudents.filter(student => {
-    const matchesGrade = filterGrade === 'all' || student.grade === parseInt(filterGrade);
-    return matchesGrade;
-  });
+  // ✅ Filter students (backend already filters, but this is for UI display)
+  const filteredStudents = pendingStudents;
 
   const getStatusColor = (status) => {
     switch(status) {
@@ -239,14 +271,14 @@ const months = [
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">SMS Dashboard</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">📱 SMS Dashboard</h1>
           {selectedYear && (
             <p className="text-sm text-primary-600 mt-1 font-medium">
               📅 Academic Year: {selectedYear.name || selectedYear.year_ec + ' E.C.'}
             </p>
           )}
           <p className="text-sm text-gray-500 mt-1">
-            {pendingStudents.length} students with overdue payments
+            {pendingStudents.length} students with pending payments
           </p>
         </div>
         <button
@@ -276,19 +308,19 @@ const months = [
         </div>
       </div>
 
-      {/* Overdue Summary Cards */}
+      {/* Pending Summary Cards */}
       {pendingStats && pendingStats.by_month && Object.keys(pendingStats.by_month).length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {Object.entries(pendingStats.by_month).map(([month, data]) => (
+          {Object.entries(pendingStats.by_month).slice(0, 4).map(([month, data]) => (
             <div key={month} className="bg-white rounded-xl shadow-lg p-4 border-l-4 border-red-500">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold text-gray-900">{data.month_name}</h3>
                 <span className="text-sm bg-red-100 text-red-800 px-2 py-1 rounded-full">
-                  {data.count} overdue
+                  {data.count} pending
                 </span>
               </div>
               <p className="text-sm text-gray-600">
-                Total: {data.total_amount.toLocaleString()} Birr
+                Total: {data.total_amount?.toLocaleString() || 0} Birr
               </p>
             </div>
           ))}
@@ -404,7 +436,7 @@ const months = [
           <div className="flex items-center gap-3">
             <Users className="h-5 w-5 text-primary-600" />
             <h2 className="text-lg font-semibold text-gray-900">
-              Send Bulk SMS ({pendingStudents.length} with overdue payments)
+              Send Bulk SMS ({pendingStudents.length} with pending payments)
             </h2>
           </div>
           {expandedSection === 'bulk' ? (
@@ -428,13 +460,13 @@ const months = [
                     <div className="flex items-center gap-2">
                       <CheckCircle className="h-5 w-5 text-green-600" />
                       <p className="text-green-700">
-                        No overdue payments for {selectedYear?.name || 'selected academic year'}!
+                        No pending payments for {selectedYear?.name || 'selected academic year'}!
                       </p>
                     </div>
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Filter by Grade
@@ -466,6 +498,23 @@ const months = [
                       ))}
                     </select>
                   </div>
+
+                  {/* ✅ NEW: Student Search */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Search by Student ID or Name
+                    </label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={studentSearch}
+                        onChange={(e) => setStudentSearch(e.target.value)}
+                        placeholder="Enter student ID or name..."
+                        className="input-field pl-10"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div>
@@ -480,24 +529,27 @@ const months = [
                     placeholder="Enter your message or leave blank for default reminder..."
                   />
                   <p className="text-xs text-gray-500 mt-2">
-                    Default message will include student name and overdue months
+                    Default message will include student name and pending months
                   </p>
                 </div>
 
                 {pendingStudents.length > 0 && (
                   <div className="border border-gray-200 rounded-lg overflow-hidden">
-                    <div className="bg-gray-50 px-4 py-3 flex items-center justify-between">
+                    <div className="bg-gray-50 px-4 py-3 flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-4">
                         <button
                           onClick={selectAllStudents}
                           className="text-sm text-primary-600 hover:text-primary-700 font-medium"
                         >
-                          {selectedStudents.length === filteredStudents.length ? 'Deselect All' : 'Select All'}
+                          {selectedStudents.length === filteredStudents.length && filteredStudents.length > 0 ? 'Deselect All' : 'Select All'}
                         </button>
                         <span className="text-sm text-gray-600">
-                          {selectedStudents.length} students selected
+                          {selectedStudents.length} student(s) selected
                         </span>
                       </div>
+                      <span className="text-xs text-gray-500">
+                        {filteredStudents.length} student(s) found
+                      </span>
                     </div>
 
                     <div className="max-h-60 overflow-y-auto divide-y divide-gray-200">
@@ -512,12 +564,13 @@ const months = [
                           <div className="flex-1">
                             <p className="font-medium text-gray-900">{student.student_name}</p>
                             <p className="text-sm text-gray-500">
-                              Grade {student.grade} • {student.parent_phone}
+                              ID: {student.student_id} • Grade {student.grade} • {student.parent_phone || 'No phone'}
                             </p>
                             <div className="mt-1 flex flex-wrap gap-1">
                               {student.pending_months?.slice(0, 3).map((month, idx) => (
                                 <span key={idx} className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
-                                  {month.month_name} ({month.days_overdue} days)
+                                  {month.month_name}
+                                  {month.days_overdue > 0 && ` (${month.days_overdue} days)`}
                                 </span>
                               ))}
                               {student.pending_months?.length > 3 && (
@@ -527,7 +580,7 @@ const months = [
                               )}
                             </div>
                             <p className="text-xs text-orange-600 mt-1">
-                              {student.pending_months?.length || 0} months overdue • {student.total_due.toLocaleString()} Birr due
+                              {student.pending_months?.length || 0} month(s) pending • {student.total_due?.toLocaleString() || 0} Birr due
                             </p>
                           </div>
                         </div>
@@ -563,7 +616,7 @@ const months = [
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0 }}
                       className={`p-4 rounded-lg ${
-                        bulkResult.success ? 'bg-green-50' : 'bg-red-50'
+                        bulkResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
                       }`}
                     >
                       <div className="flex items-center gap-2">
@@ -576,7 +629,7 @@ const months = [
                           <p className={bulkResult.success ? 'text-green-700' : 'text-red-700'}>
                             {bulkResult.message}
                           </p>
-                          {bulkResult.success && (
+                          {bulkResult.success && bulkResult.sent > 0 && (
                             <p className="text-sm text-gray-600 mt-1">
                               Sent: {bulkResult.sent} • Failed: {bulkResult.failed}
                             </p>
