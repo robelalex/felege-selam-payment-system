@@ -292,21 +292,27 @@ function SMSDashboard() {
         </button>
       </div>
 
-      {/* Balance Card */}
-      <div className="bg-gradient-to-r from-primary-600 to-primary-800 rounded-xl shadow-lg p-6 text-white">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-primary-100">SMS Account Balance</p>
-            <p className="text-3xl font-bold mt-2">
-              {balance?.success ? balance.balance : 'N/A'}
-            </p>
-            <p className="text-primary-200 text-sm mt-2">
-              {balance?.success ? 'Live account - messages will be sent' : 'Configure SMS provider'}
-            </p>
-          </div>
-          <DollarSign className="h-12 w-12 text-white/30" />
-        </div>
-      </div>
+{/* Balance Card */}
+<div className="bg-gradient-to-r from-primary-600 to-primary-800 rounded-xl shadow-lg p-6 text-white">
+  <div className="flex items-center justify-between">
+    <div>
+      <p className="text-primary-100">SMS Account Balance</p>
+      <p className="text-3xl font-bold mt-2">
+        {balance?.success ? (
+          typeof balance.balance === 'object' ? (
+            balance.balance?.UserData?.balance || 'Available'
+          ) : (
+            balance.balance
+          )
+        ) : 'N/A'}
+      </p>
+      <p className="text-primary-200 text-sm mt-2">
+        {balance?.success ? 'Live account - messages will be sent' : 'Configure SMS provider'}
+      </p>
+    </div>
+    <DollarSign className="h-12 w-12 text-white/30" />
+  </div>
+</div>
 
       {/* Pending Summary Cards */}
       {pendingStats && pendingStats.by_month && Object.keys(pendingStats.by_month).length > 0 && (
