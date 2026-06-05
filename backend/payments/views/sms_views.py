@@ -7,7 +7,9 @@ from ..services.sms_service import SMSService
 from ..models import SMSHistory
 from students.models import Student
 from academics.models import AcademicYear
-from ..models import Payment, PaymentDeadline, PaymentSlip  # ✅ Added PaymentSlip
+from ..models import Payment, PaymentDeadline, PaymentSlip
+from django.db import models
+from datetime import date
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -93,10 +95,13 @@ def send_payment_reminder(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def send_bulk_reminders(request):
-    """Send bulk reminders to multiple students for the selected academic year"""
+    """Send bulk reminders to multiple students for the selected academic year with GRADE-SPECIFIC filtering"""
     student_ids = request.data.get('student_ids', [])
     month = request.data.get('month')
     custom_message = request.data.get('message', '')
+    
+    # ✅ Get school from header
+    school_id = request.headers.get('X-School-ID')
     
     # ✅ Get academic year from request
     academic_year_id = request.data.get('academic_year_id')
@@ -122,32 +127,48 @@ def send_bulk_reminders(request):
         
         # ✅ Fallback to current academic year
         if not academic_year:
-            academic_year = AcademicYear.objects.filter(is_current=True).first()
+            if school_id:
+                academic_year = AcademicYear.objects.filter(school_id=int(school_id), is_current=True).first()
+            else:
+                academic_year = AcademicYear.objects.filter(is_current=True).first()
         
         if not academic_year:
             return Response({'error': 'No academic year specified and no current year set'}, status=400)
         
         print(f"📱 Sending bulk reminders for academic year: {academic_year.name}")
         
-        # ✅ Get deadlines for the selected academic year
-        if month:
-            deadlines = PaymentDeadline.objects.filter(
-                academic_year=academic_year.name,
-                month=month,
-                is_active=True
-            )
-        else:
-            deadlines = PaymentDeadline.objects.filter(
-                academic_year=academic_year.name,
-                is_active=True
-            )
+        # ✅ Get base deadlines for the selected academic year
+        base_deadlines = PaymentDeadline.objects.filter(
+            academic_year=academic_year.name,
+            is_active=True
+        )
         
-        # ✅ Filter students by academic year
+        # Filter by school if provided
+        if school_id:
+            try:
+                base_deadlines = base_deadlines.filter(school_id=int(school_id))
+            except ValueError:
+                pass
+        
+        # Filter by month if provided
+        if month and month != 'all' and month != 'None':
+            try:
+                base_deadlines = base_deadlines.filter(month=int(month))
+            except (ValueError, TypeError):
+                pass
+        
+        # ✅ Filter students by academic year and school
         students = Student.objects.filter(
             student_id__in=student_ids, 
             status='active',
-            academic_year=academic_year.name  # ✅ Only students in selected year
+            academic_year=academic_year.name
         )
+        
+        if school_id:
+            try:
+                students = students.filter(school_id=int(school_id))
+            except ValueError:
+                pass
         
         print(f"📱 Found {students.count()} students in {academic_year.name}")
         
@@ -156,24 +177,45 @@ def send_bulk_reminders(request):
         
         for student in students:
             if not student.parent_phone:
+                results.append({
+                    'student_id': student.student_id,
+                    'student_name': f"{student.first_name} {student.last_name}",
+                    'phone': None,
+                    'success': False,
+                    'message': 'No phone number available'
+                })
                 continue
-                
-            # Find pending deadlines for this student (only in selected academic year)
+            
+            # ✅ CRITICAL FIX: Filter deadlines by student's grade
+            # Only include deadlines where grade IS NULL OR grade equals student's grade
+            student_deadlines = base_deadlines.filter(
+                models.Q(grade__isnull=True) | models.Q(grade=student.grade)
+            )
+            
+            print(f"📱 Student {student.student_id} (Grade {student.grade}) has {student_deadlines.count()} applicable deadlines")
+            
+            # Find paid deadlines for this student
             paid_deadlines = Payment.objects.filter(
                 student=student,
                 status='verified',
-                deadline__academic_year=academic_year.name  # ✅ Only payments in selected year
+                deadline__academic_year=academic_year.name
             ).values_list('deadline_id', flat=True)
             
-            pending = deadlines.exclude(id__in=paid_deadlines)
+            # Get pending deadlines (not paid)
+            pending = student_deadlines.exclude(id__in=paid_deadlines)
             
             if pending.exists():
                 if custom_message:
                     message = custom_message
                 else:
-                    months_list = [d.get_month_display() for d in pending]
-                    total = sum(d.amount for d in pending)
-                    message = f"Dear parent, your child {student.first_name} {student.last_name} has pending payment for: {', '.join(months_list)}. Total due: {total} Birr. - Felege Selam School"
+                    months_list = []
+                    total = 0
+                    for d in pending:
+                        month_name = d.get_month_display()
+                        months_list.append(f"{month_name} ({float(d.amount)} Birr)")
+                        total += float(d.amount)
+                    
+                    message = f"Dear parent, your child {student.first_name} {student.last_name} has pending payment for: {', '.join(months_list)}. Total due: {total:,.2f} Birr. Please pay soon. - School Administration"
                 
                 result = service.send_sms(
                     student.parent_phone,
@@ -184,16 +226,29 @@ def send_bulk_reminders(request):
                     'student_id': student.student_id,
                     'student_name': f"{student.first_name} {student.last_name}",
                     'phone': student.parent_phone,
-                    'success': result['success']
+                    'success': result.get('success', False),
+                    'message': result.get('message', 'Sent' if result.get('success') else 'Failed')
+                })
+            else:
+                results.append({
+                    'student_id': student.student_id,
+                    'student_name': f"{student.first_name} {student.last_name}",
+                    'phone': student.parent_phone,
+                    'success': False,
+                    'message': 'No pending payments for this student'
                 })
         
         return Response({
             'total_processed': len(results),
-            'successful': sum(1 for r in results if r['success']),
-            'failed': sum(1 for r in results if not r['success']),
+            'successful': sum(1 for r in results if r.get('success', False)),
+            'failed': sum(1 for r in results if not r.get('success', False)),
             'results': results
         })
+        
     except Exception as e:
+        print(f"❌ Error in send_bulk_reminders: {e}")
+        import traceback
+        traceback.print_exc()
         return Response({'error': str(e)}, status=500)
 
 
