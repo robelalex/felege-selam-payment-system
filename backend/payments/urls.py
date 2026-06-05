@@ -14,7 +14,7 @@ from .views.sms_views import (
 )
 from .views.chapa_views import (
     initiate_chapa_payment, chapa_webhook,
-    verify_chapa_payment, get_chapa_banks, payment_status, mobile_redirect  # ✅ ADDED mobile_redirect
+    verify_chapa_payment, get_chapa_banks, payment_status, mobile_redirect
 )
 
 # test_payment is the same as initiate_chapa_payment
@@ -50,8 +50,12 @@ urlpatterns = [
     # Deadlines and reminders (via router)
     path('', include(router.urls)),
     
+    # ✅ Reminder endpoints (legacy and new)
     path('send-reminders/', send_reminders, name='send-reminders'),
     path('payment-confirmation/<int:payment_id>/', send_payment_confirmation, name='payment-confirmation'),
+    
+    # ✅ NEW: Email reminders endpoint (via ReminderViewSet)
+    path('reminders/send_email_reminders/', ReminderViewSet.as_view({'post': 'send_email_reminders'}), name='send-email-reminders'),
 ]
 
 # SMS API URLs
@@ -88,10 +92,11 @@ urlpatterns += [
     path('chapa/verify/', verify_chapa_payment, name='chapa-verify'),
     path('chapa/banks/', get_chapa_banks, name='chapa-banks'),
     path('chapa/test-payment/', test_payment, name='test-payment'),
-    path('chapa/mobile-redirect/', mobile_redirect, name='mobile-redirect'),  # ✅ ADDED THIS LINE
+    path('chapa/mobile-redirect/', mobile_redirect, name='mobile-redirect'),
     path('payments/status/<str:tx_ref>/', payment_status, name='payment-status'),
 ]
 
+# ✅ Filtered reminders endpoint (used by SMSDashboard)
 urlpatterns += [
     path('reminders-filtered/', pending_reminders_filtered, name='reminders-filtered'),
 ]

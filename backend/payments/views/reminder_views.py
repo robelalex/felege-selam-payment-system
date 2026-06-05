@@ -1,4 +1,4 @@
-# backend/payments/views/reminder_views.py - UPDATED with School Filtering
+# backend/payments/views/reminder_views.py - UPDATED with Email Reminders & Search
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
@@ -9,7 +9,7 @@ from students.models import Student
 from ..models import Payment, PaymentDeadline
 from django.db import models
 from schools.models import SchoolAdminProfile
-
+from datetime import date
 
 class ReminderViewSet(viewsets.ViewSet):
     """ViewSet for handling payment reminders with school filtering"""
@@ -25,9 +25,11 @@ class ReminderViewSet(viewsets.ViewSet):
         year_alt = request.query_params.get('year')
         month = request.query_params.get('month')
         grade = request.query_params.get('grade')
+        student_search = request.query_params.get('student_search')  # ✅ NEW: student search
         
         print(f"📱 ReminderViewSet.pending - school_id: {school_id}")
         print(f"📱 ReminderViewSet.pending - year_id: {year_id}")
+        print(f"📱 ReminderViewSet.pending - student_search: {student_search}")
         
         if not school_id:
             return Response({'error': 'School ID required'}, status=400)
@@ -61,7 +63,8 @@ class ReminderViewSet(viewsets.ViewSet):
             month=month, 
             grade=grade,
             academic_year=academic_year.name if academic_year else None,
-            school_id=school_id  # ✅ Pass school_id to service
+            school_id=school_id,
+            student_search=student_search  # ✅ NEW: Pass student search to service
         )
         
         return Response(results)
@@ -94,7 +97,7 @@ class ReminderViewSet(viewsets.ViewSet):
             month, 
             custom_message,
             academic_year=academic_year,
-            school_id=school_id  # ✅ Pass school_id to service
+            school_id=school_id
         )
         
         return Response({
@@ -103,6 +106,158 @@ class ReminderViewSet(viewsets.ViewSet):
             'failed': len([r for r in results if not r['success']]),
             'results': results
         })
+    
+    # ✅ NEW: Email reminders endpoint
+    @action(detail=False, methods=['post'])
+    def send_email_reminders(self, request):
+        """Send EMAIL reminders to selected students"""
+        
+        # ✅ Get school from header
+        school_id = request.headers.get('X-School-ID')
+        student_ids = request.data.get('student_ids', [])
+        month = request.data.get('month')
+        custom_message = request.data.get('message', '')
+        academic_year = request.data.get('academic_year')
+        
+        if not school_id:
+            return Response({'error': 'School ID required'}, status=400)
+        
+        if not student_ids:
+            return Response({'error': 'No students selected'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # ✅ Import email service
+        from common.email_service import send_payment_reminder_email
+        
+        # ✅ Verify all students belong to this school
+        students = Student.objects.filter(student_id__in=student_ids, school_id=int(school_id))
+        
+        results = []
+        
+        for student in students:
+            # Get parent email - check multiple possible field names
+            parent_email = getattr(student, 'parent_email', None)
+            if not parent_email:
+                parent_email = getattr(student, 'guardian_email', None)
+            if not parent_email:
+                parent_email = getattr(student, 'email', None)
+            
+            if not parent_email:
+                results.append({
+                    'student_id': student.student_id,
+                    'student_name': f"{student.first_name} {student.last_name}",
+                    'email': None,
+                    'success': False,
+                    'message': 'No email address found for this student'
+                })
+                continue
+            
+            # Get pending months for this student
+            pending_months_list = []
+            total_due = 0
+            
+            # Get deadlines for the academic year
+            year_name = academic_year
+            if not year_name:
+                # Get current academic year for this school
+                if school_id:
+                    current_year = AcademicYear.objects.filter(school_id=int(school_id), is_current=True).first()
+                else:
+                    current_year = AcademicYear.objects.filter(is_current=True).first()
+                year_name = current_year.name if current_year else None
+            
+            # ✅ CRITICAL FIX: Filter deadlines by student's grade
+            deadlines = PaymentDeadline.objects.filter(
+                academic_year=year_name,
+                is_active=True
+            )
+            
+            if school_id:
+                try:
+                    deadlines = deadlines.filter(school_id=int(school_id))
+                except ValueError:
+                    pass
+            
+            # Filter by month if specified
+            if month and month != 'all' and month != 'None':
+                try:
+                    deadlines = deadlines.filter(month=int(month))
+                except (ValueError, TypeError):
+                    pass
+            
+            # ✅ CRITICAL FIX: Only get deadlines that apply to this student's grade
+            student_deadlines = deadlines.filter(
+                models.Q(grade__isnull=True) | models.Q(grade=student.grade)
+            )
+            
+            # Check which deadlines are unpaid
+            for deadline in student_deadlines:
+                is_paid = Payment.objects.filter(
+                    student=student,
+                    deadline=deadline,
+                    status='verified'
+                ).exists()
+                
+                if not is_paid:
+                    month_name = self.get_month_name(deadline.month)
+                    pending_months_list.append(f"{month_name} ({float(deadline.amount)} Birr)")
+                    total_due += float(deadline.amount)
+            
+            if not pending_months_list:
+                results.append({
+                    'student_id': student.student_id,
+                    'student_name': f"{student.first_name} {student.last_name}",
+                    'email': parent_email,
+                    'success': False,
+                    'message': 'No pending payments found for this student'
+                })
+                continue
+            
+            pending_months_text = ', '.join(pending_months_list)
+            
+            # Send email
+            email_result = send_payment_reminder_email(
+                recipient_email=parent_email,
+                student_name=f"{student.first_name} {student.last_name}",
+                pending_months=pending_months_text,
+                total_due=total_due,
+                custom_message=custom_message if custom_message else None
+            )
+            
+            # Handle tuple return (True/False, message)
+            if isinstance(email_result, tuple):
+                success = email_result[0]
+                message = email_result[1] if len(email_result) > 1 else ('Sent' if success else 'Failed')
+            else:
+                success = email_result.get('success', False) if isinstance(email_result, dict) else False
+                message = email_result.get('message', '') if isinstance(email_result, dict) else ('Sent' if success else 'Failed')
+            
+            results.append({
+                'student_id': student.student_id,
+                'student_name': f"{student.first_name} {student.last_name}",
+                'email': parent_email,
+                'success': success,
+                'message': message
+            })
+        
+        return Response({
+            'success': True,
+            'sent': len([r for r in results if r['success']]),
+            'failed': len([r for r in results if not r['success']]),
+            'results': results
+        })
+    
+    def get_month_name(self, month_num):
+        """Convert month number to Amharic name"""
+        months = [
+            'መስከረም', 'ጥቅምት', 'ህዳር', 'ታህሳስ', 'ጥር', 'የካቲት',
+            'መጋቢት', 'ሚያዝያ', 'ግንቦት', 'ሰኔ', 'ሐምሌ', 'ነሐሴ', 'ጳጉሜ'
+        ]
+        try:
+            if month_num is None:
+                return "All Months"
+            return months[int(month_num) - 1]
+        except:
+            return f"ወር {month_num}"
 
 
 # ✅ Helper functions
@@ -150,15 +305,21 @@ def send_payment_confirmation(request, payment_id):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def pending_reminders_filtered(request):
-    """Get pending reminders filtered by academic year - with school filtering"""
+    """Get pending reminders filtered by academic year - with school filtering and GRADE-SPECIFIC deadlines"""
     
     # ✅ Get school from header
     school_id = request.headers.get('X-School-ID')
     year_id = request.query_params.get('academic_year_id')
+    month = request.query_params.get('month')
+    grade = request.query_params.get('grade')
+    student_search = request.query_params.get('student_search')
     
     print(f"📱 ===== STANDALONE REMINDER FUNCTION CALLED =====")
     print(f"📱 school_id: {school_id}")
     print(f"📱 year_id: {year_id}")
+    print(f"📱 month: {month}")
+    print(f"📱 grade: {grade}")
+    print(f"📱 student_search: {student_search}")
     
     if not school_id:
         return Response({'error': 'School ID required'}, status=400)
@@ -177,14 +338,39 @@ def pending_reminders_filtered(request):
             school_id=int(school_id)
         )
         
+        # Filter by grade if provided
+        if grade and grade != 'all' and grade != 'None':
+            try:
+                students = students.filter(grade=int(grade))
+                print(f"📱 Filtered to grade: {grade}")
+            except (ValueError, TypeError):
+                pass
+        
+        # Filter by student search if provided
+        if student_search and student_search != '':
+            students = students.filter(
+                models.Q(student_id__icontains=student_search) |
+                models.Q(first_name__icontains=student_search) |
+                models.Q(last_name__icontains=student_search)
+            )
+            print(f"📱 Filtered by search: {student_search}")
+        
         print(f"📱 Students found: {students.count()}")
         
-        # Get deadlines for this academic year AND this school
-        deadlines = PaymentDeadline.objects.filter(
+        # ✅ Get base deadlines for this academic year AND this school
+        base_deadlines = PaymentDeadline.objects.filter(
             academic_year=academic_year.name,
             is_active=True,
             school_id=int(school_id)
         )
+        
+        # Filter by month if provided
+        if month and month != 'all' and month != 'None':
+            try:
+                base_deadlines = base_deadlines.filter(month=int(month))
+                print(f"📱 Filtered to month: {month}")
+            except (ValueError, TypeError):
+                pass
         
         # Get verified payments
         verified_payments = Payment.objects.filter(
@@ -201,24 +387,44 @@ def pending_reminders_filtered(request):
         
         for student in students:
             student_pending = []
-            for deadline in deadlines:
+            
+            # ✅ CRITICAL FIX: Filter deadlines by student's grade
+            # Only include deadlines where:
+            # - grade IS NULL (applies to all grades) OR
+            # - grade equals the student's grade
+            student_deadlines = base_deadlines.filter(
+                models.Q(grade__isnull=True) | models.Q(grade=student.grade)
+            )
+            
+            print(f"📱 Student {student.student_id} (Grade {student.grade}) has {student_deadlines.count()} applicable deadlines")
+            
+            for deadline in student_deadlines:
                 if (student.id, deadline.id) not in paid_set:
                     student_pending.append({
                         'month': deadline.month,
                         'month_name': deadline.get_month_display(),
                         'amount': float(deadline.amount),
                         'due_date': deadline.due_date,
-                        'deadline_id': deadline.id
+                        'deadline_id': deadline.id,
+                        'days_overdue': (date.today() - deadline.due_date).days if deadline.due_date and deadline.due_date < date.today() else 0
                     })
             
             if student_pending:
+                parent_email = getattr(student, 'parent_email', None)
+                if not parent_email:
+                    parent_email = getattr(student, 'guardian_email', None)
+                
                 pending_students.append({
                     'student_id': student.student_id,
                     'student_name': student.full_name,
                     'grade': student.grade,
+                    'section': student.section,
                     'parent_phone': student.parent_phone,
+                    'parent_name': student.parent_full_name,
+                    'parent_email': parent_email,
                     'pending_months': student_pending,
-                    'total_due': sum(p['amount'] for p in student_pending)
+                    'total_due': sum(p['amount'] for p in student_pending),
+                    'academic_year': student.academic_year
                 })
         
         return Response({
