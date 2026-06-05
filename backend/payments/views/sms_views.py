@@ -103,190 +103,109 @@ def send_payment_reminder(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def send_bulk_reminders(request):
-    """Send bulk reminders to multiple students for the selected academic year with GRADE-SPECIFIC filtering"""
+    """Send bulk reminders to multiple students for the selected academic year"""
+    
     student_ids = request.data.get('student_ids', [])
     month = request.data.get('month')
     custom_message = request.data.get('message', '')
-    
-    # ✅ Get school from header
     school_id = request.headers.get('X-School-ID')
-    
-    # ✅ Get academic year from request
     academic_year_id = request.data.get('academic_year_id')
-    academic_year_param = request.data.get('academic_year')
     
     print(f"\n{'='*60}")
-    print(f"📱 SEND BULK SMS - REQUEST RECEIVED")
+    print(f"📱 SEND BULK SMS")
     print(f"   student_ids: {student_ids}")
-    print(f"   month: {month}")
-    print(f"   custom_message: {custom_message[:50] if custom_message else 'None'}...")
     print(f"   school_id: {school_id}")
     print(f"   academic_year_id: {academic_year_id}")
-    print(f"   academic_year_param: {academic_year_param}")
     print(f"{'='*60}\n")
     
     if not student_ids:
         return Response({'error': 'No students selected'}, status=400)
     
     try:
-        # ✅ Determine which academic year to use
-        academic_year = None
+        # Get academic year
+        academic_year = AcademicYear.objects.get(id=academic_year_id)
+        print(f"✅ Academic year: {academic_year.name}")
         
-        if academic_year_id:
-            try:
-                academic_year = AcademicYear.objects.get(id=academic_year_id)
-                print(f"✅ Found academic year by ID: {academic_year.name}")
-            except AcademicYear.DoesNotExist:
-                print(f"⚠️ Academic year not found by ID: {academic_year_id}")
-                pass
-        elif academic_year_param:
-            try:
-                academic_year = AcademicYear.objects.get(year_ec=int(academic_year_param))
-                print(f"✅ Found academic year by year_ec: {academic_year.name}")
-            except (ValueError, AcademicYear.DoesNotExist):
-                academic_year = AcademicYear.objects.filter(name=academic_year_param).first()
-                if academic_year:
-                    print(f"✅ Found academic year by name: {academic_year.name}")
-                else:
-                    print(f"⚠️ Academic year not found by param: {academic_year_param}")
-        
-        # ✅ Fallback to current academic year
-        if not academic_year:
-            if school_id:
-                academic_year = AcademicYear.objects.filter(school_id=int(school_id), is_current=True).first()
-                print(f"✅ Using current academic year for school {school_id}: {academic_year.name if academic_year else 'None'}")
-            else:
-                academic_year = AcademicYear.objects.filter(is_current=True).first()
-                print(f"✅ Using global current academic year: {academic_year.name if academic_year else 'None'}")
-        
-        if not academic_year:
-            return Response({'error': 'No academic year specified and no current year set'}, status=400)
-        
-        print(f"\n📚 Academic Year: {academic_year.name}")
-        
-        # ✅ Get base deadlines for the selected academic year
-        base_deadlines = PaymentDeadline.objects.filter(
-            academic_year=academic_year.name,
-            is_active=True
-        )
-        
-        print(f"📅 Total active deadlines for {academic_year.name}: {base_deadlines.count()}")
-        
-        # Filter by school if provided
-        if school_id:
-            try:
-                base_deadlines = base_deadlines.filter(school_id=int(school_id))
-                print(f"📅 Deadlines after school filter (school_id={school_id}): {base_deadlines.count()}")
-            except ValueError:
-                pass
-        
-        # Filter by month if provided
-        if month and month != 'all' and month != 'None':
-            try:
-                base_deadlines = base_deadlines.filter(month=int(month))
-                print(f"📅 Deadlines after month filter (month={month}): {base_deadlines.count()}")
-            except (ValueError, TypeError):
-                pass
-        
-        # ✅ Filter students by academic year and school
+        # Get students
         students = Student.objects.filter(
-            student_id__in=student_ids, 
-            status='active',
-            academic_year=academic_year.name
+            student_id__in=student_ids,
+            status='active'
         )
         
         if school_id:
-            try:
-                students = students.filter(school_id=int(school_id))
-            except ValueError:
-                pass
+            students = students.filter(school_id=int(school_id))
         
-        print(f"\n👨‍🎓 Found {students.count()} students matching the criteria")
+        print(f"👨‍🎓 Found {students.count()} students\n")
         
         service = SMSService()
         results = []
         successful_count = 0
-        failed_count = 0
         
-        for idx, student in enumerate(students, 1):
-            print(f"\n--- Student {idx}/{students.count()} ---")
-            print(f"ID: {student.student_id}")
-            print(f"Name: {student.first_name} {student.last_name}")
-            print(f"Grade: {student.grade}")
-            print(f"Parent Phone: '{student.parent_phone}'")
-            print(f"Parent Email: '{student.parent_email}'")
+        for student in students:
+            print(f"--- {student.student_id} (Grade {student.grade}) ---")
+            print(f"   Phone: {student.parent_phone}")
             
-            # Check phone number
-            if not student.parent_phone or student.parent_phone.strip() == '':
-                print(f"❌ NO PHONE NUMBER - Skipping")
+            if not student.parent_phone:
+                print(f"   ❌ No phone number")
                 results.append({
                     'student_id': student.student_id,
-                    'student_name': f"{student.first_name} {student.last_name}",
-                    'phone': None,
                     'success': False,
-                    'message': 'No phone number available'
+                    'message': 'No phone number'
                 })
-                failed_count += 1
                 continue
             
-            # Filter deadlines by student's grade
-            student_deadlines = base_deadlines.filter(
+            # Get deadlines that apply to this student's grade
+            # Use the SAME logic as pending_reminders_filtered
+            deadlines = PaymentDeadline.objects.filter(
+                academic_year=academic_year.name,
+                is_active=True,
+                school_id=int(school_id) if school_id else None
+            )
+            
+            # Filter by grade (NULL means all grades)
+            deadlines = deadlines.filter(
                 models.Q(grade__isnull=True) | models.Q(grade=student.grade)
             )
             
-            print(f"📅 Deadlines applicable for grade {student.grade}: {student_deadlines.count()}")
+            # Filter by month if specified
+            if month and month != 'all' and month != 'None':
+                deadlines = deadlines.filter(month=int(month))
             
-            # List the deadlines
-            for d in student_deadlines:
-                print(f"   - Month {d.month}: {d.get_month_display()} - Amount: {d.amount}")
+            print(f"   📅 Total deadlines for grade {student.grade}: {deadlines.count()}")
             
-            # Find paid deadlines for this student
-            paid_deadlines = Payment.objects.filter(
+            # Get paid deadlines
+            paid_deadline_ids = Payment.objects.filter(
                 student=student,
-                status='verified',
-                deadline__academic_year=academic_year.name
+                status='verified'
             ).values_list('deadline_id', flat=True)
             
-            print(f"✅ Paid deadlines: {len(paid_deadlines)}")
+            print(f"   ✅ Paid deadlines: {len(paid_deadline_ids)}")
             
-            # Get pending deadlines (not paid)
-            pending = student_deadlines.exclude(id__in=paid_deadlines)
-            pending_count = pending.count()
+            # Get pending deadlines
+            pending_deadlines = deadlines.exclude(id__in=paid_deadline_ids)
             
-            print(f"⏳ Pending deadlines: {pending_count}")
+            print(f"   ⏳ Pending deadlines: {pending_deadlines.count()}")
             
-            if pending_count > 0:
-                # List pending deadlines
-                for d in pending:
-                    print(f"   PENDING: Month {d.month}: {d.get_month_display()} - Amount: {d.amount}")
-                
+            if pending_deadlines.exists():
+                # Build message
                 if custom_message:
                     message = custom_message
-                    print(f"📝 Using custom message")
                 else:
                     months_list = []
                     total = 0
-                    for d in pending:
+                    for d in pending_deadlines:
                         month_name = d.get_month_display()
                         months_list.append(f"{month_name} ({float(d.amount)} Birr)")
                         total += float(d.amount)
                     
                     message = f"Dear parent, your child {student.first_name} {student.last_name} has pending payment for: {', '.join(months_list)}. Total due: {total:,.2f} Birr. Please pay soon."
-                    print(f"📝 Generated message: {message[:100]}...")
                 
-                print(f"📤 Sending SMS to {student.parent_phone}...")
-                result = service.send_sms(
-                    student.parent_phone,
-                    message,
-                    related_to=f"bulk_reminder_{student.student_id}"
-                )
-                
-                print(f"📬 SMS Result: success={result.get('success')}, message={result.get('message', 'N/A')}")
+                print(f"   📤 Sending SMS...")
+                result = service.send_sms(student.parent_phone, message)
+                print(f"   📬 Result: {result}")
                 
                 if result.get('success'):
                     successful_count += 1
-                else:
-                    failed_count += 1
                 
                 results.append({
                     'student_id': student.student_id,
@@ -296,33 +215,27 @@ def send_bulk_reminders(request):
                     'message': result.get('message', 'Sent' if result.get('success') else 'Failed')
                 })
             else:
-                print(f"⏭️ No pending payments - Skipping")
+                print(f"   ⏭️ No pending payments")
                 results.append({
                     'student_id': student.student_id,
                     'student_name': f"{student.first_name} {student.last_name}",
                     'phone': student.parent_phone,
                     'success': False,
-                    'message': 'No pending payments for this student'
+                    'message': 'No pending payments'
                 })
-                failed_count += 1
         
-        print(f"\n{'='*60}")
-        print(f"📱 BULK SMS COMPLETE")
-        print(f"   Total students: {len(results)}")
-        print(f"   Successful: {successful_count}")
-        print(f"   Failed: {failed_count}")
-        print(f"{'='*60}\n")
+        print(f"\n✅ Successful: {successful_count}/{len(results)}")
         
         return Response({
             'total_processed': len(results),
             'successful': successful_count,
-            'failed': failed_count,
+            'failed': len(results) - successful_count,
             'sent': successful_count,
             'results': results
         })
         
     except Exception as e:
-        print(f"❌ Error in send_bulk_reminders: {e}")
+        print(f"❌ Error: {e}")
         import traceback
         traceback.print_exc()
         return Response({'error': str(e)}, status=500)
