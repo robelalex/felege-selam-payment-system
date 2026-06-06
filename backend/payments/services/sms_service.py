@@ -90,16 +90,18 @@ class SMSService:
             # Format phone number with + sign
             formatted_number = self.format_phone_number(phone_number)
             
-            # Optional: Add sender ID if configured
-            sender = getattr(settings, 'SMS_SENDER_ID', None)
-            
             print(f"📤 Sending to: {formatted_number}")
             print(f"📝 Message: {message[:100]}...")
             
-            # Send the message
-            if sender:
+            # Get sender ID from settings (will be empty string after our fix)
+            sender = getattr(settings, 'SMS_SENDER_ID', '')
+            
+            # Send the message - ONLY use sender ID if it's not empty
+            if sender and sender.strip():
+                print(f"📛 Using custom sender ID: {sender}")
                 response = self.sms.send(message, [formatted_number], sender_id=sender)
             else:
+                print(f"📛 Using default sender (no custom ID - cheaper)")
                 response = self.sms.send(message, [formatted_number])
             
             print(f"📬 Raw response: {response}")
@@ -108,6 +110,16 @@ class SMSService:
             if isinstance(response, dict):
                 sms_data = response.get('SMSMessageData', {})
                 recipients = sms_data.get('Recipients', [])
+                
+                # Check for error message
+                error_msg = sms_data.get('Message', '')
+                if error_msg and 'InvalidSenderId' in error_msg:
+                    print(f"❌ Invalid Sender ID error - remove SMS_SENDER_ID from configuration")
+                    return {
+                        'success': False,
+                        'error': 'Invalid Sender ID. Please remove SMS_SENDER_ID from configuration.',
+                        'response': response
+                    }
                 
                 if recipients and len(recipients) > 0:
                     status = recipients[0].get('status', 'Unknown')

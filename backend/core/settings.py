@@ -242,7 +242,7 @@ if not DEBUG:
 AFRICASTALKING_USERNAME = os.getenv('AFRICASTALKING_USERNAME')  # Remove 'sandbox' default
 AFRICASTALKING_API_KEY = os.getenv('AFRICASTALKING_API_KEY', '')
 SMS_SANDBOX = os.getenv('SMS_SANDBOX', 'False') == 'True'  # Default to False
-SMS_SENDER_ID = os.getenv('SMS_SENDER_ID', 'felege_selam')
+SMS_SENDER_ID = os.getenv('SMS_SENDER_ID', '')  # Empty default, no sender ID
 
 # ===== CHAPA =====
 CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY', '')
