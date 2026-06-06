@@ -10,6 +10,7 @@ from academics.models import AcademicYear
 from ..models import Payment, PaymentDeadline, PaymentSlip
 from django.db import models
 from datetime import date
+from django.views.decorators.csrf import csrf_exempt  # ✅ ADDED
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -32,6 +33,7 @@ def sms_balance(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@csrf_exempt  # ✅ ADDED
 def send_test_sms(request):
     """Send a test SMS to verify configuration"""
     phone = request.data.get('phone')
@@ -69,6 +71,7 @@ def sms_history(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@csrf_exempt  # ✅ ADDED
 def send_payment_reminder(request):
     """Send payment reminder to a specific student"""
     student_id = request.data.get('student_id')
@@ -102,6 +105,7 @@ def send_payment_reminder(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@csrf_exempt  # ✅ ADDED
 def send_bulk_reminders(request):
     """Send bulk reminders to multiple students for the selected academic year"""
     
