@@ -22,6 +22,57 @@ class School(models.Model):
     # Telebirr details
     telebirr_merchant_id = models.CharField(max_length=100, blank=True)
     
+    # ========== NEW: Africa's Talking SMS Configuration ==========
+    # Each school uses their OWN Africa's Talking account
+    at_username = models.CharField(
+        max_length=100, 
+        blank=True, 
+        null=True, 
+        help_text="Africa's Talking username (e.g., sandbox or your username)"
+    )
+    at_api_key = models.CharField(
+        max_length=200, 
+        blank=True, 
+        null=True, 
+        help_text="Africa's Talking API key"
+    )
+    sms_sender_id = models.CharField(
+        max_length=11, 
+        blank=True, 
+        null=True, 
+        help_text="SMS sender ID (max 11 chars) - must be approved by Africa's Talking"
+    )
+    sms_enabled = models.BooleanField(
+        default=False, 
+        help_text="Is SMS configured and working?"
+    )
+    sms_last_test = models.DateTimeField(
+        blank=True, 
+        null=True, 
+        help_text="Last time SMS credentials were tested"
+    )
+    sms_test_status = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True, 
+        help_text="Status of last test (success/failed/pending)"
+    )
+    
+    # Optional: SMS quota tracking to control costs
+    sms_monthly_limit = models.IntegerField(
+        default=0, 
+        help_text="Monthly SMS limit (0 = unlimited)"
+    )
+    sms_current_month_count = models.IntegerField(
+        default=0, 
+        help_text="SMS sent this month"
+    )
+    sms_last_reset = models.DateField(
+        blank=True, 
+        null=True, 
+        help_text="Last time monthly counter was reset"
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -32,7 +83,7 @@ class School(models.Model):
         ordering = ['name']
 
 
-# ========== NEW: SchoolAdminProfile Model ==========
+# ========== SchoolAdminProfile Model ==========
 class SchoolAdminProfile(models.Model):
     """Link between Django User and School - each school admin belongs to one school"""
     user = models.OneToOneField('auth.User', on_delete=models.CASCADE, related_name='school_profile')

@@ -16,37 +16,98 @@ import {
   DollarSign,
   Clock,
   X,
-  Mail,        // ✅ NEW: Email icon
-  Search       // ✅ NEW: Search icon
+  Mail,
+  Search,
+  MessageSquare,
+  Link as LinkIcon,
+  Eye,
+  Smartphone,
+  ToggleLeft,
+  ToggleRight
 } from 'lucide-react';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { useYear } from '../context/YearContext';
 
 function AdminReminders() {
   const [pendingData, setPendingData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState('all');
   const [selectedGrade, setSelectedGrade] = useState('all');
-  const [studentSearch, setStudentSearch] = useState('');  // ✅ NEW: Student search state
+  const [studentSearch, setStudentSearch] = useState('');
   const [selectedStudents, setSelectedStudents] = useState([]);
   const [expandedMonth, setExpandedMonth] = useState(null);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState('');
   const [result, setResult] = useState(null);
   
-  // ✅ Prevent multiple simultaneous requests
+  // ✅ NEW: Multi-channel options
+  const [reminderType, setReminderType] = useState('both'); // 'sms', 'email', 'both'
+  const [selectedDeadline, setSelectedDeadline] = useState(null);
+  const [availableDeadlines, setAvailableDeadlines] = useState([]);
+  const [deadlineLoading, setDeadlineLoading] = useState(false);
+  const [showPaymentLinks, setShowPaymentLinks] = useState(false);
+  const [smsConfigured, setSmsConfigured] = useState(false);
+  const [checkingConfig, setCheckingConfig] = useState(true);
+  
+  const { getAuthHeader, schoolId } = useAuth();
+  const { selectedYear } = useYear();
+
+  const months = [
+    'መስከረም','ጥቅምት','ህዳር','ታህሳስ','ጥር','የካቲት','መጋቢት','ሚያዝያ','ግንቦት','ሰኔ','ሐምሌ','ነሐሴ','ጳጉሜ',
+  ];
+
+  // Prevent multiple simultaneous requests
   const isFetching = useRef(false);
   const abortController = useRef(null);
 
-  const months = [
-    'መስከረም','ጥቅምት','ህዳር','ታህሳስ','ጥር','የካቲት','መጋቢት','ሚያዝያ','ግንቦት','ሰነ','ሃምለ','ነሃሰ','ፓጉመ',
-  ];
+  // ✅ NEW: Check if SMS is configured for this school
+  const checkSMSConfiguration = useCallback(async () => {
+    setCheckingConfig(true);
+    try {
+      const response = await api.get('/schools/sms-config/', {
+        headers: getAuthHeader()
+      });
+      setSmsConfigured(response.data.sms_enabled === true);
+    } catch (err) {
+      console.error('Error checking SMS config:', err);
+      setSmsConfigured(false);
+    } finally {
+      setCheckingConfig(false);
+    }
+  }, [getAuthHeader]);
 
-  // ✅ Use useCallback to prevent recreation of function
+  // ✅ NEW: Fetch available deadlines for this school
+  const fetchDeadlines = useCallback(async () => {
+    setDeadlineLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectedYear && selectedYear.id) {
+        params.append('academic_year_id', selectedYear.id);
+      }
+      
+      const response = await api.get(`/deadlines/?${params.toString()}`, {
+        headers: getAuthHeader()
+      });
+      
+      const activeDeadlines = (response.data.results || response.data || []).filter(d => d.is_active === true);
+      setAvailableDeadlines(activeDeadlines);
+      
+      if (activeDeadlines.length > 0 && !selectedDeadline) {
+        setSelectedDeadline(activeDeadlines[0]);
+      }
+    } catch (err) {
+      console.error('Error fetching deadlines:', err);
+      setAvailableDeadlines([]);
+    } finally {
+      setDeadlineLoading(false);
+    }
+  }, [selectedYear, selectedDeadline, getAuthHeader]);
+
+  // Fetch pending data (UPDATED to include deadline)
   const fetchPendingData = useCallback(async () => {
-    // ✅ Prevent multiple simultaneous requests
     if (isFetching.current) return;
     
-    // ✅ Cancel previous request
     if (abortController.current) {
       abortController.current.abort();
     }
@@ -59,10 +120,12 @@ function AdminReminders() {
       const params = new URLSearchParams();
       if (selectedMonth !== 'all') params.append('month', selectedMonth);
       if (selectedGrade !== 'all') params.append('grade', selectedGrade);
-      if (studentSearch) params.append('student_search', studentSearch);  // ✅ NEW: Add student search
+      if (studentSearch) params.append('student_search', studentSearch);
+      if (selectedYear && selectedYear.id) params.append('academic_year_id', selectedYear.id);
       
       const response = await api.get(`/reminders/pending/?${params}`, {
-        signal: abortController.current.signal
+        signal: abortController.current.signal,
+        headers: getAuthHeader()
       });
       setPendingData(response.data);
     } catch (err) {
@@ -75,9 +138,9 @@ function AdminReminders() {
       isFetching.current = false;
       setLoading(false);
     }
-  }, [selectedMonth, selectedGrade, studentSearch]); // ✅ Added studentSearch dependency
+  }, [selectedMonth, selectedGrade, studentSearch, selectedYear, getAuthHeader]);
 
-  // ✅ Cleanup on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (abortController.current) {
@@ -90,7 +153,7 @@ function AdminReminders() {
     fetchPendingData();
   }, [fetchPendingData]);
 
-  // ✅ Debounce search to avoid too many requests
+  // Debounce search
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       if (studentSearch !== undefined) {
@@ -100,6 +163,12 @@ function AdminReminders() {
     
     return () => clearTimeout(timeoutId);
   }, [studentSearch, fetchPendingData]);
+
+  // Fetch deadlines and check SMS config
+  useEffect(() => {
+    checkSMSConfiguration();
+    fetchDeadlines();
+  }, [checkSMSConfiguration, fetchDeadlines]);
 
   const toggleStudent = (studentId) => {
     setSelectedStudents(prev =>
@@ -119,7 +188,57 @@ function AdminReminders() {
     }
   };
 
-  // ✅ CHANGED: Send EMAIL reminders instead of SMS
+  // ✅ UPDATED: Send SMS reminders with payment links
+  const sendSMSReminders = async () => {
+    if (selectedStudents.length === 0) {
+      alert('Please select at least one student');
+      return;
+    }
+    
+    if (!selectedDeadline) {
+      alert('Please select a payment deadline');
+      return;
+    }
+
+    if (!smsConfigured) {
+      alert('SMS is not configured for your school. Please go to School Settings to set up Africa\'s Talking credentials.');
+      return;
+    }
+
+    setSending(true);
+    setResult(null);
+
+    try {
+      const response = await api.post('/sms/multi-school/bulk-reminders/', {
+        student_ids: selectedStudents,
+        deadline_id: selectedDeadline.id,
+        message: message
+      }, { headers: getAuthHeader() });
+
+      setResult({
+        success: true,
+        type: 'sms',
+        sent: response.data.successful || 0,
+        failed: response.data.failed || 0,
+        message: `✅ Successfully sent ${response.data.successful || 0} SMS reminders! ${response.data.failed > 0 ? `(${response.data.failed} failed)` : ''}`
+      });
+      
+      setSelectedStudents([]);
+      setMessage('');
+      fetchPendingData();
+    } catch (err) {
+      console.error('Error sending SMS reminders:', err);
+      setResult({
+        success: false,
+        type: 'sms',
+        message: err.response?.data?.error || '❌ Failed to send SMS reminders. Please check your SMS configuration.'
+      });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // ✅ UPDATED: Send Email reminders with payment links
   const sendEmailReminders = async () => {
     if (selectedStudents.length === 0) {
       alert('Please select at least one student');
@@ -134,11 +253,13 @@ function AdminReminders() {
         student_ids: selectedStudents,
         month: selectedMonth !== 'all' ? selectedMonth : null,
         message: message,
-        academic_year: pendingData?.academic_year
-      });
+        academic_year: pendingData?.academic_year,
+        deadline_id: selectedDeadline?.id
+      }, { headers: getAuthHeader() });
 
       setResult({
         success: true,
+        type: 'email',
         sent: response.data.sent,
         failed: response.data.failed,
         message: `✅ Successfully sent ${response.data.sent} email reminders! ${response.data.failed > 0 ? `(${response.data.failed} failed)` : ''}`
@@ -151,6 +272,7 @@ function AdminReminders() {
       console.error('Error sending email reminders:', err);
       setResult({
         success: false,
+        type: 'email',
         message: '❌ Failed to send email reminders. Please try again.'
       });
     } finally {
@@ -158,7 +280,110 @@ function AdminReminders() {
     }
   };
 
-  if (loading) {
+  // ✅ NEW: Send both SMS and Email
+  const sendBothReminders = async () => {
+    if (selectedStudents.length === 0) {
+      alert('Please select at least one student');
+      return;
+    }
+    
+    if (!selectedDeadline) {
+      alert('Please select a payment deadline');
+      return;
+    }
+
+    setSending(true);
+    setResult(null);
+
+    let smsResult = null;
+    let emailResult = null;
+
+    try {
+      // Send SMS first
+      if (smsConfigured) {
+        try {
+          smsResult = await api.post('/sms/multi-school/bulk-reminders/', {
+            student_ids: selectedStudents,
+            deadline_id: selectedDeadline.id,
+            message: message
+          }, { headers: getAuthHeader() });
+        } catch (err) {
+          console.error('SMS failed:', err);
+          smsResult = { data: { successful: 0, failed: selectedStudents.length } };
+        }
+      }
+
+      // Send Email
+      try {
+        emailResult = await api.post('/reminders/send_email_reminders/', {
+          student_ids: selectedStudents,
+          month: selectedMonth !== 'all' ? selectedMonth : null,
+          message: message,
+          academic_year: pendingData?.academic_year,
+          deadline_id: selectedDeadline?.id
+        }, { headers: getAuthHeader() });
+      } catch (err) {
+        console.error('Email failed:', err);
+        emailResult = { data: { sent: 0, failed: selectedStudents.length } };
+      }
+
+      const smsSent = smsResult?.data?.successful || 0;
+      const emailSent = emailResult?.data?.sent || 0;
+
+      setResult({
+        success: true,
+        type: 'both',
+        smsSent: smsSent,
+        emailSent: emailSent,
+        message: `✅ SMS: ${smsSent} sent | Email: ${emailSent} sent`
+      });
+      
+      setSelectedStudents([]);
+      setMessage('');
+      fetchPendingData();
+    } catch (err) {
+      console.error('Error sending reminders:', err);
+      setResult({
+        success: false,
+        type: 'both',
+        message: '❌ Failed to send reminders. Please try again.'
+      });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleSendReminders = () => {
+    if (reminderType === 'sms') {
+      sendSMSReminders();
+    } else if (reminderType === 'email') {
+      sendEmailReminders();
+    } else {
+      sendBothReminders();
+    }
+  };
+
+  const getSendButtonText = () => {
+    if (sending) return 'Sending...';
+    if (reminderType === 'sms') return `Send SMS Reminders (${selectedStudents.length})`;
+    if (reminderType === 'email') return `Send Email Reminders (${selectedStudents.length})`;
+    return `Send Both (SMS + Email) (${selectedStudents.length})`;
+  };
+
+  const getSendButtonIcon = () => {
+    if (sending) return <Loader className="h-4 w-4 animate-spin" />;
+    if (reminderType === 'sms') return <Smartphone className="h-4 w-4" />;
+    if (reminderType === 'email') return <Mail className="h-4 w-4" />;
+    return <Send className="h-4 w-4" />;
+  };
+
+  const getSendButtonColor = () => {
+    if (reminderType === 'sms') return 'bg-green-600 hover:bg-green-700';
+    if (reminderType === 'email') return 'bg-blue-600 hover:bg-blue-700';
+    return 'bg-purple-600 hover:bg-purple-700';
+  };
+
+  if (loading && !pendingData) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader className="h-8 w-8 animate-spin text-primary-600" />
@@ -169,9 +394,14 @@ function AdminReminders() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">📧 Email Reminders</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">📧 Email & SMS Reminders</h1>
+          {selectedYear && (
+            <p className="text-sm text-primary-600 mt-1 font-medium">
+              📅 Academic Year: {selectedYear.name || selectedYear.year_ec + ' E.C.'}
+            </p>
+          )}
           <p className="text-sm md:text-base text-gray-600 mt-1">
             {pendingData?.total_pending || 0} students with pending payments
             ({pendingData?.total_pending_months || 0} unpaid months)
@@ -179,9 +409,50 @@ function AdminReminders() {
         </div>
       </div>
 
+      {/* ✅ NEW: SMS Configuration Warning */}
+      {reminderType !== 'email' && !smsConfigured && !checkingConfig && (
+        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 text-yellow-600" />
+            <p className="text-yellow-700">
+              SMS is not configured for your school. 
+              <a href="/school-settings" className="ml-2 text-yellow-800 font-semibold underline">Go to School Settings</a> to set up Africa's Talking credentials.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ NEW: Deadline Selector for SMS */}
+      {(reminderType === 'sms' || reminderType === 'both') && smsConfigured && (
+        <div className="bg-white rounded-xl shadow-lg p-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Select Payment Deadline for SMS
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {availableDeadlines.map(deadline => (
+              <button
+                key={deadline.id}
+                onClick={() => setSelectedDeadline(deadline)}
+                className={`px-4 py-2 rounded-lg transition-all ${
+                  selectedDeadline?.id === deadline.id
+                    ? 'bg-green-600 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {deadline.month_name || months[deadline.month - 1]} {deadline.academic_year}
+                <span className="text-xs ml-1">({deadline.amount} Birr)</span>
+              </button>
+            ))}
+            {availableDeadlines.length === 0 && !deadlineLoading && (
+              <p className="text-gray-500 text-sm">No active deadlines found. Please create a deadline first.</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Filter by Month
@@ -214,10 +485,9 @@ function AdminReminders() {
             </select>
           </div>
 
-          {/* ✅ NEW: Student Search */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Search by Student ID or Name
+              Search by Student
             </label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -225,9 +495,57 @@ function AdminReminders() {
                 type="text"
                 value={studentSearch}
                 onChange={(e) => setStudentSearch(e.target.value)}
-                placeholder="Enter student ID or name..."
+                placeholder="Student ID or name..."
                 className="input-field pl-10"
               />
+            </div>
+          </div>
+
+          {/* ✅ NEW: Reminder Type Selector */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Reminder Type
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setReminderType('email')}
+                className={`flex-1 px-3 py-2 rounded-lg flex items-center justify-center gap-2 transition-all ${
+                  reminderType === 'email'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <Mail className="h-4 w-4" />
+                Email
+              </button>
+              <button
+                onClick={() => setReminderType('sms')}
+                disabled={!smsConfigured}
+                className={`flex-1 px-3 py-2 rounded-lg flex items-center justify-center gap-2 transition-all ${
+                  reminderType === 'sms'
+                    ? 'bg-green-600 text-white'
+                    : smsConfigured
+                      ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                <Smartphone className="h-4 w-4" />
+                SMS
+              </button>
+              <button
+                onClick={() => setReminderType('both')}
+                disabled={!smsConfigured}
+                className={`flex-1 px-3 py-2 rounded-lg flex items-center justify-center gap-2 transition-all ${
+                  reminderType === 'both'
+                    ? 'bg-purple-600 text-white'
+                    : smsConfigured
+                      ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                <Send className="h-4 w-4" />
+                Both
+              </button>
             </div>
           </div>
         </div>
@@ -254,16 +572,20 @@ function AdminReminders() {
 
       {/* Message Composition */}
       <div className="bg-white rounded-xl shadow-lg p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">✏️ Compose Email Message</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">
+          ✏️ Compose {reminderType === 'sms' ? 'SMS' : reminderType === 'email' ? 'Email' : 'SMS & Email'} Message
+        </h2>
         <textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           rows="3"
           className="input-field"
-          placeholder="Enter custom message or leave blank for default reminder..."
+          placeholder={`Enter custom message or leave blank for default ${reminderType === 'sms' ? 'SMS' : 'email'} reminder with payment link...`}
         />
         <p className="text-xs text-gray-500 mt-2">
-          💡 Default message will include student name, pending months, and total amount due.
+          💡 Default message will include student name, payment amount, and a secure payment link.
+          {reminderType === 'sms' && ' SMS will be sent using your school\'s Africa\'s Talking account.'}
+          {reminderType === 'email' && ' Email will include school branding and bank details.'}
         </p>
       </div>
 
@@ -286,21 +608,12 @@ function AdminReminders() {
             </div>
             
             <button
-              onClick={sendEmailReminders}
-              disabled={sending || selectedStudents.length === 0}
-              className="btn-primary flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+              onClick={handleSendReminders}
+              disabled={sending || selectedStudents.length === 0 || (reminderType !== 'email' && !smsConfigured)}
+              className={`btn-primary flex items-center gap-2 ${getSendButtonColor()}`}
             >
-              {sending ? (
-                <>
-                  <Loader className="h-4 w-4 animate-spin" />
-                  Sending Emails...
-                </>
-              ) : (
-                <>
-                  <Mail className="h-4 w-4" />
-                  Send Email Reminders ({selectedStudents.length})
-                </>
-              )}
+              {getSendButtonIcon()}
+              {getSendButtonText()}
             </button>
           </div>
         </div>
@@ -377,6 +690,27 @@ function AdminReminders() {
                         {student.parent_email || 'No email'}
                       </span>
                     </div>
+
+                    {/* ✅ NEW: Payment Link Preview */}
+                    {selectedDeadline && (
+                      <div className="mt-2">
+                        <button
+                          onClick={() => setShowPaymentLinks(!showPaymentLinks)}
+                          className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                        >
+                          <Eye className="h-3 w-3" />
+                          {showPaymentLinks ? 'Hide' : 'Show'} Payment Link Preview
+                        </button>
+                        {showPaymentLinks && (
+                          <div className="mt-2 p-2 bg-gray-100 rounded text-xs break-all">
+                            <LinkIcon className="h-3 w-3 inline mr-1" />
+                            <span className="text-gray-600">
+                              {`${window.location.origin}/parent-pay?student=${student.student_id}&deadline=${selectedDeadline.id}&amount=${student.total_due}`}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -402,9 +736,16 @@ function AdminReminders() {
               ) : (
                 <AlertCircle className="h-5 w-5 text-red-600" />
               )}
-              <p className={result.success ? 'text-green-700' : 'text-red-700'}>
-                {result.message}
-              </p>
+              <div>
+                <p className={result.success ? 'text-green-700' : 'text-red-700'}>
+                  {result.message}
+                </p>
+                {result.type === 'both' && result.success && (
+                  <p className="text-sm text-gray-600 mt-1">
+                    SMS: {result.smsSent} sent | Email: {result.emailSent} sent
+                  </p>
+                )}
+              </div>
             </div>
           </motion.div>
         )}

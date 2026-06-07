@@ -7,8 +7,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 // Layouts
 import ParentLayout from './components/Layout/ParentLayout';
 import AdminLayout from './components/Layout/AdminLayout';
-//Context 
+
+// Context 
 import { YearProvider } from './context/YearContext';
+import { AuthProvider } from './context/AuthContext';  // ✅ ADD THIS
+
 // Pages
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import StudentSearch from './pages/StudentSearch';
@@ -42,6 +45,8 @@ import ReportingDashboard from './pages/ReportingDashboard';
 import ReminderDashboard from './pages/ReminderDashboard';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import AdminPaymentHistory from './pages/AdminPaymentHistory';
+import SchoolSettings from './pages/SchoolSettings';  // ✅ ADD THIS
+
 // Styles
 import './index.css';
 
@@ -57,213 +62,241 @@ const queryClient = new QueryClient({
 
 const ProtectedRoute = ({ children }) => {
   const isAdmin = localStorage.getItem('isAdmin') === 'true';
-  return isAdmin ? children : <Navigate to="/admin/login" />;
+  const token = localStorage.getItem('access_token');
+  return (isAdmin || token) ? children : <Navigate to="/admin/login" />;
 };
 
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <YearProvider>
-      <Router>
-        <Toaster position="top-right" />
-        <Routes>
-          {/* ✅ CHANGED: Root now redirects to parent login */}
-          <Route path="/" element={<Navigate to="/parent/login" />} />
-          
-          {/* Parent Routes - Using ParentLayout */}
-          <Route
-            path="/student/:studentId"
-            element={
-              <ParentLayout>
-                <StudentDashboard />
-              </ParentLayout>
-            }
-          />
-          <Route
-            path="/payment"
-            element={
-              <ParentLayout>
-                <PaymentPage />
-              </ParentLayout>
-            }
-          />
+      <AuthProvider>  {/* ✅ WRAP WITH AuthProvider */}
+        <YearProvider>
+          <Router>
+            <Toaster position="top-right" />
+            <Routes>
+              {/* Root redirects to parent login */}
+              <Route path="/" element={<Navigate to="/parent/login" />} />
+              
+              {/* Parent Routes - Using ParentLayout */}
+              <Route
+                path="/student/:studentId"
+                element={
+                  <ParentLayout>
+                    <StudentDashboard />
+                  </ParentLayout>
+                }
+              />
+              <Route
+                path="/payment"
+                element={
+                  <ParentLayout>
+                    <PaymentPage />
+                  </ParentLayout>
+                }
+              />
 
-          {/* Admin Authentication Routes - No Layout */}
-          <Route path="/admin/login" element={<AdminLogin />} />
-          <Route path="/admin/register" element={<AdminRegister />} />
-          <Route path="/admin/forgot-password" element={<ForgotPassword />} />
-          <Route path="/admin/reset-password" element={<ResetPassword />} />
+              {/* Admin Authentication Routes - No Layout */}
+              <Route path="/admin/login" element={<AdminLogin />} />
+              <Route path="/admin/register" element={<AdminRegister />} />
+              <Route path="/admin/forgot-password" element={<ForgotPassword />} />
+              <Route path="/admin/reset-password" element={<ResetPassword />} />
 
-          {/* Admin Routes - Using AdminLayout (Protected) */}
-          <Route
-            path="/admin/dashboard"
-            element={
-              <ProtectedRoute>
-                <AdminLayout>
-                  <AdminDashboard />
-                </AdminLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/reminders"
-            element={
-              <ProtectedRoute>
-                <AdminLayout>
-                  <AdminReminders />
-                </AdminLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/reports"
-            element={
-              <ProtectedRoute>
-                <AdminLayout>
-                  <Reports />
-                </AdminLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/students"
-            element={
-              <ProtectedRoute>
-                <AdminLayout>
-                  <AdminStudents />
-                </AdminLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/payments"
-            element={
-              <ProtectedRoute>
-                <AdminLayout>
-                  <AdminPayments />
-                </AdminLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/academic-years"
-            element={
-              <ProtectedRoute>
-                <AdminLayout>
-                  <AdminAcademicYears />
-                </AdminLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/sms"
-            element={
-              <ProtectedRoute>
-                <AdminLayout>
-                  <SMSDashboard />
-                </AdminLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/slips"
-            element={
-              <ProtectedRoute>
-                <AdminLayout>
-                  <AdminSlips />
-                </AdminLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/test"
-            element={
-              <ProtectedRoute>
-                <AdminLayout>
-                  <TestDashboard />
-                </AdminLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-              path="/superadmin/dashboard"
-              element={
-                <ProtectedRoute>
-                  <SuperAdminDashboard />
-              </ProtectedRoute>
-            }
-          />
+              {/* Admin Routes - Using AdminLayout (Protected) */}
+              <Route
+                path="/admin/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <AdminDashboard />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/reminders"
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <AdminReminders />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/reports"
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <Reports />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/students"
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <AdminStudents />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/payments"
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <AdminPayments />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/academic-years"
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <AdminAcademicYears />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/sms"
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <SMSDashboard />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/slips"
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <AdminSlips />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/test"
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <TestDashboard />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/superadmin/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <SuperAdminDashboard />
+                  </ProtectedRoute>
+                }
+              />
 
-          <Route path="/admin/deadlines" element={
-  <ProtectedRoute>
-    <AdminLayout>
-      <AdminDeadlines />
-    </AdminLayout>
-  </ProtectedRoute>
-} />
+              <Route 
+                path="/admin/deadlines" 
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <AdminDeadlines />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                } 
+              />
 
-<Route path="/admin/staff" element={
-  <ProtectedRoute>
-    <AdminLayout>
-      <StaffManagement />
-    </AdminLayout>
-  </ProtectedRoute>
-} />
+              <Route 
+                path="/admin/staff" 
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <StaffManagement />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                } 
+              />
 
-<Route path="/registrar/dashboard" element={
-  <ProtectedRoute>
-    <AdminLayout>
-      <RegistrarDashboard />
-    </AdminLayout>
-  </ProtectedRoute>
-} />
+              <Route 
+                path="/registrar/dashboard" 
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <RegistrarDashboard />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                } 
+              />
 
-<Route path="/payment/dashboard" element={
-  <ProtectedRoute>
-    <AdminLayout>
-      <PaymentManagerDashboard />
-    </AdminLayout>
-  </ProtectedRoute>
-} />
+              <Route 
+                path="/payment/dashboard" 
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <PaymentManagerDashboard />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                } 
+              />
 
-<Route path="/reports/dashboard" element={
-  <ProtectedRoute>
-    <AdminLayout>
-      <ReportingDashboard />
-    </AdminLayout>
-  </ProtectedRoute>
-} />
+              <Route 
+                path="/reports/dashboard" 
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <ReportingDashboard />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                } 
+              />
 
-<Route path="/reminder/dashboard" element={
-  <ProtectedRoute>
-    <AdminLayout>
-      <ReminderDashboard />
-    </AdminLayout>
-  </ProtectedRoute>
-} />
+              <Route 
+                path="/reminder/dashboard" 
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <ReminderDashboard />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                } 
+              />
 
+              {/* ✅ NEW: School Settings Page - SMS Configuration */}
+              <Route 
+                path="/school-settings" 
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout>
+                      <SchoolSettings />
+                    </AdminLayout>
+                  </ProtectedRoute>
+                } 
+              />
 
-          {/* Test Routes */}
-          <Route path="/login-test" element={<LoginTest />} />
-          <Route path="/simple-test" element={<SimpleTest />} />
-          <Route path="/payment/success" element={<PaymentSuccess />} />
+              {/* Test Routes */}
+              <Route path="/login-test" element={<LoginTest />} />
+              <Route path="/simple-test" element={<SimpleTest />} />
+              <Route path="/payment/success" element={<PaymentSuccess />} />
 
-          {/* ✅ Parent Portal Routes - CORRECT ORDER */}
-          <Route path="/parent/login" element={<ParentLogin />} />
-          <Route path="/parent/enter-student-id" element={<EnterStudentId />} />
-          <Route path="/parent/dashboard/:studentId" element={<ParentDashboard />} />
-          
-          {/* Keep for backward compatibility */}
-          <Route path="/parent/select-student" element={<SelectStudent />} />
-          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-          <Route path="/admin-dashboard/payment-history" element={<AdminPaymentHistory />} />
-          
-          {/* ✅ Old StudentSearch - you can remove this route if not needed */}
-          {/* <Route path="/" element={<StudentSearch />} /> */}
-          
-        </Routes>
-      </Router>
-      </YearProvider>
+              {/* Parent Portal Routes */}
+              <Route path="/parent/login" element={<ParentLogin />} />
+              <Route path="/parent/enter-student-id" element={<EnterStudentId />} />
+              <Route path="/parent/dashboard/:studentId" element={<ParentDashboard />} />
+              
+              {/* Keep for backward compatibility */}
+              <Route path="/parent/select-student" element={<SelectStudent />} />
+              <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+              <Route path="/admin-dashboard/payment-history" element={<AdminPaymentHistory />} />
+            </Routes>
+          </Router>
+        </YearProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

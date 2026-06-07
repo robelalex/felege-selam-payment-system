@@ -15,10 +15,14 @@ import {
   ChevronDown,
   AlertTriangle,
   Calendar,
-  Search
+  Search,
+  Link as LinkIcon,
+  Eye,
+  Settings
 } from 'lucide-react';
 import api from '../services/api';
 import { useYear } from '../context/YearContext';
+import { useAuth } from '../context/AuthContext';
 
 function SMSDashboard() {
   const [balance, setBalance] = useState(null);
@@ -36,12 +40,20 @@ function SMSDashboard() {
   const [bulkResult, setBulkResult] = useState(null);
   const [filterGrade, setFilterGrade] = useState('all');
   const [filterMonth, setFilterMonth] = useState('all');
-  const [studentSearch, setStudentSearch] = useState(''); // ✅ NEW: Student search
+  const [studentSearch, setStudentSearch] = useState('');
   const [expandedSection, setExpandedSection] = useState('test');
   const [pendingStats, setPendingStats] = useState(null);
+  
+  // ✅ NEW: Multi-school state
+  const [selectedDeadline, setSelectedDeadline] = useState(null);
+  const [availableDeadlines, setAvailableDeadlines] = useState([]);
+  const [showPaymentLinks, setShowPaymentLinks] = useState(false);
+  const [deadlineLoading, setDeadlineLoading] = useState(false);
+  const [smsConfigured, setSmsConfigured] = useState(false);
+  const [checkingConfig, setCheckingConfig] = useState(true);
 
-  // ✅ Debounce timeout ref
-  const searchTimeout = useRef(null);
+  // ✅ NEW: Use auth context
+  const { getAuthHeader, schoolId } = useAuth();
 
   const months = [
     'መስከረም', 'ጥቅምት', 'ህዳር', 'ታህሳስ', 'ጥር', 'የካቲት',
@@ -50,39 +62,93 @@ function SMSDashboard() {
 
   const { selectedYear } = useYear();
 
-  // ✅ Fetch pending students with all filters
-  const fetchPendingStudents = useCallback(async () => {
+  // ✅ NEW: Check if SMS is configured for this school
+  const checkSMSConfiguration = useCallback(async () => {
+    setCheckingConfig(true);
+    try {
+      const response = await api.get('/schools/sms-config/', {
+        headers: getAuthHeader()
+      });
+      setSmsConfigured(response.data.sms_enabled === true);
+    } catch (err) {
+      console.error('Error checking SMS config:', err);
+      setSmsConfigured(false);
+    } finally {
+      setCheckingConfig(false);
+    }
+  }, [getAuthHeader]);
+
+  // ✅ NEW: Fetch available deadlines for this school
+  const fetchDeadlines = useCallback(async () => {
+    setDeadlineLoading(true);
     try {
       const params = new URLSearchParams();
       if (selectedYear && selectedYear.id) {
         params.append('academic_year_id', selectedYear.id);
       }
-      if (filterMonth && filterMonth !== 'all') {
-        params.append('month', filterMonth);
-      }
-      if (filterGrade && filterGrade !== 'all') {
-        params.append('grade', filterGrade);
-      }
-      if (studentSearch && studentSearch.trim() !== '') {
-        params.append('student_search', studentSearch);
-      }
       
-      const queryString = params.toString();
-      const url = queryString ? `/reminders-filtered/?${queryString}` : '/reminders-filtered/';
+      const response = await api.get(`/deadlines/?${params.toString()}`, {
+        headers: getAuthHeader()
+      });
       
-      console.log('📱 Fetching pending students URL:', url);
+      // Filter active deadlines
+      const activeDeadlines = (response.data.results || response.data || []).filter(d => d.is_active === true);
+      setAvailableDeadlines(activeDeadlines);
       
-      const response = await api.get(url);
-      console.log('📱 API Response:', response.data);
+      // Auto-select first deadline if none selected
+      if (activeDeadlines.length > 0 && !selectedDeadline) {
+        setSelectedDeadline(activeDeadlines[0]);
+      }
+    } catch (err) {
+      console.error('Error fetching deadlines:', err);
+      setAvailableDeadlines([]);
+    } finally {
+      setDeadlineLoading(false);
+    }
+  }, [selectedYear, selectedDeadline, getAuthHeader]);
+
+  // ✅ Fetch pending students with all filters (UPDATED for multi-school)
+  const fetchPendingStudents = useCallback(async () => {
+    if (!selectedDeadline) return;
+    
+    try {
+      // Use new multi-school endpoint
+      const response = await api.get(`/sms/multi-school/deadline/${selectedDeadline.id}/pending/`, {
+        headers: getAuthHeader()
+      });
+      
+      console.log('📱 Pending students response:', response.data);
       
       const data = response.data;
       const students = data.students || [];
       
-      setPendingStudents(students);
+      // Transform to match existing UI format
+      const transformedStudents = students.map(s => ({
+        student_id: s.student_id,
+        student_name: s.name,
+        grade: s.grade,
+        parent_phone: s.parent_phone,
+        parent_email: s.parent_email,
+        pending_months: [{
+          month_name: data.deadline?.month || selectedDeadline?.month_name,
+          amount: s.amount,
+          days_overdue: 0
+        }],
+        total_due: s.amount,
+        payment_link: s.payment_link
+      }));
+      
+      setPendingStudents(transformedStudents);
       setPendingStats({
         total_pending: data.total_pending || 0,
-        total_pending_months: data.total_pending_months || 0,
-        by_month: data.by_month || {}
+        total_pending_months: data.total_pending || 0,
+        by_month: {
+          [selectedDeadline.id]: {
+            month_name: data.deadline?.month,
+            count: data.total_pending,
+            total_amount: data.total_pending * (data.deadline?.amount || 0)
+          }
+        }
       });
       
       // Reset selected students when data changes
@@ -93,9 +159,12 @@ function SMSDashboard() {
       setPendingStudents([]);
       setPendingStats(null);
     }
-  }, [selectedYear, filterMonth, filterGrade, studentSearch]);
+  }, [selectedDeadline, getAuthHeader]);
 
-  const fetchData = async () => {
+  // Fetch SMS balance and history (UPDATED for multi-school)
+  const fetchData = useCallback(async () => {
+    if (!smsConfigured) return;
+    
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -103,11 +172,10 @@ function SMSDashboard() {
         params.append('academic_year_id', selectedYear.id);
       }
       
-      const queryString = params.toString();
-      
+      // Use multi-school balance endpoint
       const [balanceRes, historyRes] = await Promise.all([
-        api.get('/sms/balance/'),
-        api.get(`/sms/history/?limit=50${queryString ? '&' + queryString : ''}`)
+        api.get('/sms/multi-school/balance/', { headers: getAuthHeader() }),
+        api.get(`/sms/history/?limit=50${params.toString() ? '&' + params.toString() : ''}`, { headers: getAuthHeader() })
       ]);
       setBalance(balanceRes.data);
       setHistory(historyRes.data);
@@ -116,15 +184,19 @@ function SMSDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedYear, smsConfigured, getAuthHeader]);
 
   // ✅ Debounced search
+  const searchTimeout = useRef(null);
+  
   useEffect(() => {
     if (searchTimeout.current) {
       clearTimeout(searchTimeout.current);
     }
     searchTimeout.current = setTimeout(() => {
-      fetchPendingStudents();
+      if (selectedDeadline) {
+        fetchPendingStudents();
+      }
     }, 500);
     
     return () => {
@@ -132,17 +204,33 @@ function SMSDashboard() {
         clearTimeout(searchTimeout.current);
       }
     };
-  }, [studentSearch, fetchPendingStudents]);
+  }, [studentSearch, selectedDeadline, fetchPendingStudents]);
 
-  // ✅ Fetch when filters change
+  // ✅ Fetch deadlines when year changes
   useEffect(() => {
-    fetchPendingStudents();
-  }, [selectedYear, filterMonth, filterGrade, fetchPendingStudents]);
+    fetchDeadlines();
+  }, [selectedYear, fetchDeadlines]);
 
+  // ✅ Fetch pending students when deadline changes
   useEffect(() => {
-    fetchData();
-  }, [selectedYear]);
+    if (selectedDeadline) {
+      fetchPendingStudents();
+    }
+  }, [selectedDeadline, fetchPendingStudents]);
 
+  // ✅ Fetch data when SMS is configured
+  useEffect(() => {
+    if (smsConfigured) {
+      fetchData();
+    }
+  }, [smsConfigured, fetchData]);
+
+  // ✅ Initial check
+  useEffect(() => {
+    checkSMSConfiguration();
+  }, [checkSMSConfiguration]);
+
+  // ✅ UPDATED: Send test SMS using multi-school endpoint
   const sendTestSMS = async () => {
     if (!testPhone) {
       alert('Please enter a phone number');
@@ -159,14 +247,14 @@ function SMSDashboard() {
     setResult(null);
 
     try {
-      const response = await api.post('/sms/send-test/', {
+      const response = await api.post('/sms/multi-school/test/', {
         phone: testPhone,
-        message: testMessage || 'Test message from Felege Selam School'
-      });
+        message: testMessage || 'Test message from school payment system'
+      }, { headers: getAuthHeader() });
 
       setResult({
         success: response.data.success,
-        message: response.data.success ? 'SMS sent successfully! Check your phone.' : 'Failed to send SMS'
+        message: response.data.success ? '✅ Test SMS sent successfully! Check your phone.' : '❌ Failed to send SMS'
       });
 
       if (response.data.success) {
@@ -178,16 +266,48 @@ function SMSDashboard() {
       console.error('Error sending SMS:', err);
       setResult({
         success: false,
-        message: 'Error sending SMS. Check your configuration.'
+        message: '❌ Error sending SMS. Please check your Africa\'s Talking credentials in School Settings.'
       });
     } finally {
       setSending(false);
     }
   };
 
+  // ✅ UPDATED: Send single reminder with payment link
+  const sendSingleReminder = async (student) => {
+    if (!selectedDeadline) {
+      alert('Please select a deadline first');
+      return;
+    }
+    
+    try {
+      const response = await api.post('/sms/multi-school/reminder/', {
+        student_id: student.student_id,
+        deadline_id: selectedDeadline.id
+      }, { headers: getAuthHeader() });
+      
+      if (response.data.success) {
+        alert(`✅ Reminder sent to ${student.student_name}\nPayment link: ${response.data.payment_link}`);
+        // Refresh pending list
+        fetchPendingStudents();
+      } else {
+        alert(`❌ Failed to send: ${response.data.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error('Error sending reminder:', err);
+      alert('❌ Failed to send reminder. Please try again.');
+    }
+  };
+
+  // ✅ UPDATED: Send bulk SMS using multi-school endpoint
   const sendBulkSMS = async () => {
     if (selectedStudents.length === 0) {
       alert('Please select at least one student');
+      return;
+    }
+    
+    if (!selectedDeadline) {
+      alert('Please select a deadline first');
       return;
     }
 
@@ -195,25 +315,18 @@ function SMSDashboard() {
     setBulkResult(null);
 
     try {
-      const requestData = {
+      const response = await api.post('/sms/multi-school/bulk-reminders/', {
         student_ids: selectedStudents,
-        month: filterMonth !== 'all' ? filterMonth : null,
+        deadline_id: selectedDeadline.id,
         message: bulkMessage
-      };
-      
-      if (selectedYear && selectedYear.id) {
-        requestData.academic_year_id = selectedYear.id;
-        requestData.academic_year = selectedYear.year_ec;
-      }
-      
-      const response = await api.post('/sms/send-bulk/', requestData);
+      }, { headers: getAuthHeader() });
 
       setBulkResult({
         success: true,
-        sent: response.data.successful || response.data.sent || 0,
+        sent: response.data.successful || 0,
         failed: response.data.failed || 0,
         total: response.data.total_processed || selectedStudents.length,
-        message: `✅ Successfully sent ${response.data.successful || response.data.sent || 0} messages!`
+        message: `✅ Successfully sent ${response.data.successful || 0} messages!`
       });
 
       setSelectedStudents([]);
@@ -224,7 +337,7 @@ function SMSDashboard() {
       console.error('Error sending bulk SMS:', err);
       setBulkResult({
         success: false,
-        message: '❌ Failed to send bulk messages. Please try again.'
+        message: '❌ Failed to send bulk messages. Please check your SMS configuration.'
       });
     } finally {
       setSendingBulk(false);
@@ -247,7 +360,6 @@ function SMSDashboard() {
     }
   };
 
-  // ✅ Filter students (backend already filters, but this is for UI display)
   const filteredStudents = pendingStudents;
 
   const getStatusColor = (status) => {
@@ -259,7 +371,42 @@ function SMSDashboard() {
     }
   };
 
-  if (loading) {
+  // Show configuration needed screen
+  if (!checkingConfig && !smsConfigured) {
+    return (
+      <div className="max-w-2xl mx-auto mt-12">
+        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-6 rounded-lg shadow-lg">
+          <div className="flex items-center gap-3 mb-4">
+            <AlertTriangle className="h-8 w-8 text-yellow-600" />
+            <h2 className="text-xl font-bold text-yellow-800">SMS Not Configured</h2>
+          </div>
+          <p className="text-yellow-700 mb-4">
+            Your school hasn't configured Africa's Talking SMS credentials yet. 
+            Please set up your SMS settings to send messages to parents.
+          </p>
+          <div className="bg-white p-4 rounded-lg mb-4">
+            <p className="font-semibold text-gray-800 mb-2">To configure SMS:</p>
+            <ol className="list-decimal list-inside text-gray-600 space-y-1">
+              <li>Go to <strong>School Settings</strong> page</li>
+              <li>Enter your Africa's Talking username and API key</li>
+              <li>Set your preferred Sender ID (optional)</li>
+              <li>Click "Test Credentials" to verify</li>
+              <li>Once successful, return here to send SMS</li>
+            </ol>
+          </div>
+          <button
+            onClick={() => window.location.href = '/school-settings'}
+            className="bg-yellow-600 hover:bg-yellow-700 text-white px-6 py-2 rounded-lg flex items-center gap-2"
+          >
+            <Settings className="h-4 w-4" />
+            Go to School Settings
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading && !balance) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader className="h-8 w-8 animate-spin text-primary-600" />
@@ -292,33 +439,58 @@ function SMSDashboard() {
         </button>
       </div>
 
-{/* Balance Card */}
-<div className="bg-gradient-to-r from-primary-600 to-primary-800 rounded-xl shadow-lg p-6 text-white">
-  <div className="flex items-center justify-between">
-    <div>
-      <p className="text-primary-100">SMS Account Balance</p>
-      <p className="text-3xl font-bold mt-2">
-        {balance?.success ? (
-          typeof balance.balance === 'object' ? (
-            balance.balance?.UserData?.balance || 'Available'
-          ) : (
-            balance.balance
-          )
-        ) : 'N/A'}
-      </p>
-      <p className="text-primary-200 text-sm mt-2">
-        {balance?.success ? 'Live account - messages will be sent' : 'Configure SMS provider'}
-      </p>
-    </div>
-    <DollarSign className="h-12 w-12 text-white/30" />
-  </div>
-</div>
+      {/* Balance Card */}
+      <div className="bg-gradient-to-r from-primary-600 to-primary-800 rounded-xl shadow-lg p-6 text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-primary-100">SMS Account Balance</p>
+            <p className="text-3xl font-bold mt-2">
+              {balance?.success ? (
+                balance.balance || 'Available'
+              ) : 'N/A'}
+            </p>
+            <p className="text-primary-200 text-sm mt-2">
+              {balance?.success ? 'Using school\'s own Africa\'s Talking account' : 'Configure SMS in School Settings'}
+            </p>
+          </div>
+          <DollarSign className="h-12 w-12 text-white/30" />
+        </div>
+      </div>
+
+      {/* ✅ NEW: Deadline Selector */}
+      <div className="bg-white rounded-xl shadow-lg p-4">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Select Payment Deadline
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {availableDeadlines.map(deadline => (
+            <button
+              key={deadline.id}
+              onClick={() => setSelectedDeadline(deadline)}
+              className={`px-4 py-2 rounded-lg transition-all ${
+                selectedDeadline?.id === deadline.id
+                  ? 'bg-primary-600 text-white shadow-md'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              {deadline.month_name || months[deadline.month - 1]} {deadline.academic_year}
+              <span className="text-xs ml-1">({deadline.amount} Birr)</span>
+            </button>
+          ))}
+          {availableDeadlines.length === 0 && !deadlineLoading && (
+            <p className="text-gray-500 text-sm">No active deadlines found. Please create a deadline first.</p>
+          )}
+          {deadlineLoading && (
+            <Loader className="h-5 w-5 animate-spin text-gray-400" />
+          )}
+        </div>
+      </div>
 
       {/* Pending Summary Cards */}
       {pendingStats && pendingStats.by_month && Object.keys(pendingStats.by_month).length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {Object.entries(pendingStats.by_month).slice(0, 4).map(([month, data]) => (
-            <div key={month} className="bg-white rounded-xl shadow-lg p-4 border-l-4 border-red-500">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Object.entries(pendingStats.by_month).map(([deadlineId, data]) => (
+            <div key={deadlineId} className="bg-white rounded-xl shadow-lg p-4 border-l-4 border-red-500">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold text-gray-900">{data.month_name}</h3>
                 <span className="text-sm bg-red-100 text-red-800 px-2 py-1 rounded-full">
@@ -461,18 +633,18 @@ function SMSDashboard() {
               className="px-6 pb-6"
             >
               <div className="pt-4 space-y-4">
-                {pendingStudents.length === 0 && (
+                {pendingStudents.length === 0 && selectedDeadline && (
                   <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                     <div className="flex items-center gap-2">
                       <CheckCircle className="h-5 w-5 text-green-600" />
                       <p className="text-green-700">
-                        No pending payments for {selectedYear?.name || 'selected academic year'}!
+                        No pending payments for {selectedDeadline.month_name} {selectedDeadline.academic_year}!
                       </p>
                     </div>
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Filter by Grade
@@ -489,23 +661,6 @@ function SMSDashboard() {
                     </select>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Filter by Month
-                    </label>
-                    <select
-                      value={filterMonth}
-                      onChange={(e) => setFilterMonth(e.target.value)}
-                      className="input-field"
-                    >
-                      <option value="all">All Months</option>
-                      {months.map((month, index) => (
-                        <option key={index} value={index + 1}>{month}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* ✅ NEW: Student Search */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Search by Student ID or Name
@@ -525,17 +680,17 @@ function SMSDashboard() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Message (Optional)
+                    Custom Message (Optional)
                   </label>
                   <textarea
                     value={bulkMessage}
                     onChange={(e) => setBulkMessage(e.target.value)}
                     rows="3"
                     className="input-field"
-                    placeholder="Enter your message or leave blank for default reminder..."
+                    placeholder="Enter your custom message or leave blank for default reminder with payment link..."
                   />
                   <p className="text-xs text-gray-500 mt-2">
-                    Default message will include student name and pending months
+                    Default message includes student name, amount due, and a payment link
                   </p>
                 </div>
 
@@ -560,34 +715,51 @@ function SMSDashboard() {
 
                     <div className="max-h-60 overflow-y-auto divide-y divide-gray-200">
                       {filteredStudents.map((student) => (
-                        <div key={student.student_id} className="px-4 py-3 hover:bg-gray-50 flex items-center gap-3">
-                          <input
-                            type="checkbox"
-                            checked={selectedStudents.includes(student.student_id)}
-                            onChange={() => toggleStudent(student.student_id)}
-                            className="rounded text-primary-600"
-                          />
-                          <div className="flex-1">
-                            <p className="font-medium text-gray-900">{student.student_name}</p>
-                            <p className="text-sm text-gray-500">
-                              ID: {student.student_id} • Grade {student.grade} • {student.parent_phone || 'No phone'}
-                            </p>
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {student.pending_months?.slice(0, 3).map((month, idx) => (
-                                <span key={idx} className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
-                                  {month.month_name}
-                                  {month.days_overdue > 0 && ` (${month.days_overdue} days)`}
-                                </span>
-                              ))}
-                              {student.pending_months?.length > 3 && (
-                                <span className="text-xs text-gray-500">
-                                  +{student.pending_months.length - 3} more
-                                </span>
+                        <div key={student.student_id} className="px-4 py-3 hover:bg-gray-50">
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedStudents.includes(student.student_id)}
+                              onChange={() => toggleStudent(student.student_id)}
+                              className="rounded text-primary-600 mt-1"
+                            />
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between flex-wrap gap-2">
+                                <p className="font-medium text-gray-900">{student.student_name}</p>
+                                <div className="flex gap-2">
+                                  {/* ✅ NEW: Preview payment link button */}
+                                  <button
+                                    onClick={() => setShowPaymentLinks(!showPaymentLinks)}
+                                    className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                                  >
+                                    <Eye className="h-3 w-3" />
+                                    Preview Link
+                                  </button>
+                                  {/* ✅ NEW: Send single reminder button */}
+                                  <button
+                                    onClick={() => sendSingleReminder(student)}
+                                    className="text-xs bg-primary-100 text-primary-700 px-2 py-1 rounded hover:bg-primary-200 flex items-center gap-1"
+                                  >
+                                    <Send className="h-3 w-3" />
+                                    Send Now
+                                  </button>
+                                </div>
+                              </div>
+                              <p className="text-sm text-gray-500">
+                                ID: {student.student_id} • Grade {student.grade} • {student.parent_phone || 'No phone'}
+                              </p>
+                              <p className="text-xs text-orange-600 mt-1">
+                                {selectedDeadline?.month_name} {selectedDeadline?.academic_year} • {student.total_due?.toLocaleString() || 0} Birr due
+                              </p>
+                              {showPaymentLinks && student.payment_link && (
+                                <div className="mt-2 p-2 bg-gray-100 rounded text-xs break-all">
+                                  <LinkIcon className="h-3 w-3 inline mr-1" />
+                                  <a href={student.payment_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                                    {student.payment_link}
+                                  </a>
+                                </div>
                               )}
                             </div>
-                            <p className="text-xs text-orange-600 mt-1">
-                              {student.pending_months?.length || 0} month(s) pending • {student.total_due?.toLocaleString() || 0} Birr due
-                            </p>
                           </div>
                         </div>
                       ))}
@@ -595,7 +767,7 @@ function SMSDashboard() {
                   </div>
                 )}
 
-                {pendingStudents.length > 0 && (
+                {pendingStudents.length > 0 && selectedDeadline && (
                   <button
                     onClick={sendBulkSMS}
                     disabled={sendingBulk || selectedStudents.length === 0}
