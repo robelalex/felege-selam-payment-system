@@ -7,9 +7,8 @@ from rest_framework import status
 from .models import School, SchoolAdminProfile
 from .serializers import SchoolSerializer
 
-# ✅ Import the SMS service (create this file if not exists)
-# If the service doesn't exist yet, comment this line for now
-# from payments.services.multi_school_sms_service import MultiSchoolSMSService
+# ✅ UNCOMMENT THIS LINE - Import the SMS service
+from payments.services.multi_school_sms_service import MultiSchoolSMSService
 
 
 class SchoolViewSet(viewsets.ModelViewSet):
@@ -36,8 +35,8 @@ class SchoolSMSConfigView(APIView):
             if str(admin_profile.school.id) != school_id:
                 return Response({'error': 'Access denied'}, status=403)
             school = admin_profile.school
-        except:
-            return Response({'error': 'School admin profile not found'}, status=403)
+        except Exception as e:
+            return Response({'error': f'School admin profile not found: {str(e)}'}, status=403)
         
         # Return SMS config (hide sensitive data partially)
         return Response({
@@ -63,8 +62,8 @@ class SchoolSMSConfigView(APIView):
             if str(admin_profile.school.id) != school_id:
                 return Response({'error': 'Access denied'}, status=403)
             school = admin_profile.school
-        except:
-            return Response({'error': 'School admin profile not found'}, status=403)
+        except Exception as e:
+            return Response({'error': f'School admin profile not found: {str(e)}'}, status=403)
         
         # Update fields
         if 'at_username' in request.data:
@@ -103,27 +102,21 @@ class SchoolSMSTestView(APIView):
             if str(admin_profile.school.id) != school_id:
                 return Response({'error': 'Access denied'}, status=403)
             school = admin_profile.school
-        except:
-            return Response({'error': 'School admin profile not found'}, status=403)
+        except Exception as e:
+            return Response({'error': f'School admin profile not found: {str(e)}'}, status=403)
         
         # Check if credentials exist
         if not school.at_username or not school.at_api_key:
             return Response({'error': 'Please save your Africa\'s Talking credentials first'}, status=400)
         
-        # For now, just return success (we'll add actual SMS test later)
-        # Once you create the multi_school_sms_service.py file, uncomment the code below
+        # ✅ NEW: Check if school has a phone number
+        if not school.phone:
+            return Response({'error': 'School phone number is not set. Please update school phone number first.'}, status=400)
         
-        return Response({
-            'success': True,
-            'message': f'Test functionality ready. Credentials saved for {school.name}.'
-        })
-        
-        # TODO: Uncomment this after creating multi_school_sms_service.py
-        """
+        # ✅ NEW: Actually send test SMS
         try:
             sms_service = MultiSchoolSMSService(school.id)
             result = sms_service.test_credentials()
             return Response(result)
         except Exception as e:
             return Response({'error': str(e)}, status=400)
-        """

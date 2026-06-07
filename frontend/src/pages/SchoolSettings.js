@@ -24,13 +24,14 @@ const SchoolSettings = () => {
     const fetchSMSConfig = async () => {
         setLoading(true);
         try {
-            const response = await api.get('/schools/sms-config/', {
+            // ✅ FIXED: Use the new URL path (no /schools/ prefix)
+            const response = await api.get('/sms-config/', {
                 headers: getAuthHeader()
             });
             setConfig(response.data);
         } catch (error) {
             console.error('Error fetching config:', error);
-            alert('Failed to load SMS configuration');
+            alert('Failed to load SMS configuration: ' + (error.response?.data?.error || error.message));
         } finally {
             setLoading(false);
         }
@@ -49,14 +50,15 @@ const SchoolSettings = () => {
         setLoading(true);
         
         try {
-            await api.post('/schools/sms-config/', config, {
+            // ✅ FIXED: Use the new URL path
+            await api.post('/sms-config/', config, {
                 headers: getAuthHeader()
             });
             alert('SMS configuration saved successfully! Please test your credentials.');
             await fetchSMSConfig();
         } catch (error) {
             console.error('Error saving config:', error);
-            alert('Failed to save configuration');
+            alert('Failed to save configuration: ' + (error.response?.data?.error || error.message));
         } finally {
             setLoading(false);
         }
@@ -65,10 +67,11 @@ const SchoolSettings = () => {
     const handleTest = async () => {
         setTesting(true);
         try {
-            const response = await api.post('/schools/sms-test/', {}, {
+            // ✅ FIXED: Use the new URL path
+            const response = await api.post('/sms-test/', {}, {
                 headers: getAuthHeader()
             });
-            alert('Test SMS sent successfully to school phone!');
+            alert(response.data.message || 'Test SMS sent successfully to school phone!');
             await fetchSMSConfig();
         } catch (error) {
             console.error('Test failed:', error);
