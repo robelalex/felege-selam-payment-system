@@ -65,7 +65,10 @@ api.interceptors.request.use(
     const isVerify = config.url && config.url.includes('/verify/');
     
     // ✅ Check if this request should skip year parameters
-    const shouldSkipParams = isLogin || isVerify || isStaffCreate || isChapaPayment || isChapaInitiate;
+    const isSMSConfig = config.url && config.url.includes('/schools/sms-config/');
+    const isSMSTest = config.url && config.url.includes('/schools/sms-test/');
+
+    const shouldSkipParams = isLogin || isVerify || isStaffCreate || isChapaPayment || isChapaInitiate || isSMSConfig || isSMSTest;
     
     if (shouldSkipParams) {
       console.log('📤 INTERCEPTOR - SKIPPING year params for excluded endpoint');

@@ -12,6 +12,15 @@ from .views.sms_views import (
     sms_balance, send_test_sms, sms_history,
     send_payment_reminder, send_bulk_reminders
 )
+
+from .views.sms_views_v2 import (
+    MultiSchoolSMSBalanceView,
+    MultiSchoolSendTestSMSView,
+    MultiSchoolSendPaymentReminderView,
+    MultiSchoolSendBulkRemindersView,
+    MultiSchoolSMSPendingRemindersView
+)
+
 from .views.chapa_views import (
     initiate_chapa_payment, chapa_webhook,
     verify_chapa_payment, get_chapa_banks, payment_status, mobile_redirect
@@ -65,6 +74,12 @@ urlpatterns += [
     path('sms/history/', sms_history, name='sms-history'),
     path('sms/send-reminder/', send_payment_reminder, name='send-payment-reminder'),
     path('sms/send-bulk/', send_bulk_reminders, name='send-bulk-reminders'),
+
+    path('sms/multi-school/balance/', MultiSchoolSMSBalanceView.as_view(), name='multi-school-sms-balance'),
+    path('sms/multi-school/test/', MultiSchoolSendTestSMSView.as_view(), name='multi-school-sms-test'),
+    path('sms/multi-school/reminder/', MultiSchoolSendPaymentReminderView.as_view(), name='multi-school-sms-reminder'),
+    path('sms/multi-school/bulk-reminders/', MultiSchoolSendBulkRemindersView.as_view(), name='multi-school-bulk-reminders'),
+    path('sms/multi-school/deadline/<int:deadline_id>/pending/', MultiSchoolSMSPendingRemindersView.as_view(), name='multi-school-pending-reminders'),
 ]
 
 # Report URLs

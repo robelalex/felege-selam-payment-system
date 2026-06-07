@@ -39,6 +39,7 @@ urlpatterns = [
     # API routes
     path('api/', include(router.urls)),
     path('api-auth/', include('rest_framework.urls')),
+    path('api/', include('schools.urls')),
     path('api/auth/change-password/', change_password, name='change-password'),
     path('api/admin/', include('authentication.urls')),
     path('api/', include('authentication.urls')), 
