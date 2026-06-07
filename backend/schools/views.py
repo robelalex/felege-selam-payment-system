@@ -7,13 +7,49 @@ from rest_framework import status
 from .models import School, SchoolAdminProfile
 from .serializers import SchoolSerializer
 
-# ✅ UNCOMMENT THIS LINE - Import the SMS service
+# ✅ Import the SMS service
 from payments.services.multi_school_sms_service import MultiSchoolSMSService
 
 
 class SchoolViewSet(viewsets.ModelViewSet):
     queryset = School.objects.all()
     serializer_class = SchoolSerializer
+
+
+# ========== HELPER FUNCTION FOR AUTHENTICATION ==========
+
+def get_school_from_request(request):
+    """
+    Helper function to get the school from the request.
+    Handles both SchoolAdminProfile and UserProfile authentication methods.
+    Returns (school, error_response) tuple.
+    """
+    school_id = request.headers.get('X-School-ID')
+    if not school_id:
+        return None, Response({'error': 'X-School-ID header required'}, status=400)
+    
+    # Method 1: Check for SchoolAdminProfile
+    if hasattr(request.user, 'school_profile'):
+        try:
+            admin_profile = request.user.school_profile
+            if str(admin_profile.school.id) == school_id:
+                return admin_profile.school, None
+            else:
+                return None, Response({'error': 'Access denied - wrong school'}, status=403)
+        except Exception as e:
+            pass  # Fall through to next method
+    
+    # Method 2: Check for UserProfile (for production)
+    try:
+        from authentication.models import UserProfile
+        profile = UserProfile.objects.get(user=request.user)
+        if profile.school_id and str(profile.school_id) == school_id:
+            school = School.objects.get(id=school_id)
+            return school, None
+        else:
+            return None, Response({'error': 'No school associated with this user'}, status=403)
+    except Exception as e:
+        return None, Response({'error': f'Authentication error: {str(e)}'}, status=403)
 
 
 # ========== SMS CONFIGURATION VIEWS ==========
@@ -24,19 +60,9 @@ class SchoolSMSConfigView(APIView):
     
     def get(self, request):
         """Get current SMS configuration for the school"""
-        # Get school from X-School-ID header
-        school_id = request.headers.get('X-School-ID')
-        if not school_id:
-            return Response({'error': 'X-School-ID header required'}, status=400)
-        
-        # Verify admin has access to this school
-        try:
-            admin_profile = request.user.school_profile
-            if str(admin_profile.school.id) != school_id:
-                return Response({'error': 'Access denied'}, status=403)
-            school = admin_profile.school
-        except Exception as e:
-            return Response({'error': f'School admin profile not found: {str(e)}'}, status=403)
+        school, error_response = get_school_from_request(request)
+        if error_response:
+            return error_response
         
         # Return SMS config (hide sensitive data partially)
         return Response({
@@ -52,18 +78,9 @@ class SchoolSMSConfigView(APIView):
     
     def post(self, request):
         """Save SMS credentials"""
-        school_id = request.headers.get('X-School-ID')
-        if not school_id:
-            return Response({'error': 'X-School-ID header required'}, status=400)
-        
-        # Verify admin
-        try:
-            admin_profile = request.user.school_profile
-            if str(admin_profile.school.id) != school_id:
-                return Response({'error': 'Access denied'}, status=403)
-            school = admin_profile.school
-        except Exception as e:
-            return Response({'error': f'School admin profile not found: {str(e)}'}, status=403)
+        school, error_response = get_school_from_request(request)
+        if error_response:
+            return error_response
         
         # Update fields
         if 'at_username' in request.data:
@@ -92,28 +109,19 @@ class SchoolSMSTestView(APIView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        school_id = request.headers.get('X-School-ID')
-        if not school_id:
-            return Response({'error': 'X-School-ID header required'}, status=400)
-        
-        # Verify admin
-        try:
-            admin_profile = request.user.school_profile
-            if str(admin_profile.school.id) != school_id:
-                return Response({'error': 'Access denied'}, status=403)
-            school = admin_profile.school
-        except Exception as e:
-            return Response({'error': f'School admin profile not found: {str(e)}'}, status=403)
+        school, error_response = get_school_from_request(request)
+        if error_response:
+            return error_response
         
         # Check if credentials exist
         if not school.at_username or not school.at_api_key:
             return Response({'error': 'Please save your Africa\'s Talking credentials first'}, status=400)
         
-        # ✅ NEW: Check if school has a phone number
+        # Check if school has a phone number
         if not school.phone:
             return Response({'error': 'School phone number is not set. Please update school phone number first.'}, status=400)
         
-        # ✅ NEW: Actually send test SMS
+        # Send test SMS
         try:
             sms_service = MultiSchoolSMSService(school.id)
             result = sms_service.test_credentials()
