@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
 const SchoolSettings = () => {
-    const { getAuthHeader } = useAuth();
+    const { getAuthHeader } = useAuth();  // Keep this for X-School-ID if needed
     const [loading, setLoading] = useState(false);
     const [testing, setTesting] = useState(false);
     const [config, setConfig] = useState({
@@ -24,14 +24,12 @@ const SchoolSettings = () => {
     const fetchSMSConfig = async () => {
         setLoading(true);
         try {
-            // ✅ FIXED: Use the new URL path (no /schools/ prefix)
-            const response = await api.get('/sms-config/', {
-                headers: getAuthHeader()
-            });
+            // ✅ REMOVED manual headers - let interceptor handle it
+            const response = await api.get('/sms-config/');
             setConfig(response.data);
         } catch (error) {
             console.error('Error fetching config:', error);
-            alert('Failed to load SMS configuration: ' + (error.response?.data?.error || error.message));
+            alert('Failed to load SMS configuration');
         } finally {
             setLoading(false);
         }
@@ -50,15 +48,13 @@ const SchoolSettings = () => {
         setLoading(true);
         
         try {
-            // ✅ FIXED: Use the new URL path
-            await api.post('/sms-config/', config, {
-                headers: getAuthHeader()
-            });
+            // ✅ REMOVED manual headers
+            await api.post('/sms-config/', config);
             alert('SMS configuration saved successfully! Please test your credentials.');
             await fetchSMSConfig();
         } catch (error) {
             console.error('Error saving config:', error);
-            alert('Failed to save configuration: ' + (error.response?.data?.error || error.message));
+            alert('Failed to save configuration');
         } finally {
             setLoading(false);
         }
@@ -67,10 +63,8 @@ const SchoolSettings = () => {
     const handleTest = async () => {
         setTesting(true);
         try {
-            // ✅ FIXED: Use the new URL path
-            const response = await api.post('/sms-test/', {}, {
-                headers: getAuthHeader()
-            });
+            // ✅ REMOVED manual headers
+            const response = await api.post('/sms-test/', {});
             alert(response.data.message || 'Test SMS sent successfully to school phone!');
             await fetchSMSConfig();
         } catch (error) {
