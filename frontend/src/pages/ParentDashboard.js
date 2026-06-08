@@ -7,11 +7,12 @@ import {
   XCircle, AlertCircle, Loader, Eye, Download, 
   ChevronRight, User, Home, Receipt, TrendingUp,
   Shield, Smartphone, Building2, Lock, ArrowLeft,
-  Upload, Banknote
+  Upload, Banknote, Trash2
 } from 'lucide-react';
 import api from '../services/api';
 import ParentLayout from '../components/Layout/ParentLayout';
 import UploadSlipModal from '../components/UploadSlipModal';
+import ReceiptModal from '../components/ReceiptModal';
 
 function ParentDashboard() {
   const { studentId } = useParams();
@@ -26,6 +27,9 @@ function ParentDashboard() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedDeadline, setSelectedDeadline] = useState(null);
   const [showBankInfo, setShowBankInfo] = useState(null);
+  // ✅ NEW: State for receipt modal
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState(null);
 
   useEffect(() => {
     fetchStudentData();
@@ -360,61 +364,119 @@ const handleBankTransfer = (payment) => {
           </div>
         )}
 
-        {/* Payment History */}
-        <div className="bg-white rounded-2xl shadow-lg p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-            <Receipt className="h-5 w-5 text-gray-600" />
-            Payment History
-          </h2>
-          
-          {payments.length === 0 ? (
-            <p className="text-gray-500 text-center py-8">No payment records found.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Date</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Description</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">Amount</th>
-                    <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Status</th>
-                    <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Receipt</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {payments.map((payment) => (
-                    <tr key={payment.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm text-gray-600">
-                        {formatDate(payment.payment_date || payment.created_at)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-900">
-                        {payment.description || payment.deadline_name || 'Tuition Fee'}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-900 text-right font-medium">
-                        ETB {parseFloat(payment.amount).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {getPaymentStatusBadge(payment.status)}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {payment.receipt_url && (
-                          <a
-                            href={payment.receipt_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-indigo-600 hover:text-indigo-800"
-                          >
-                            <Download className="h-4 w-4 inline" />
-                          </a>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+{/* Payment History */}
+<div className="bg-white rounded-2xl shadow-lg p-6">
+  <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+    <Receipt className="h-5 w-5 text-gray-600" />
+    Payment History
+  </h2>
+  
+  {payments.length === 0 ? (
+    <p className="text-gray-500 text-center py-8">No payment records found.</p>
+  ) : (
+    <div className="overflow-x-auto">
+      <table className="w-full">
+        <thead className="bg-gray-50">
+          <tr>
+            <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Date</th>
+            <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Description</th>
+            <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">Amount</th>
+            <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Status</th>
+            <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-200">
+          {payments.map((payment) => (
+            <tr key={payment.id} className="hover:bg-gray-50">
+              <td className="px-4 py-3 text-sm text-gray-600">
+                {formatDate(payment.payment_date || payment.created_at)}
+              </td>
+              <td className="px-4 py-3 text-sm text-gray-900">
+                {payment.description || payment.deadline_name || 'Tuition Fee'}
+                {payment.is_from_slip && (
+                  <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
+                    Bank Slip
+                  </span>
+                )}
+              </td>
+              <td className="px-4 py-3 text-sm text-gray-900 text-right font-medium">
+                ETB {parseFloat(payment.amount).toLocaleString()}
+              </td>
+              <td className="px-4 py-3 text-center">
+                {payment.status === 'verified' && (
+                  <span className="inline-flex items-center gap-1 text-green-600 bg-green-50 px-2 py-1 rounded-full text-xs">
+                    <CheckCircle className="h-3 w-3" /> Paid
+                  </span>
+                )}
+                {payment.status === 'pending' && (
+                  <span className="inline-flex items-center gap-1 text-yellow-600 bg-yellow-50 px-2 py-1 rounded-full text-xs">
+                    <Clock className="h-3 w-3" /> Pending
+                  </span>
+                )}
+                {payment.status === 'rejected' && (
+                  <span className="inline-flex items-center gap-1 text-red-600 bg-red-50 px-2 py-1 rounded-full text-xs">
+                    <XCircle className="h-3 w-3" /> Rejected
+                  </span>
+                )}
+              </td>
+              <td className="px-4 py-3 text-center">
+                <div className="flex items-center justify-center gap-2">
+                  {/* View Receipt Button */}
+                  <button
+                    onClick={() => {
+                      setSelectedPayment(payment);
+                      setShowReceiptModal(true);
+                    }}
+                    className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    title="View Receipt"
+                  >
+                    <Eye className="h-4 w-4" />
+                  </button>
+                  
+                  {/* Delete Button - NOW SHOWS FOR ALL PAYMENTS */}
+                  <button
+                    onClick={async () => {
+                      let confirmMessage = 'Are you sure you want to delete this payment? This action cannot be undone.';
+                      if (payment.status === 'verified') {
+                        confirmMessage = 'WARNING: This payment is already verified. Deleting it will mark the month as unpaid. Are you sure?';
+                      }
+                      if (window.confirm(confirmMessage)) {
+                        try {
+                          await api.delete(`/payments/${payment.id}/parent_delete/`);
+                          fetchStudentData();
+                          alert('Payment deleted successfully');
+                        } catch (err) {
+                          console.error('Delete failed:', err);
+                          alert(err.response?.data?.error || 'Failed to delete payment');
+                        }
+                      }
+                    }}
+                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    title="Delete Payment"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</div>
+
+        {/* Receipt Modal */}
+        {showReceiptModal && selectedPayment && (
+          <ReceiptModal
+            payment={selectedPayment}
+            student={student}
+            onClose={() => {
+              setShowReceiptModal(false);
+              setSelectedPayment(null);
+            }}
+          />
+        )}
 
         {/* Payment Methods Info */}
         <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl p-6">

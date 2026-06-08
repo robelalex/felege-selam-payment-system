@@ -1,8 +1,8 @@
 # backend/payments/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import PaymentViewSet, PaymentDeadlineViewSet, ReminderViewSet
-from .views import send_reminders, send_payment_confirmation
+from .views.views import PaymentViewSet, PaymentDeadlineViewSet  # ✅ Changed import
+from .views import ReminderViewSet, send_reminders, send_payment_confirmation
 from .views.report_views import monthly_report, student_report, annual_summary, monthly_detailed_report
 from .views.slip_views import (
     upload_slip, pending_slips, verify_slip, ai_stats,
@@ -43,13 +43,14 @@ payment_viewset = PaymentViewSet.as_view({
 })
 
 urlpatterns = [
-    # ✅ Payments endpoints - direct paths
+    # Payments endpoints - direct paths
     path('payments/', payment_viewset, name='payments'),
     path('payments/initiate-payment/', PaymentViewSet.as_view({'post': 'initiate_payment'}), name='initiate-payment'),
     path('payments/verify-payment/<int:pk>/', PaymentViewSet.as_view({'post': 'verify_payment'}), name='verify-payment'),
     path('payments/pending-verifications/', PaymentViewSet.as_view({'get': 'pending_verifications'}), name='pending-verifications'),
     path('payments/delete-payment/<int:pk>/', PaymentViewSet.as_view({'delete': 'delete_payment'}), name='delete-payment'),
     path('payments/bulk-delete/', PaymentViewSet.as_view({'post': 'bulk_delete'}), name='bulk-delete'),
+    path('payments/<int:pk>/parent_delete/', PaymentViewSet.as_view({'delete': 'parent_delete'}), name='parent-delete'),
     
     # Archive/History endpoints
     path('payments/<int:pk>/archive_payment/', PaymentViewSet.as_view({'post': 'archive_payment'}), name='archive-payment'),

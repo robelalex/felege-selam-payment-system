@@ -1,5 +1,5 @@
 // src/pages/AdminSlips.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   CheckCircle, 
   XCircle, 
@@ -9,13 +9,24 @@ import {
   AlertCircle,
   Trash2,
   CheckSquare,
-  Square
+  Square,
+  Search,
+  GraduationCap,
+  Calendar
 } from 'lucide-react';
 import api from '../services/api';
 import { useYear } from '../context/YearContext';
 
 // Get the base URL from environment or use default
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000';
+
+// Ethiopian months
+const months = [
+  'መስከረም', 'ጥቅምት', 'ህዳር', 'ታህሳስ', 'ጥር', 'የካቲት',
+  'መጋቢት', 'ሚያዝያ', 'ግንቦት', 'ሰኔ', 'ሐምሌ', 'ነሐሴ', 'ጳጉሜ'
+];
+
+const grades = [1, 2, 3, 4, 5, 6, 7, 8];
 
 function AdminSlips() {
   const [slips, setSlips] = useState([]);
@@ -26,11 +37,35 @@ function AdminSlips() {
   const [selectedSlips, setSelectedSlips] = useState([]);
   const [selectAll, setSelectAll] = useState(false);
   
+  // ✅ NEW: Filter states
+  const [filterGrade, setFilterGrade] = useState('all');
+  const [filterMonth, setFilterMonth] = useState('all');
+  const [studentSearch, setStudentSearch] = useState('');
+  
+  // Debounce timeout
+  const searchTimeout = useRef(null);
+  
   const { selectedYear } = useYear();
+
+  // ✅ Debounced search
+  useEffect(() => {
+    if (searchTimeout.current) {
+      clearTimeout(searchTimeout.current);
+    }
+    searchTimeout.current = setTimeout(() => {
+      fetchPendingSlips();
+    }, 500);
+    
+    return () => {
+      if (searchTimeout.current) {
+        clearTimeout(searchTimeout.current);
+      }
+    };
+  }, [studentSearch]);
 
   useEffect(() => {
     fetchPendingSlips();
-  }, [selectedYear]);
+  }, [selectedYear, filterGrade, filterMonth, studentSearch]);
 
   // Handle select all when page changes
   useEffect(() => {
@@ -41,7 +76,7 @@ function AdminSlips() {
     }
   }, [selectAll, slips]);
 
-const fetchPendingSlips = async () => {
+  const fetchPendingSlips = async () => {
     setLoading(true);
     setError('');
     try {
@@ -53,12 +88,24 @@ const fetchPendingSlips = async () => {
         params.append('year_id', selectedYear.id);
       }
       
+      // ✅ NEW: Add filter parameters
+      if (filterGrade && filterGrade !== 'all') {
+        params.append('grade', filterGrade);
+      }
+      
+      if (filterMonth && filterMonth !== 'all') {
+        params.append('month', filterMonth);
+      }
+      
+      if (studentSearch && studentSearch.trim()) {
+        params.append('student_search', studentSearch);
+      }
+      
       const queryString = params.toString();
       const url = queryString ? `/slips/pending/?${queryString}` : '/slips/pending/';
       
-      console.log('📄 Fetching slips for year:', selectedYear?.name);
+      console.log('📄 Fetching slips with filters:', { filterGrade, filterMonth, studentSearch });
       const response = await api.get(url);
-      console.log('SLIP IMAGE URL:', response.data[0]?.slip_image); // ADD THIS
       setSlips(response.data);
       setSelectedSlips([]);
       setSelectAll(false);
@@ -87,7 +134,7 @@ const fetchPendingSlips = async () => {
     if (window.confirm('Are you sure you want to delete this slip? This action cannot be undone.')) {
       setProcessing(slipId);
       try {
-        await api.delete(`/slips/${slipId}/`);
+        await api.delete(`/slips/${slipId}/delete/`);
         await fetchPendingSlips();
       } catch (err) {
         console.error('Error deleting slip:', err);
@@ -124,16 +171,14 @@ const fetchPendingSlips = async () => {
     setSelectAll(false);
   };
 
-const getFullImageUrl = (imagePath) => {
+  const getFullImageUrl = (imagePath) => {
     if (!imagePath) return null;
-    // Cloudinary or any full URL — use directly
     if (imagePath.startsWith('http')) return imagePath;
-    // Local media file — strip /api from base URL
     const backendRoot = (process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000')
         .replace(/\/api\/?$/, '');
     if (imagePath.startsWith('/media')) return `${backendRoot}${imagePath}`;
     return `${backendRoot}/media/${imagePath}`;
-};
+  };
 
   if (loading) {
     return (
@@ -185,6 +230,65 @@ const getFullImageUrl = (imagePath) => {
         </div>
       </div>
 
+      {/* ✅ NEW: Filters Section */}
+      <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Grade Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <GraduationCap className="h-4 w-4 inline mr-1" />
+              Filter by Grade
+            </label>
+            <select
+              value={filterGrade}
+              onChange={(e) => setFilterGrade(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            >
+              <option value="all">All Grades</option>
+              {grades.map(grade => (
+                <option key={grade} value={grade}>Grade {grade}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Month Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <Calendar className="h-4 w-4 inline mr-1" />
+              Filter by Month
+            </label>
+            <select
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            >
+              <option value="all">All Months</option>
+              {months.map((month, index) => (
+                <option key={index} value={index + 1}>{month}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Student Search */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <Search className="h-4 w-4 inline mr-1" />
+              Search by Student ID or Name
+            </label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+                placeholder="Enter student ID or name..."
+                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
       {slips.length === 0 ? (
         <div className="bg-white rounded-xl shadow-lg p-12 text-center">
           <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
@@ -192,11 +296,23 @@ const getFullImageUrl = (imagePath) => {
           <p className="text-gray-500 mt-2">
             All bank slips for {selectedYear?.name || 'selected academic year'} have been verified.
           </p>
+          {(filterGrade !== 'all' || filterMonth !== 'all' || studentSearch) && (
+            <button
+              onClick={() => {
+                setFilterGrade('all');
+                setFilterMonth('all');
+                setStudentSearch('');
+              }}
+              className="mt-4 text-primary-600 hover:text-primary-700"
+            >
+              Clear all filters
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid gap-4">
           {/* Select All Header */}
-          <div className="bg-gray-50 rounded-lg p-3 flex items-center justify-between">
+          <div className="bg-gray-50 rounded-lg p-3 flex items-center justify-between flex-wrap gap-2">
             <button
               onClick={() => setSelectAll(!selectAll)}
               className="flex items-center gap-2 text-sm font-medium text-gray-700"
@@ -216,7 +332,7 @@ const getFullImageUrl = (imagePath) => {
             >
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
+                  <div className="flex items-center gap-3 mb-2 flex-wrap">
                     <input
                       type="checkbox"
                       checked={selectedSlips.includes(slip.id)}
@@ -252,7 +368,7 @@ const getFullImageUrl = (imagePath) => {
                   )}
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={() => setSelectedImage(getFullImageUrl(slip.slip_image))}
                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"

@@ -46,6 +46,7 @@ import ReminderDashboard from './pages/ReminderDashboard';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import AdminPaymentHistory from './pages/AdminPaymentHistory';
 import SchoolSettings from './pages/SchoolSettings';  // ✅ ADD THIS
+import BankSlips from './pages/BankSlips';
 
 // Styles
 import './index.css';
@@ -278,7 +279,7 @@ function App() {
                   </ProtectedRoute>
                 } 
               />
-
+               <Route path="/bank-slips" element={<BankSlips />} />
               {/* Test Routes */}
               <Route path="/login-test" element={<LoginTest />} />
               <Route path="/simple-test" element={<SimpleTest />} />
