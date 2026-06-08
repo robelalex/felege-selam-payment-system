@@ -18,6 +18,7 @@ function AdminPayments() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterMonth, setFilterMonth] = useState('all');
   const [filterGrade, setFilterGrade] = useState('all');
+  const [filterSource, setFilterSource] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
@@ -37,7 +38,7 @@ function AdminPayments() {
 
   useEffect(() => {
     applyFilters();
-  }, [payments, searchTerm, filterStatus, filterMonth, filterGrade]);
+  }, [payments, searchTerm, filterStatus, filterMonth, filterGrade, filterSource]);
 
   useEffect(() => {
     if (selectAll) {
@@ -104,13 +105,24 @@ function AdminPayments() {
       filtered = filtered.filter(payment => getMonthName(payment) === filterMonth);
     }
 
-// Grade filter
-if (filterGrade !== 'all') {
-  filtered = filtered.filter(payment => {
-    const studentGrade = payment.student_grade || payment.student?.grade || payment.grade;
-    return String(studentGrade) === filterGrade;
-  });
-}
+    // Grade filter
+    if (filterGrade !== 'all') {
+      filtered = filtered.filter(payment => {
+        const studentGrade = payment.student_grade || payment.student?.grade || payment.grade;
+        return String(studentGrade) === filterGrade;
+      });
+    }
+
+    // Source filter
+    if (filterSource !== 'all') {
+      if (filterSource === 'slip') {
+        filtered = filtered.filter(payment => payment.is_from_slip === true);
+      } else if (filterSource === 'online') {
+        filtered = filtered.filter(payment => !payment.is_from_slip && payment.payment_method === 'chapa');
+      } else if (filterSource === 'cash') {
+        filtered = filtered.filter(payment => payment.payment_method === 'cash');
+      }
+    }
 
     setFilteredPayments(filtered);
     setCurrentPage(1);
@@ -187,6 +199,7 @@ if (filterGrade !== 'all') {
     setFilterStatus('all');
     setFilterMonth('all');
     setFilterGrade('all');
+    setFilterSource('all');
   };
 
   const getMonthName = (payment) => {
@@ -208,10 +221,10 @@ if (filterGrade !== 'all') {
     return 'N/A';
   };
 
-const getStudentGrade = (payment) => {
-  const grade = payment.student_grade || payment.student?.grade || payment.grade;
-  return grade ? `Grade ${grade}` : 'N/A';
-};
+  const getStudentGrade = (payment) => {
+    const grade = payment.student_grade || payment.student?.grade || payment.grade;
+    return grade ? `Grade ${grade}` : 'N/A';
+  };
 
   const getStatusIcon = (status) => {
     switch(status) {
@@ -351,13 +364,13 @@ const getStudentGrade = (payment) => {
       <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base md:text-lg font-semibold text-gray-900">Filters</h2>
-          {(searchTerm || filterStatus !== 'all' || filterMonth !== 'all' || filterGrade !== 'all') && (
+          {(searchTerm || filterStatus !== 'all' || filterMonth !== 'all' || filterGrade !== 'all' || filterSource !== 'all') && (
             <button onClick={clearFilters} className="text-sm text-primary-600 hover:text-primary-700 font-medium tap-target">
               Clear Filters
             </button>
           )}
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
@@ -385,6 +398,12 @@ const getStudentGrade = (payment) => {
             {grades.map((grade) => (
               <option key={grade} value={grade}>Grade {grade}</option>
             ))}
+          </select>
+          <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)} className="input-field py-2 text-sm">
+            <option value="all">All Sources</option>
+            <option value="online">Online Payment</option>
+            <option value="slip">Bank Slip</option>
+            <option value="cash">Cash</option>
           </select>
         </div>
       </div>
@@ -435,7 +454,14 @@ const getStudentGrade = (payment) => {
                       </td>
                       <td className="px-4 py-3">
                         <div>
-                          <p className="font-medium text-gray-900">{getStudentName(payment)}</p>
+                          <p className="font-medium text-gray-900">
+                            {getStudentName(payment)}
+                            {payment.is_from_slip && (
+                              <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
+                                Slip
+                              </span>
+                            )}
+                          </p>
                           <p className="text-xs text-gray-500">{getStudentId(payment)}</p>
                         </div>
                       </td>
@@ -452,7 +478,7 @@ const getStudentGrade = (payment) => {
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500">
                         {new Date(payment.created_at).toLocaleDateString()}
-                      </td>
+                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-2">
                           <button
@@ -473,8 +499,8 @@ const getStudentGrade = (payment) => {
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
-                      </td>
-                    </tr>
+                       </td>
+                     </tr>
                   ))}
                 </tbody>
               </table>

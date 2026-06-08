@@ -13,7 +13,7 @@ from django.utils.decorators import method_decorator
 from ..services.ocr_service import OCRService
 from academics.models import AcademicYear
 from schools.models import School
-
+from django.db import models
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -161,7 +161,7 @@ def upload_slip(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def pending_slips(request):
-    """Get all pending slips for admin, filtered by school and academic year"""
+    """Get all pending slips for admin, filtered by school, grade, month, and student search"""
 
     school_id = request.headers.get('X-School-ID')
     print(f"📱 pending_slips - X-School-ID: {school_id}")
@@ -169,8 +169,10 @@ def pending_slips(request):
     if not school_id:
         return Response([], status=200)
 
+    # Base query
     slips = PaymentSlip.objects.filter(status='pending')
 
+    # Filter by school
     try:
         slips = slips.filter(student__school_id=int(school_id))
         print(f"📱 Filtered slips by school ID: {school_id}")
@@ -178,27 +180,59 @@ def pending_slips(request):
         print(f"📱 Invalid school ID: {school_id}")
         return Response([], status=200)
 
-    year_id    = request.query_params.get('academic_year_id')
+    # ✅ NEW: Filter by grade
+    grade = request.query_params.get('grade')
+    if grade and grade != 'all' and grade != 'None':
+        try:
+            slips = slips.filter(student__grade=int(grade))
+            print(f"📱 Filtered by grade: {grade}")
+        except (ValueError, TypeError):
+            pass
+
+    # ✅ NEW: Filter by month
+    month = request.query_params.get('month')
+    if month and month != 'all' and month != 'None':
+        try:
+            slips = slips.filter(deadline__month=int(month))
+            print(f"📱 Filtered by month: {month}")
+        except (ValueError, TypeError):
+            pass
+
+    # ✅ NEW: Search by student ID or name
+    student_search = request.query_params.get('student_search')
+    if student_search and student_search.strip():
+        slips = slips.filter(
+            models.Q(student__student_id__icontains=student_search) |
+            models.Q(student__first_name__icontains=student_search) |
+            models.Q(student__last_name__icontains=student_search)
+        )
+        print(f"📱 Search by: {student_search}")
+
+    # Filter by academic year
+    year_id = request.query_params.get('academic_year_id')
     year_param = request.query_params.get('academic_year')
-    year_alt   = request.query_params.get('year')
+    year_alt = request.query_params.get('year')
     year_value = year_id or year_alt or year_param
 
     if year_value:
         try:
             year = AcademicYear.objects.get(id=int(year_value))
             slips = slips.filter(student__academic_year=year.name)
+            print(f"📱 Filtered by academic year: {year.name}")
         except (ValueError, AcademicYear.DoesNotExist):
             try:
                 year = AcademicYear.objects.get(year_ec=int(year_value))
                 slips = slips.filter(student__academic_year=year.name)
+                print(f"📱 Filtered by academic year: {year.name}")
             except (ValueError, AcademicYear.DoesNotExist):
                 slips = slips.filter(student__academic_year=year_value)
+                print(f"📱 Filtered by academic year string: {year_value}")
 
+    # Order by latest first
     slips = slips.select_related('student', 'deadline').order_by('-uploaded_at')
 
     data = []
     for s in slips:
-        # Get the correct URL whether Cloudinary or local
         try:
             image_url = s.slip_image.url if s.slip_image else None
         except Exception:
@@ -210,6 +244,7 @@ def pending_slips(request):
             'student_name': s.student.full_name,
             'grade': s.student.grade,
             'month': s.deadline.get_month_display(),
+            'month_value': s.deadline.month,  # ✅ Added for month filter
             'amount': float(s.amount),
             'bank_name': s.bank_name,
             'slip_image': image_url,

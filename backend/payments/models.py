@@ -67,6 +67,9 @@ class Payment(models.Model):
     is_archived = models.BooleanField(default=False)
     archived_at = models.DateTimeField(null=True, blank=True)
 
+    is_from_slip = models.BooleanField(default=False)
+    slip = models.ForeignKey('PaymentSlip', on_delete=models.SET_NULL, null=True, blank=True)
+
     payment_proof = models.FileField(upload_to='payment_proofs/%Y/%m/', blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     verified_by = models.ForeignKey(

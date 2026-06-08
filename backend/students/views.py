@@ -134,31 +134,29 @@ class StudentViewSet(viewsets.ModelViewSet):
                 'status': payment.status,
                 'payment_date': payment.created_at,
                 'payment_method': payment.payment_method,
-                'transaction_ref': payment.transaction_reference
+                'transaction_ref': payment.transaction_reference,
+                'is_from_slip': getattr(payment, 'is_from_slip', False),
             })
         
         return Response(data)
     
     @action(detail=True, methods=['get'], url_path='pending_payments')
     def pending_payments(self, request, pk=None):
-        """Get all pending payments for a student - ONLY for their academic year AND grade"""
+        """Get all pending payments for a student - INCLUDING slip payments"""
         try:
             student = self.get_object()
             print(f"📚 Getting pending payments for student ID: {student.id} - {student.student_id}")
             print(f"📚 Student grade: {student.grade}")
             
-            # Get verified/paid deadlines.
-            # Include soft-deleted (is_deleted=True) verified payments —
-            # they still prove the month was paid, so the deadline must not reappear.
+            # Get verified/paid deadlines from regular payments
             paid_deadlines = Payment.objects.filter(
                 student=student,
                 status='verified'
-            # deliberately NOT filtering by is_deleted here
             ).values_list('deadline_id', flat=True)
             
             print(f"📚 Paid deadline IDs: {list(paid_deadlines)}")
             
-            # Get pending deadlines
+            # Get pending deadlines from regular unpaid deadlines
             pending_deadlines = PaymentDeadline.objects.filter(
                 school=student.school,
                 academic_year=student.academic_year,
@@ -173,8 +171,17 @@ class StudentViewSet(viewsets.ModelViewSet):
             
             print(f"📚 Found {len(filtered_deadlines)} pending deadlines for grade {student.grade}")
             
+            # ✅ NEW: Also get pending payments from slip uploads (not yet verified)
+            pending_slip_payments = Payment.objects.filter(
+                student=student,
+                status='pending',
+                is_from_slip=True
+            ).select_related('deadline', 'slip')
+            
             # Format the response
             data = []
+            
+            # Add regular pending deadlines
             for deadline in filtered_deadlines:
                 data.append({
                     'id': deadline.id,
@@ -186,9 +193,33 @@ class StudentViewSet(viewsets.ModelViewSet):
                     'due_date': deadline.due_date,
                     'description': deadline.description,
                     'grade': deadline.grade,
-                    'is_active': deadline.is_active
+                    'is_active': deadline.is_active,
+                    'is_from_slip': False,
+                    'payment_status': None,
+                    'slip_status': None
                 })
                 print(f"📚 Added pending: {deadline.get_month_display()} - Grade: {deadline.grade if deadline.grade else 'All Grades'}")
+            
+            # ✅ Add pending slip payments
+            for payment in pending_slip_payments:
+                data.append({
+                    'id': payment.id,  # Payment ID for reference
+                    'deadline_id': payment.deadline.id,
+                    'month_name': payment.deadline.get_month_display(),
+                    'month_number': payment.deadline.month,
+                    'academic_year': payment.deadline.academic_year,
+                    'amount': str(payment.amount),
+                    'due_date': payment.deadline.due_date,
+                    'description': f"Bank Slip Upload - Pending Verification",
+                    'grade': payment.deadline.grade,
+                    'is_active': True,
+                    'is_from_slip': True,
+                    'payment_status': payment.status,
+                    'slip_status': payment.slip.status if payment.slip else 'pending',
+                    'payment_id': payment.id,
+                    'slip_image': payment.slip.slip_image.url if payment.slip and payment.slip.slip_image else None
+                })
+                print(f"📚 Added pending slip payment: {payment.deadline.get_month_display()}")
             
             return Response(data)
             
@@ -356,3 +387,41 @@ class StudentViewSet(viewsets.ModelViewSet):
             return Response({'success': True, 'monthly_fee': student.monthly_fee})
         
         return Response({'error': 'monthly_fee required'}, status=400)
+    
+    @action(detail=True, methods=['post'], url_path='request_payment_deletion')
+    def request_payment_deletion(self, request, pk=None):
+        """
+        Parent requests deletion of a payment (for pending/unverified payments only)
+        """
+        student = self.get_object()
+        payment_id = request.data.get('payment_id')
+        reason = request.data.get('reason', '')
+        
+        if not payment_id:
+            return Response({'error': 'Payment ID required'}, status=400)
+        
+        try:
+            payment = Payment.objects.get(id=payment_id, student=student)
+            
+            # Only allow deletion request for pending payments
+            if payment.status != 'pending':
+                return Response({'error': 'Only pending payments can be deleted'}, status=400)
+            
+            # Check if within 24 hours
+            from django.utils import timezone
+            from datetime import timedelta
+            
+            time_diff = timezone.now() - payment.created_at
+            if time_diff > timedelta(hours=24):
+                return Response({'error': 'Deletion request window has expired (24 hours)'}, status=400)
+            
+            # Delete the payment (it's pending)
+            payment.delete()
+            
+            # Log the deletion (optional)
+            print(f"🗑️ Parent requested deletion of payment {payment_id} for student {student.student_id}. Reason: {reason}")
+            
+            return Response({'success': True, 'message': 'Payment deleted successfully'})
+            
+        except Payment.DoesNotExist:
+            return Response({'error': 'Payment not found'}, status=404)

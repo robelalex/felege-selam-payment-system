@@ -156,7 +156,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(pending_payments, many=True)
         return Response(serializer.data)
     
-    # ===== ADD THESE THREE METHODS =====
     @action(detail=True, methods=['post'])
     def archive_payment(self, request, pk=None):
         """Move a payment to history (archive)"""
@@ -213,6 +212,34 @@ class PaymentViewSet(viewsets.ModelViewSet):
         )
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+    
+    # ✅ NEW: Parent-facing delete for pending payments only
+    @action(detail=True, methods=['delete'], url_path='parent_delete')
+    def parent_delete(self, request, pk=None):
+        """
+        Parent-facing delete for pending payments only
+        """
+        payment = self.get_object()
+        
+        # Check if payment is pending
+        if payment.status != 'pending':
+            return Response({'error': 'Only pending payments can be deleted'}, status=400)
+        
+        # Check if within 24 hours
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        time_diff = timezone.now() - payment.created_at
+        if time_diff > timedelta(hours=24):
+            return Response({'error': 'Deletion window has expired (24 hours)'}, status=400)
+        
+        # If it's a slip payment, also delete the slip
+        if hasattr(payment, 'is_from_slip') and payment.is_from_slip and hasattr(payment, 'slip') and payment.slip:
+            payment.slip.delete()
+        
+        payment.delete()
+        
+        return Response({'success': True, 'message': 'Payment deleted successfully'})
 
 
 class PaymentDeadlineViewSet(viewsets.ModelViewSet):
