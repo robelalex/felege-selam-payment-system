@@ -4,52 +4,18 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
+from django.core.exceptions import ObjectDoesNotExist
 from .models import School, SchoolAdminProfile
 from .serializers import SchoolSerializer
+from .utils import get_school_for_user
 
-# ✅ Import the SMS service
+# Import the SMS service
 from payments.services.multi_school_sms_service import MultiSchoolSMSService
 
 
 class SchoolViewSet(viewsets.ModelViewSet):
     queryset = School.objects.all()
     serializer_class = SchoolSerializer
-
-
-# ========== HELPER FUNCTION FOR AUTHENTICATION ==========
-
-def get_school_from_request(request):
-    """
-    Helper function to get the school from the request.
-    Handles both SchoolAdminProfile and UserProfile authentication methods.
-    Returns (school, error_response) tuple.
-    """
-    school_id = request.headers.get('X-School-ID')
-    if not school_id:
-        return None, Response({'error': 'X-School-ID header required'}, status=400)
-    
-    # Method 1: Check for SchoolAdminProfile
-    if hasattr(request.user, 'school_profile'):
-        try:
-            admin_profile = request.user.school_profile
-            if str(admin_profile.school.id) == school_id:
-                return admin_profile.school, None
-            else:
-                return None, Response({'error': 'Access denied - wrong school'}, status=403)
-        except Exception as e:
-            pass  # Fall through to next method
-    
-    # Method 2: Check for UserProfile (for production)
-    try:
-        from authentication.models import UserProfile
-        profile = UserProfile.objects.get(user=request.user)
-        if profile.school_id and str(profile.school_id) == school_id:
-            school = School.objects.get(id=school_id)
-            return school, None
-        else:
-            return None, Response({'error': 'No school associated with this user'}, status=403)
-    except Exception as e:
-        return None, Response({'error': f'Authentication error: {str(e)}'}, status=403)
 
 
 # ========== SMS CONFIGURATION VIEWS ==========
@@ -60,9 +26,17 @@ class SchoolSMSConfigView(APIView):
     
     def get(self, request):
         """Get current SMS configuration for the school"""
-        school, error_response = get_school_from_request(request)
-        if error_response:
-            return error_response
+        try:
+            school = get_school_for_user(request)
+        except ObjectDoesNotExist as e:
+            return Response(
+                {
+                    'error': 'School association not found.',
+                    'detail': str(e),
+                    'hint': 'Ensure your user has a SchoolAdminProfile or UserProfile with a school_id.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
         
         # Return SMS config (hide sensitive data partially)
         return Response({
@@ -78,9 +52,13 @@ class SchoolSMSConfigView(APIView):
     
     def post(self, request):
         """Save SMS credentials"""
-        school, error_response = get_school_from_request(request)
-        if error_response:
-            return error_response
+        try:
+            school = get_school_for_user(request)
+        except ObjectDoesNotExist as e:
+            return Response(
+                {'error': 'School association not found.', 'detail': str(e)},
+                status=status.HTTP_403_FORBIDDEN
+            )
         
         # Update fields
         if 'at_username' in request.data:
@@ -109,9 +87,13 @@ class SchoolSMSTestView(APIView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        school, error_response = get_school_from_request(request)
-        if error_response:
-            return error_response
+        try:
+            school = get_school_for_user(request)
+        except ObjectDoesNotExist as e:
+            return Response(
+                {'error': 'School association not found.', 'detail': str(e)},
+                status=status.HTTP_403_FORBIDDEN
+            )
         
         # Check if credentials exist
         if not school.at_username or not school.at_api_key:
