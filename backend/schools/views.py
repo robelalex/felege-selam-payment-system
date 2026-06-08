@@ -18,8 +18,50 @@ class SchoolViewSet(viewsets.ModelViewSet):
     serializer_class = SchoolSerializer
 
 
-# ========== TEMPORARY FIX ENDPOINT - REMOVE AFTER RUNNING ==========
+# ========== DEBUG ENDPOINT - TO FIND THE PROBLEM ==========
 from rest_framework.decorators import api_view, permission_classes
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def sms_config_preflight(request):
+    """Safe diagnostic endpoint — remove after debugging."""
+    user = request.user
+    
+    result = {
+        'user_id': user.id,
+        'username': user.username,
+        'email': user.email,
+        'x_school_id_header': request.headers.get('X-School-ID'),
+        'authenticator': str(getattr(request, 'successful_authenticator', 'Not available')),
+        'is_authenticated': user.is_authenticated,
+        'profiles': {}
+    }
+    
+    # Check SchoolAdminProfile
+    try:
+        sp = user.school_profile
+        result['profiles']['school_admin_profile'] = {
+            'id': sp.id, 
+            'school_id': sp.school_id,
+            'school_name': sp.school.name
+        }
+    except Exception as e:
+        result['profiles']['school_admin_profile'] = f'{type(e).__name__}: {str(e)}'
+    
+    # Check UserProfile
+    try:
+        up = user.userprofile
+        result['profiles']['user_profile'] = {
+            'id': up.id, 
+            'school_id': up.school_id
+        }
+    except Exception as e:
+        result['profiles']['user_profile'] = f'{type(e).__name__}: {str(e)}'
+
+    return Response(result)
+
+
+# ========== TEMPORARY FIX ENDPOINT - REMOVE AFTER RUNNING ==========
 from django.contrib.auth import get_user_model
 from authentication.models import UserProfile
 
