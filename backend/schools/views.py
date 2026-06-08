@@ -18,6 +18,43 @@ class SchoolViewSet(viewsets.ModelViewSet):
     serializer_class = SchoolSerializer
 
 
+# ========== TEMPORARY FIX ENDPOINT - REMOVE AFTER RUNNING ==========
+from rest_framework.decorators import api_view, permission_classes
+from django.contrib.auth import get_user_model
+from authentication.models import UserProfile
+
+User = get_user_model()
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def fix_missing_profiles(request):
+    """TEMPORARY: Fix missing SchoolAdminProfiles - REMOVE THIS AFTER RUNNING ONCE"""
+    # Only super admin can run this
+    if not request.user.is_superuser:
+        return Response({'error': 'Only super admin can run this'}, status=403)
+    
+    migrated = 0
+    already_exists = 0
+    
+    for profile in UserProfile.objects.filter(school_id__isnull=False).select_related('user'):
+        user = profile.user
+        if not hasattr(user, 'school_profile'):
+            SchoolAdminProfile.objects.create(
+                user=user,
+                school_id=profile.school_id,
+                is_active=True
+            )
+            migrated += 1
+        else:
+            already_exists += 1
+    
+    return Response({
+        'message': f'✅ Created {migrated} SchoolAdminProfiles',
+        'already_existed': already_exists,
+        'migrated': migrated
+    })
+
+
 # ========== SMS CONFIGURATION VIEWS ==========
 
 class SchoolSMSConfigView(APIView):
@@ -33,7 +70,7 @@ class SchoolSMSConfigView(APIView):
                 {
                     'error': 'School association not found.',
                     'detail': str(e),
-                    'hint': 'Ensure your user has a SchoolAdminProfile or UserProfile with a school_id.'
+                    'hint': 'Please contact support to fix your profile.'
                 },
                 status=status.HTTP_403_FORBIDDEN
             )
