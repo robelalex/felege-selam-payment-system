@@ -382,7 +382,7 @@ const handleBankTransfer = (payment) => {
             <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Description</th>
             <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">Amount</th>
             <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Status</th>
-            <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Actions</th>
+            <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Action</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200">
@@ -420,43 +420,17 @@ const handleBankTransfer = (payment) => {
                 )}
               </td>
               <td className="px-4 py-3 text-center">
-                <div className="flex items-center justify-center gap-2">
-                  {/* View Receipt Button */}
-                  <button
-                    onClick={() => {
-                      setSelectedPayment(payment);
-                      setShowReceiptModal(true);
-                    }}
-                    className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                    title="View Receipt"
-                  >
-                    <Eye className="h-4 w-4" />
-                  </button>
-                  
-                  {/* Delete Button - NOW SHOWS FOR ALL PAYMENTS */}
-                  <button
-                    onClick={async () => {
-                      let confirmMessage = 'Are you sure you want to delete this payment? This action cannot be undone.';
-                      if (payment.status === 'verified') {
-                        confirmMessage = 'WARNING: This payment is already verified. Deleting it will mark the month as unpaid. Are you sure?';
-                      }
-                      if (window.confirm(confirmMessage)) {
-                        try {
-                          await api.delete(`/payments/${payment.id}/parent_delete/`);
-                          fetchStudentData();
-                          alert('Payment deleted successfully');
-                        } catch (err) {
-                          console.error('Delete failed:', err);
-                          alert(err.response?.data?.error || 'Failed to delete payment');
-                        }
-                      }
-                    }}
-                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    title="Delete Payment"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
+                {/* View Receipt Button - ONLY */}
+                <button
+                  onClick={() => {
+                    setSelectedPayment(payment);
+                    setShowReceiptModal(true);
+                  }}
+                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                  title="View Receipt"
+                >
+                  <Eye className="h-4 w-4" />
+                </button>
               </td>
             </tr>
           ))}
