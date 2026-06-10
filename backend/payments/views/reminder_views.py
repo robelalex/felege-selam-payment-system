@@ -25,7 +25,7 @@ class ReminderViewSet(viewsets.ViewSet):
         year_alt = request.query_params.get('year')
         month = request.query_params.get('month')
         grade = request.query_params.get('grade')
-        student_search = request.query_params.get('student_search')  # ✅ NEW: student search
+        student_search = request.query_params.get('student_search')
         
         print(f"📱 ReminderViewSet.pending - school_id: {school_id}")
         print(f"📱 ReminderViewSet.pending - year_id: {year_id}")
@@ -64,7 +64,7 @@ class ReminderViewSet(viewsets.ViewSet):
             grade=grade,
             academic_year=academic_year.name if academic_year else None,
             school_id=school_id,
-            student_search=student_search  # ✅ NEW: Pass student search to service
+            student_search=student_search
         )
         
         return Response(results)
@@ -107,7 +107,7 @@ class ReminderViewSet(viewsets.ViewSet):
             'results': results
         })
     
-    # ✅ NEW: Email reminders endpoint
+    # ✅ FIXED: Email reminders endpoint
     @action(detail=False, methods=['post'])
     def send_email_reminders(self, request):
         """Send EMAIL reminders to selected students"""
@@ -125,8 +125,12 @@ class ReminderViewSet(viewsets.ViewSet):
         if not student_ids:
             return Response({'error': 'No students selected'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # ✅ Import email service
-        from common.email_service import send_payment_reminder_email
+        # ✅ Import all required modules
+        from common.email_service import send_payment_reminder_email, PaymentLinkService
+        from schools.models import School
+        
+        # ✅ Get school object
+        school = School.objects.get(id=int(school_id))
         
         # ✅ Verify all students belong to this school
         students = Student.objects.filter(student_id__in=student_ids, school_id=int(school_id))
@@ -134,17 +138,13 @@ class ReminderViewSet(viewsets.ViewSet):
         results = []
         
         for student in students:
-            # Get parent email - check multiple possible field names
+            # Get parent email
             parent_email = getattr(student, 'parent_email', None)
-            if not parent_email:
-                parent_email = getattr(student, 'guardian_email', None)
-            if not parent_email:
-                parent_email = getattr(student, 'email', None)
             
             if not parent_email:
                 results.append({
                     'student_id': student.student_id,
-                    'student_name': f"{student.first_name} {student.last_name}",
+                    'student_name': student.full_name,
                     'email': None,
                     'success': False,
                     'message': 'No email address found for this student'
@@ -154,28 +154,21 @@ class ReminderViewSet(viewsets.ViewSet):
             # Get pending months for this student
             pending_months_list = []
             total_due = 0
+            pending_deadlines = []
             
             # Get deadlines for the academic year
             year_name = academic_year
             if not year_name:
                 # Get current academic year for this school
-                if school_id:
-                    current_year = AcademicYear.objects.filter(school_id=int(school_id), is_current=True).first()
-                else:
-                    current_year = AcademicYear.objects.filter(is_current=True).first()
+                current_year = AcademicYear.objects.filter(school_id=int(school_id), is_current=True).first()
                 year_name = current_year.name if current_year else None
             
-            # ✅ CRITICAL FIX: Filter deadlines by student's grade
+            # Get deadlines
             deadlines = PaymentDeadline.objects.filter(
                 academic_year=year_name,
-                is_active=True
+                is_active=True,
+                school_id=int(school_id)
             )
-            
-            if school_id:
-                try:
-                    deadlines = deadlines.filter(school_id=int(school_id))
-                except ValueError:
-                    pass
             
             # Filter by month if specified
             if month and month != 'all' and month != 'None':
@@ -184,28 +177,29 @@ class ReminderViewSet(viewsets.ViewSet):
                 except (ValueError, TypeError):
                     pass
             
-            # ✅ CRITICAL FIX: Only get deadlines that apply to this student's grade
+            # Only get deadlines that apply to this student's grade
             student_deadlines = deadlines.filter(
                 models.Q(grade__isnull=True) | models.Q(grade=student.grade)
             )
             
-            # Check which deadlines are unpaid
+            # Get paid deadline IDs
+            paid_deadline_ids = Payment.objects.filter(
+                student=student,
+                status='verified'
+            ).values_list('deadline_id', flat=True)
+            
+            # Find unpaid deadlines
             for deadline in student_deadlines:
-                is_paid = Payment.objects.filter(
-                    student=student,
-                    deadline=deadline,
-                    status='verified'
-                ).exists()
-                
-                if not is_paid:
+                if deadline.id not in paid_deadline_ids:
                     month_name = self.get_month_name(deadline.month)
-                    pending_months_list.append(f"{month_name} ({float(deadline.amount)} Birr)")
+                    pending_months_list.append(f"{month_name} - {float(deadline.amount)} Birr")
                     total_due += float(deadline.amount)
+                    pending_deadlines.append(deadline)
             
             if not pending_months_list:
                 results.append({
                     'student_id': student.student_id,
-                    'student_name': f"{student.first_name} {student.last_name}",
+                    'student_name': student.full_name,
                     'email': parent_email,
                     'success': False,
                     'message': 'No pending payments found for this student'
@@ -214,16 +208,29 @@ class ReminderViewSet(viewsets.ViewSet):
             
             pending_months_text = ', '.join(pending_months_list)
             
-            # Send email
+            # Generate payment link for first pending deadline
+            payment_link = None
+            if pending_deadlines:
+                first_deadline = pending_deadlines[0]
+                payment_link = PaymentLinkService.generate_payment_link(
+                    student_id=student.student_id,
+                    deadline_id=first_deadline.id,
+                    amount=float(first_deadline.amount),
+                    student_name=student.full_name
+                )
+            
+            # Send email - CORRECT ORDER with all parameters
             email_result = send_payment_reminder_email(
                 recipient_email=parent_email,
-                student_name=f"{student.first_name} {student.last_name}",
+                student_name=student.full_name,
                 pending_months=pending_months_text,
                 total_due=total_due,
-                custom_message=custom_message if custom_message else None
+                custom_message=custom_message if custom_message else None,
+                school=school,
+                payment_link=payment_link
             )
             
-            # Handle tuple return (True/False, message)
+            # Handle result
             if isinstance(email_result, tuple):
                 success = email_result[0]
                 message = email_result[1] if len(email_result) > 1 else ('Sent' if success else 'Failed')
@@ -233,7 +240,7 @@ class ReminderViewSet(viewsets.ViewSet):
             
             results.append({
                 'student_id': student.student_id,
-                'student_name': f"{student.first_name} {student.last_name}",
+                'student_name': student.full_name,
                 'email': parent_email,
                 'success': success,
                 'message': message
@@ -389,9 +396,6 @@ def pending_reminders_filtered(request):
             student_pending = []
             
             # ✅ CRITICAL FIX: Filter deadlines by student's grade
-            # Only include deadlines where:
-            # - grade IS NULL (applies to all grades) OR
-            # - grade equals the student's grade
             student_deadlines = base_deadlines.filter(
                 models.Q(grade__isnull=True) | models.Q(grade=student.grade)
             )
