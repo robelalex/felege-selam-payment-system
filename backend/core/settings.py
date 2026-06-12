@@ -247,6 +247,11 @@ SMS_SENDER_ID = os.getenv('SMS_SENDER_ID', '')  # Empty default, no sender ID
 # ===== CHAPA =====
 CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY', '')
 
+
+# ===== VERIFIER API (Payment Verification) =====
+VERIFIER_API_KEY = os.getenv('VERIFIER_API_KEY', '')
+VERIFIER_API_URL = 'https://verify.leul.et'
+
 # ===== EMAIL =====
 # No SMTP — Render blocks outbound SMTP ports
 # OTP uses fixed code "123456" for demo

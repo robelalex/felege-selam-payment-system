@@ -22,8 +22,7 @@ class School(models.Model):
     # Telebirr details
     telebirr_merchant_id = models.CharField(max_length=100, blank=True)
     
-    # ========== NEW: Africa's Talking SMS Configuration ==========
-    # Each school uses their OWN Africa's Talking account
+    # ========== Africa's Talking SMS Configuration ==========
     at_username = models.CharField(
         max_length=100, 
         blank=True, 
@@ -73,11 +72,51 @@ class School(models.Model):
         help_text="Last time monthly counter was reset"
     )
     
+    # ========== NEW: Verify.ET API Configuration ==========
+    # Each school registers their OWN Verify.ET account
+    verify_et_api_key = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        help_text="Verify.ET API key for this school (from https://verify.et)"
+    )
+    verify_et_enabled = models.BooleanField(
+        default=False,
+        help_text="Is Verify.ET API configured and working for this school?"
+    )
+    verify_et_last_test = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="Last time Verify.ET API credentials were tested"
+    )
+    verify_et_test_status = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Status of last API test (success/failed/pending)"
+    )
+    
+    # CBE Account Details for this school (for Verify.ET)
+    cbe_account_number = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="School's CBE account number (e.g., 1000137267900)"
+    )
+    cbe_account_suffix = models.CharField(
+        max_length=8,
+        blank=True,
+        help_text="Last 8 digits of CBE account (e.g., 13726790)"
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
         return self.name
+    
+    @property
+    def has_verify_et_credentials(self):
+        """Check if Verify.ET is properly configured"""
+        return bool(self.verify_et_api_key and self.verify_et_enabled and self.cbe_account_suffix)
     
     class Meta:
         ordering = ['name']

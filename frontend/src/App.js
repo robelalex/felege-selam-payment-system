@@ -47,6 +47,7 @@ import PrivacyPolicy from './pages/PrivacyPolicy';
 import AdminPaymentHistory from './pages/AdminPaymentHistory';
 import SchoolSettings from './pages/SchoolSettings';  // ✅ ADD THIS
 import BankSlips from './pages/BankSlips';
+import VerifyETSettings from './pages/VerifyETSettings';
 
 // Styles
 import './index.css';
@@ -294,6 +295,7 @@ function App() {
               <Route path="/parent/select-student" element={<SelectStudent />} />
               <Route path="/privacy-policy" element={<PrivacyPolicy />} />
               <Route path="/admin-dashboard/payment-history" element={<AdminPaymentHistory />} />
+              <Route path="/school/verify-et-settings" element={<VerifyETSettings />} />
             </Routes>
           </Router>
         </YearProvider>

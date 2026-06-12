@@ -12,7 +12,11 @@ import {
   Square,
   Search,
   GraduationCap,
-  Calendar
+  Calendar,
+  Copy,
+  ExternalLink,
+  Zap,
+  X
 } from 'lucide-react';
 import api from '../services/api';
 import { useYear } from '../context/YearContext';
@@ -36,8 +40,13 @@ function AdminSlips() {
   const [error, setError] = useState('');
   const [selectedSlips, setSelectedSlips] = useState([]);
   const [selectAll, setSelectAll] = useState(false);
+  const [copySuccess, setCopySuccess] = useState('');
   
-  // ✅ NEW: Filter states
+  // NEW: Configuration warning states
+  const [showConfigWarning, setShowConfigWarning] = useState(false);
+  const [configError, setConfigError] = useState(null);
+  
+  // Filter states
   const [filterGrade, setFilterGrade] = useState('all');
   const [filterMonth, setFilterMonth] = useState('all');
   const [studentSearch, setStudentSearch] = useState('');
@@ -47,7 +56,7 @@ function AdminSlips() {
   
   const { selectedYear } = useYear();
 
-  // ✅ Debounced search
+  // Debounced search
   useEffect(() => {
     if (searchTimeout.current) {
       clearTimeout(searchTimeout.current);
@@ -88,7 +97,6 @@ function AdminSlips() {
         params.append('year_id', selectedYear.id);
       }
       
-      // ✅ NEW: Add filter parameters
       if (filterGrade && filterGrade !== 'all') {
         params.append('grade', filterGrade);
       }
@@ -117,10 +125,112 @@ function AdminSlips() {
     }
   };
   
+  // Copy to clipboard
+  const copyToClipboard = (text, field) => {
+    navigator.clipboard.writeText(text);
+    setCopySuccess(field);
+    setTimeout(() => setCopySuccess(''), 2000);
+  };
+
+  // Check receipt using Verify.ET API (REAL WORKING SOLUTION)
+  const checkReceiptWithVerifyET = async (slip) => {
+    if (!slip.transaction_reference) {
+      alert('No transaction reference found. Please ensure the slip was uploaded clearly.');
+      return;
+    }
+    
+    setProcessing(slip.id);
+    setConfigError(null);
+    setShowConfigWarning(false);
+    
+    try {
+      const response = await api.post(`/slips/${slip.id}/check-receipt/`);
+      
+      // Handle configuration required message with UI warning (not alert)
+      if (response.data.needs_configuration) {
+        setConfigError({
+          message: response.data.message,
+          instruction: response.data.instruction,
+          action_required: response.data.action_required,
+          settings_url: response.data.settings_url
+        });
+        setShowConfigWarning(true);
+        setProcessing(null);
+        return;
+      }
+      
+      if (response.data.success && response.data.verified) {
+        const details = response.data.details;
+        const amountMatch = details.amount_matches ? '✅ Amount matches' : '⚠️ Amount mismatch!';
+        
+        const userConfirmed = window.confirm(
+          `✅ TRANSACTION VERIFIED BY CBE!\n\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+          `📌 Payer Name: ${details.payer_name || 'N/A'}\n` +
+          `💰 Amount: ${details.amount || 'N/A'} Birr\n` +
+          `📅 Date: ${details.date || 'N/A'}\n` +
+          `🏦 Receiver: ${details.receiver || 'N/A'}\n` +
+          `🔢 Reference: ${details.reference || slip.transaction_reference}\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+          `${amountMatch}\n\n` +
+          `Declared Amount: ${details.declared_amount || slip.amount} Birr\n\n` +
+          `Do you want to VERIFY this payment?`
+        );
+        
+        if (userConfirmed) {
+          const verifyResponse = await api.post(`/slips/${slip.id}/verify-from-api/`);
+          if (verifyResponse.data.success) {
+            alert('✅ Payment has been VERIFIED and recorded successfully!');
+            await fetchPendingSlips();
+          } else {
+            alert('❌ Failed to verify payment: ' + (verifyResponse.data.error || 'Unknown error'));
+          }
+        }
+      } else if (response.data.queued) {
+        alert(
+          `⏳ VERIFICATION QUEUED\n\n` +
+          `The request is being processed by CBE.\n` +
+          `Please wait a few moments and try again.\n\n` +
+          `Reference: ${response.data.details?.reference || slip.transaction_reference}`
+        );
+      } else {
+        alert(
+          `❌ VERIFICATION FAILED\n\n` +
+          `${response.data.message || 'Could not verify this transaction.'}\n\n` +
+          `Reference: ${slip.transaction_reference}\n\n` +
+          `Possible reasons:\n` +
+          `• Invalid reference number\n` +
+          `• Transaction not found in CBE system\n` +
+          `• Wrong account suffix configured\n\n` +
+          `Please verify manually using the Verify button.`
+        );
+      }
+    } catch (err) {
+      console.error('Verify.ET error:', err);
+      const errorMsg = err.response?.data?.error || err.response?.data?.message || 'Unknown error';
+      alert(
+        `❌ API ERROR\n\n` +
+        `Could not connect to Verify.ET API.\n\n` +
+        `Error: ${errorMsg}\n\n` +
+        `Please check:\n` +
+        `• Internet connection\n` +
+        `• Verify.ET API key configuration for this school\n` +
+        `• CBE account suffix is correct`
+      );
+    } finally {
+      setProcessing(null);
+    }
+  };
+
   const handleVerify = async (slipId, action) => {
     setProcessing(slipId);
     try {
       await api.post(`/slips/${slipId}/verify/`, { action });
+      if (action === 'verify') {
+        alert('✅ Payment verified successfully!');
+      } else {
+        alert('❌ Payment rejected');
+      }
       await fetchPendingSlips();
     } catch (err) {
       console.error('Error verifying slip:', err);
@@ -230,10 +340,9 @@ function AdminSlips() {
         </div>
       </div>
 
-      {/* ✅ NEW: Filters Section */}
+      {/* Filters Section */}
       <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Grade Filter */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               <GraduationCap className="h-4 w-4 inline mr-1" />
@@ -251,7 +360,6 @@ function AdminSlips() {
             </select>
           </div>
 
-          {/* Month Filter */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               <Calendar className="h-4 w-4 inline mr-1" />
@@ -269,7 +377,6 @@ function AdminSlips() {
             </select>
           </div>
 
-          {/* Student Search */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               <Search className="h-4 w-4 inline mr-1" />
@@ -288,6 +395,41 @@ function AdminSlips() {
           </div>
         </div>
       </div>
+
+      {/* ========== CONFIGURATION WARNING (like SMS warning) ========== */}
+      {showConfigWarning && configError && (
+        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-yellow-800 font-medium">{configError.message}</p>
+              <p className="text-yellow-700 text-sm mt-1">{configError.instruction}</p>
+              <div className="mt-3 flex gap-3">
+                <button
+                  onClick={() => {
+                    window.location.href = configError.settings_url || '/school/verify-et-settings';
+                  }}
+                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-sm"
+                >
+                  Go to Verify.ET Settings
+                </button>
+                <button
+                  onClick={() => setShowConfigWarning(false)}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowConfigWarning(false)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {slips.length === 0 ? (
         <div className="bg-white rounded-xl shadow-lg p-12 text-center">
@@ -311,7 +453,6 @@ function AdminSlips() {
         </div>
       ) : (
         <div className="grid gap-4">
-          {/* Select All Header */}
           <div className="bg-gray-50 rounded-lg p-3 flex items-center justify-between flex-wrap gap-2">
             <button
               onClick={() => setSelectAll(!selectAll)}
@@ -330,7 +471,7 @@ function AdminSlips() {
               key={slip.id}
               className="bg-white rounded-xl shadow-lg p-6 border border-gray-100 hover:shadow-xl transition-shadow"
             >
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2 flex-wrap">
                     <input
@@ -360,7 +501,32 @@ function AdminSlips() {
                   <p className="text-sm text-gray-600">Month: {slip.month}</p>
                   <p className="text-sm text-gray-600">Bank: {slip.bank_name || 'Not specified'}</p>
                   <p className="text-lg font-bold text-primary-600 mt-2">{parseFloat(slip.amount).toLocaleString()} Birr</p>
-                  <p className="text-xs text-gray-400 mt-1">
+                  
+                  {/* Transaction Reference Field */}
+                  <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                    <label className="text-sm font-medium text-gray-700 block mb-1">
+                      Transaction Reference (Auto-Detected)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 px-3 py-1 bg-white border border-gray-300 rounded-lg text-sm font-mono">
+                        {slip.transaction_reference || 'Not detected'}
+                      </code>
+                      {slip.transaction_reference && (
+                        <button
+                          onClick={() => copyToClipboard(slip.transaction_reference, 'ref')}
+                          className="p-1 hover:bg-gray-200 rounded"
+                          title="Copy transaction reference"
+                        >
+                          <Copy className="h-4 w-4 text-gray-600" />
+                        </button>
+                      )}
+                    </div>
+                    {copySuccess === 'ref' && (
+                      <p className="text-xs text-green-600 mt-1">Copied!</p>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-gray-400 mt-2">
                     Uploaded: {new Date(slip.uploaded_at).toLocaleString()}
                   </p>
                   {slip.ai_message && (
@@ -386,18 +552,27 @@ function AdminSlips() {
                   >
                     <Download className="h-5 w-5 text-gray-600" />
                   </a>
+                  
+                  {/* ONLY BUTTONS: Verify.ET API and Manual Verify/Reject */}
+                  <button
+                    onClick={() => checkReceiptWithVerifyET(slip)}
+                    disabled={processing === slip.id || !slip.transaction_reference}
+                    className="btn-primary flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400"
+                    title="Verify online using Verify.ET API - Instant results from CBE"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    Check Receipt (Online)
+                  </button>
+                  
                   <button
                     onClick={() => handleVerify(slip.id, 'verify')}
                     disabled={processing === slip.id}
-                    className="btn-primary flex items-center gap-2"
+                    className="btn-primary flex items-center gap-2 bg-green-600 hover:bg-green-700"
                   >
-                    {processing === slip.id ? (
-                      <RefreshCw className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <CheckCircle className="h-4 w-4" />
-                    )}
+                    {processing === slip.id ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
                     Verify
                   </button>
+                  
                   <button
                     onClick={() => handleVerify(slip.id, 'reject')}
                     disabled={processing === slip.id}
@@ -406,6 +581,7 @@ function AdminSlips() {
                     <XCircle className="h-4 w-4" />
                     Reject
                   </button>
+                  
                   <button
                     onClick={() => deleteSlip(slip.id)}
                     disabled={processing === slip.id}

@@ -169,6 +169,97 @@ class PaymentSlip(models.Model):
     ai_message = models.TextField(blank=True)
     ai_reviewed = models.BooleanField(default=False)
     auto_verified = models.BooleanField(default=False)
+    
+    # Transaction reference (auto-detected from image)
+    transaction_reference = models.CharField(max_length=100, blank=True, help_text="CBE transaction reference number")
+    
+    # Verify.ET API Results - NEW FIELDS
+    verify_et_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('pending', 'Pending'),
+            ('queued', 'Queued'),
+            ('verified', 'Verified by API'),
+            ('failed', 'Verification Failed'),
+            ('invalid', 'Invalid Transaction'),
+            ('timeout', 'Timeout'),
+            ('error', 'API Error')
+        ],
+        default='pending',
+        help_text="Status from Verify.ET API"
+    )
+    verify_et_payer_name = models.CharField(max_length=200, blank=True, help_text="Payer name from bank")
+    verify_et_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text="Amount from bank")
+    verify_et_date = models.CharField(max_length=50, blank=True, help_text="Transaction date from bank")
+    verify_et_receiver = models.CharField(max_length=200, blank=True, help_text="Receiver name from bank")
+    verify_et_response_raw = models.JSONField(default=dict, blank=True, help_text="Raw API response")
+    verify_et_checked_at = models.DateTimeField(null=True, blank=True, help_text="When API was last called")
+    verify_et_error = models.TextField(blank=True, help_text="Error message if API failed")
+    
+    # Legacy CBE fields (keep for backward compatibility)
+    cbe_verification_status = models.CharField(
+        max_length=20, 
+        choices=[
+            ('pending', 'Pending CBE Check'),
+            ('cbe_verified', 'CBE Verified'),
+            ('cbe_rejected', 'CBE Rejected'),
+            ('cbe_check_failed', 'CBE Check Failed')
+        ],
+        default='pending'
+    )
+    cbe_verified_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='cbe_verified_slips')
+    cbe_verified_at = models.DateTimeField(null=True, blank=True)
+    cbe_verification_notes = models.TextField(blank=True, help_text="Admin notes from CBE verification")
+    cbe_check_method = models.CharField(max_length=20, choices=[('ussd', 'USSD *894#'), ('call', 'Phone Call 6294'), ('manual', 'Manual Check'), ('api', 'Verify.ET API')], blank=True)
+
+    def get_cbe_verification_instructions(self):
+        """Returns verification instructions for admin"""
+        return {
+            'ussd_code': '*894#',
+            'ussd_instructions': [
+                '1. Dial *894# on your phone',
+                '2. Select "Transaction Inquiry" or "Payment Status"',
+                '3. Choose "Bank Transfer" or "CBE Birr"',
+                f'4. Enter transaction reference: {self.transaction_reference or "Not provided"}',
+                '5. Verify the amount matches the deposit',
+                '6. Confirm the sender name matches parent/student name'
+            ],
+            'phone_number': '6294',
+            'call_instructions': [
+                '1. Call 6294 (CBE Customer Service)',
+                '2. Select option for "Transaction Verification"',
+                f'3. Provide transaction reference: {self.transaction_reference or "Not provided"}',
+                '4. Ask them to confirm: Amount, Sender name, Date, Status',
+                '5. Note down the verification code they provide'
+            ],
+            'what_to_check': [
+                f'Amount should be: {self.amount} Birr',
+                f'Sender name should match: {self.uploaded_by}',
+                'Transaction should show "Completed" or "Success"',
+                'Date should be recent (within last 7 days)'
+            ]
+        }
+
+    @property
+    def is_api_verified(self):
+        """Check if the slip was verified by Verify.ET API"""
+        return self.verify_et_status == 'verified'
+
+    @property
+    def verification_summary(self):
+        """Return a human-readable verification summary"""
+        if self.verify_et_status == 'verified':
+            return f"✅ Verified via API - Payer: {self.verify_et_payer_name}, Amount: {self.verify_et_amount} Birr"
+        elif self.verify_et_status == 'failed':
+            return f"❌ API verification failed: {self.verify_et_error}"
+        elif self.verify_et_status == 'queued':
+            return "⏳ Verification queued, waiting for result..."
+        elif self.verify_et_status == 'invalid':
+            return "❌ Invalid transaction reference"
+        elif self.verify_et_status == 'error':
+            return f"⚠️ API Error: {self.verify_et_error}"
+        else:
+            return "⏳ Pending verification"
 
     class Meta:
         ordering = ['-uploaded_at']
