@@ -1,12 +1,17 @@
 # backend/payments/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views.views import PaymentViewSet, PaymentDeadlineViewSet  # ✅ Changed import
+from .views.views import PaymentViewSet, PaymentDeadlineViewSet
 from .views import ReminderViewSet, send_reminders, send_payment_confirmation
 from .views.report_views import monthly_report, student_report, annual_summary, monthly_detailed_report
 from .views.slip_views import (
     upload_slip, pending_slips, verify_slip, ai_stats,
-    delete_slip, bulk_delete_slips
+    delete_slip, bulk_delete_slips,
+    update_transaction_reference,
+    extract_slip_data,  # <-- ADDED COMMA HERE
+    auto_verify_with_api,
+    check_receipt_with_verify_et,  
+    verify_slip_from_api 
 )
 from .views.sms_views import (
     sms_balance, send_test_sms, sms_history,
@@ -34,7 +39,7 @@ router = DefaultRouter()
 router.register(r'deadlines', PaymentDeadlineViewSet)
 router.register(r'reminders', ReminderViewSet, basename='reminder')
 
-# ✅ DON'T register payments with router - use direct paths instead
+# DON'T register payments with router - use direct paths instead
 payment_viewset = PaymentViewSet.as_view({
     'get': 'list',
     'post': 'create',
@@ -60,11 +65,11 @@ urlpatterns = [
     # Deadlines and reminders (via router)
     path('', include(router.urls)),
     
-    # ✅ Reminder endpoints (legacy and new)
+    # Reminder endpoints (legacy and new)
     path('send-reminders/', send_reminders, name='send-reminders'),
     path('payment-confirmation/<int:payment_id>/', send_payment_confirmation, name='payment-confirmation'),
     
-    # ✅ NEW: Email reminders endpoint (via ReminderViewSet)
+    # NEW: Email reminders endpoint (via ReminderViewSet)
     path('reminders/send_email_reminders/', ReminderViewSet.as_view({'post': 'send_email_reminders'}), name='send-email-reminders'),
 ]
 
@@ -99,6 +104,12 @@ urlpatterns += [
     path('slips/<int:slip_id>/delete/', delete_slip, name='delete-slip'),
     path('slips/bulk-delete/', bulk_delete_slips, name='bulk-delete-slips'),
     path('slips/ai-stats/', ai_stats, name='ai-stats'),
+    path('slips/extract-data/', extract_slip_data, name='extract-slip-data'),
+    path('slips/<int:slip_id>/update-transaction-ref/', update_transaction_reference, name='update-transaction-reference'),
+    path('slips/<int:slip_id>/auto-verify/', auto_verify_with_api, name='auto-verify-slip'),
+
+    path('slips/<int:slip_id>/check-receipt/', check_receipt_with_verify_et, name='check-receipt-verify-et'),
+    path('slips/<int:slip_id>/verify-from-api/', verify_slip_from_api, name='verify-slip-from-api'),
 ]
 
 # Chapa API URLs
@@ -112,7 +123,7 @@ urlpatterns += [
     path('payments/status/<str:tx_ref>/', payment_status, name='payment-status'),
 ]
 
-# ✅ Filtered reminders endpoint (used by SMSDashboard)
+# Filtered reminders endpoint (used by SMSDashboard)
 urlpatterns += [
     path('reminders-filtered/', pending_reminders_filtered, name='reminders-filtered'),
 ]

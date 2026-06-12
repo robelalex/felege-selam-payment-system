@@ -7,7 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from .models import Student
 from .serializers import StudentSerializer
-from payments.models import Payment, PaymentDeadline
+from payments.models import Payment, PaymentDeadline, PaymentSlip  # ADDED PaymentSlip
 import pandas as pd
 from io import BytesIO
 from datetime import datetime
@@ -425,3 +425,48 @@ class StudentViewSet(viewsets.ModelViewSet):
             
         except Payment.DoesNotExist:
             return Response({'error': 'Payment not found'}, status=404)
+
+    # ========== NEW: PENDING SLIPS ENDPOINT FOR PARENT DASHBOARD ==========
+    
+    @action(detail=True, methods=['get'], url_path='pending_slips')
+    def pending_slips(self, request, pk=None):
+        """
+        Get all pending bank slips for a student
+        This is used by ParentDashboard to prevent double payment
+        """
+        try:
+            student = self.get_object()
+            print(f"📋 Getting pending slips for student: {student.student_id}")
+            
+            # Get all pending slips for this student
+            pending_slips = PaymentSlip.objects.filter(
+                student=student,
+                status='pending'
+            ).select_related('deadline')
+            
+            data = []
+            for slip in pending_slips:
+                data.append({
+                    'id': slip.id,
+                    'deadline_id': slip.deadline.id,
+                    'amount': float(slip.amount),
+                    'month_name': slip.deadline.get_month_display(),
+                    'month_number': slip.deadline.month,
+                    'academic_year': slip.deadline.academic_year,
+                    'uploaded_at': slip.uploaded_at,
+                    'transaction_reference': slip.transaction_reference or '',
+                    'status': slip.status,
+                    'slip_image': slip.slip_image.url if slip.slip_image else None
+                })
+            
+            print(f"📋 Found {len(data)} pending slips for student {student.student_id}")
+            return Response(data)
+            
+        except Exception as e:
+            print(f"❌ Error in pending_slips: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

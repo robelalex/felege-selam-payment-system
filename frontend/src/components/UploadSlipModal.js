@@ -1,7 +1,7 @@
 // frontend/src/components/UploadSlipModal.js
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Upload, CheckCircle, AlertCircle, Loader, Building2, Calendar, User, DollarSign, CreditCard, Camera } from 'lucide-react';
+import { X, Upload, CheckCircle, AlertCircle, Loader, Building2, Calendar, User, DollarSign, CreditCard, Camera, Hash, Sparkles, RefreshCw } from 'lucide-react';
 import api from '../services/api';
 
 function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
@@ -10,14 +10,19 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
   const [bankName, setBankName] = useState('');
   const [amount, setAmount] = useState(deadline?.amount || '');
   const [transactionDate, setTransactionDate] = useState('');
+  const [transactionReference, setTransactionReference] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [aiResult, setAiResult] = useState(null);
   const [schoolName, setSchoolName] = useState('School');
+  
+  // NEW: Auto-extraction states
+  const [extracting, setExtracting] = useState(false);
+  const [extractedData, setExtractedData] = useState(null);
+  const [autoFilled, setAutoFilled] = useState(false);
 
   useEffect(() => {
-    // Get school info from localStorage
     const savedSchool = localStorage.getItem('selectedSchool');
     if (savedSchool) {
       try {
@@ -29,7 +34,7 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
     }
   }, []);
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
       setFile(selectedFile);
@@ -38,6 +43,59 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
         setPreview(reader.result);
       };
       reader.readAsDataURL(selectedFile);
+      
+      // NEW: Auto-extract data from image
+      await autoExtractFromImage(selectedFile);
+    }
+  };
+
+  // NEW: Auto-extract transaction reference and other data from image
+  const autoExtractFromImage = async (imageFile) => {
+    setExtracting(true);
+    setError('');
+    setExtractedData(null);
+    
+    const formData = new FormData();
+    formData.append('slip_image', imageFile);
+    formData.append('extract_only', 'true');
+    
+    try {
+      const response = await api.post('slips/extract-data/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      if (response.data.success) {
+        const data = response.data.extracted;
+        setExtractedData(data);
+        
+        // Auto-fill fields if confidence is high
+        if (data.confidence >= 70) {
+          if (data.transaction_reference) {
+            setTransactionReference(data.transaction_reference);
+          }
+          if (data.amount && !amount) {
+            setAmount(data.amount);
+          }
+          if (data.bank_name && !bankName) {
+            setBankName(data.bank_name);
+          }
+          if (data.transaction_date && !transactionDate) {
+            setTransactionDate(data.transaction_date);
+          }
+          setAutoFilled(true);
+          
+          // Show success message briefly
+          setTimeout(() => setAutoFilled(false), 3000);
+        } else {
+          setError(`Auto-detection confidence: ${data.confidence}%. Please verify and correct if needed.`);
+        }
+      }
+    } catch (err) {
+      console.error('Extraction error:', err);
+      // Not a critical error, user can still fill manually
+      setError('Could not auto-detect reference number. Please enter it manually.');
+    } finally {
+      setExtracting(false);
     }
   };
 
@@ -46,6 +104,11 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
     
     if (!file) {
       setError('Please select a bank slip image');
+      return;
+    }
+
+    if (!transactionReference) {
+      setError('Transaction reference number is required. Please enter it or ensure the image is clear.');
       return;
     }
 
@@ -59,6 +122,7 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
     formData.append('amount', amount);
     formData.append('bank_name', bankName);
     formData.append('transaction_date', transactionDate);
+    formData.append('transaction_reference', transactionReference);
     formData.append('slip_image', file);
     formData.append('uploaded_by', student.parent_full_name || student.full_name);
 
@@ -138,7 +202,10 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
                   )}
                 </div>
               )}
-              <p className="text-xs text-gray-500 mt-3">Redirecting...</p>
+              <p className="text-xs text-gray-500 mt-2 font-medium">
+                Transaction Ref: {transactionReference}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">Redirecting...</p>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -186,7 +253,7 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
                 </div>
               </div>
 
-              {/* File Upload */}
+              {/* File Upload with Auto-extraction indicator */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Bank Slip Image *
@@ -194,6 +261,7 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
                 <div
                   className={`border-2 border-dashed rounded-lg p-3 text-center cursor-pointer transition-all
                     ${preview ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-primary-400'}
+                    ${extracting ? 'opacity-50 pointer-events-none' : ''}
                   `}
                   onClick={() => document.getElementById('slip-input').click()}
                 >
@@ -206,19 +274,33 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
                     required
                   />
                   
-                  {preview ? (
+                  {extracting ? (
+                    <div className="flex flex-col items-center gap-2 py-4">
+                      <Loader className="h-8 w-8 animate-spin text-primary-600" />
+                      <p className="text-sm text-gray-500">Analyzing bank slip...</p>
+                      <p className="text-xs text-gray-400">Extracting transaction reference</p>
+                    </div>
+                  ) : preview ? (
                     <div className="space-y-2">
                       <img
                         src={preview}
                         alt="Preview"
                         className="max-h-32 mx-auto rounded-lg"
                       />
+                      {autoFilled && (
+                        <div className="flex items-center justify-center gap-1 text-green-600 text-xs">
+                          <Sparkles className="h-3 w-3" />
+                          <span>Auto-filled detected information!</span>
+                        </div>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           setFile(null);
                           setPreview(null);
+                          setTransactionReference('');
+                          setExtractedData(null);
                         }}
                         className="text-xs text-red-500"
                       >
@@ -230,9 +312,43 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
                       <Camera className="h-8 w-8 text-gray-400" />
                       <p className="text-sm text-gray-500">Click to upload</p>
                       <p className="text-xs text-gray-400">PNG, JPG up to 5MB</p>
+                      <p className="text-xs text-primary-600">✨ Reference number will be auto-detected</p>
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Transaction Reference - Auto-filled with edit capability */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Transaction Reference Number <span className="text-red-500">*</span>
+                  </label>
+                  {extractedData && extractedData.confidence >= 70 && (
+                    <span className="text-xs text-green-600 flex items-center gap-1">
+                      <Sparkles className="h-3 w-3" />
+                      Auto-detected ({extractedData.confidence}%)
+                    </span>
+                  )}
+                </div>
+                <div className="relative">
+                  <Hash className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={transactionReference}
+                    onChange={(e) => setTransactionReference(e.target.value)}
+                    placeholder={extracting ? "Detecting reference number..." : "Enter or confirm transaction reference from bank slip"}
+                    className={`w-full pl-10 pr-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-primary-500
+                      ${autoFilled ? 'border-green-400 bg-green-50' : 'border-gray-300'}
+                    `}
+                    required
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  {extractedData?.transaction_reference ? 
+                    `✓ Detected: ${extractedData.transaction_reference}. Please verify it's correct.` : 
+                    "Take a clear photo of the reference number on your bank slip"}
+                </p>
               </div>
 
               {/* Two Column Form */}
@@ -284,10 +400,22 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
                 </div>
               )}
 
+              {/* Auto-extraction info box */}
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles className="h-4 w-4 text-blue-600" />
+                  <p className="text-xs font-semibold text-blue-800">✨ Smart Detection Active</p>
+                </div>
+                <p className="text-xs text-blue-700">
+                  Our system automatically detects the transaction reference number from your bank slip image.
+                  Just take a clear photo and we'll fill it for you - just verify it's correct!
+                </p>
+              </div>
+
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || extracting}
                 className="w-full bg-primary-600 text-white py-2.5 rounded-lg font-medium hover:bg-primary-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {loading ? (
@@ -295,10 +423,15 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
                     <Loader className="h-4 w-4 animate-spin" />
                     Uploading...
                   </>
+                ) : extracting ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Detecting...
+                  </>
                 ) : (
                   <>
                     <Upload className="h-4 w-4" />
-                    Upload Slip
+                    Upload & Verify
                   </>
                 )}
               </button>

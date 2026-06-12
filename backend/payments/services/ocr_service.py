@@ -26,19 +26,43 @@ class OCRService:
         pass
     
     def preprocess_image(self, image_path):
-        """Preprocess image for better OCR accuracy"""
+        """Advanced preprocessing to handle shadows, wrinkles, and optimize OCR accuracy"""
         try:
-            # Read image
+            # 1. Read image
             img = cv2.imread(image_path)
+            if img is None:
+                return None
             
-            # Convert to grayscale
+            # 2. Convert to grayscale
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             
-            # Apply thresholding to get black and white image
-            _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+            # 3. Dynamic Rescaling (Crucial for small fonts on mobile uploads)
+            # Upscale the image if it's too small so Tesseract can see characters clearly
+            height, width = gray.shape[:2]
+            if width < 1000:
+                scale_factor = 1.5
+                gray = cv2.resize(gray, (int(width * scale_factor), int(height * scale_factor)), interpolation=cv2.INTER_CUBIC)
+
+            # 4. Remove Shadows using Morphological Closing
+            # This extracts the background lighting grid and subtracts it to flatten shadows
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11))
+            background = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, kernel)
+            normalized_gray = cv2.divide(gray, background, scale=255)
+
+            # 5. Adaptive Thresholding (Instead of hardcoded 150)
+            # Calculates threshold locally row-by-row, keeping text sharp under any lighting
+            thresh = cv2.adaptiveThreshold(
+                normalized_gray, 
+                255, 
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                cv2.THRESH_BINARY, 
+                15, # Block size (looks at a 15x15 pixel window)
+                9   # Constant subtracted from the mean
+            )
             
-            # Denoise
-            denoised = cv2.medianBlur(thresh, 1)
+            # 6. Gentle Denoising
+            # Cleans up stray smartphone camera sensor noise without blurring the text edges
+            denoised = cv2.fastNlMeansDenoising(thresh, None, h=10, templateWindowSize=7, searchWindowSize=21)
             
             return denoised
         except Exception as e:
@@ -115,20 +139,53 @@ class OCRService:
         return None
     
     def extract_reference_number(self, text):
-        """Extract transaction reference number"""
-        patterns = [
-            r'(?:ref|reference|trx|txn)[\s:]*([A-Z0-9\-]{6,30})',
-            r'(?:transaction reference)[\s:]*([A-Z0-9\-]{6,30})',
+        """Extract transaction reference number with enhanced Ethiopian bank logic"""
+        if not text:
+            return ""
+
+        # 1. High Priority Strategy: Match specific Ethiopian banking reference formats 
+        # (e.g., CBE starts with TT or FT followed by digits and letters)
+        ethiopian_bank_patterns = [
+            r'\b(TT\d+[A-Z0-9]+)\b',   # CBE standard transfers (e.g., TT242851POCT)
+            r'\b(FT\d+[A-Z0-9]+)\b',   # Alternative CBE/Dashen funds transfers
+            r'\b(NIB\d+[A-Z0-9]+)\b'   # Nib Bank structures
+        ]
+        
+        for pattern in ethiopian_bank_patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            if matches:
+                return matches[0].strip().upper()
+
+        # 2. Line-by-Line Contextual Strategy: Look for anchor labels first
+        lines = text.split('\n')
+        label_patterns = [
+            r'(?:tr\s*\.?\s*ref|ref|reference|trx|txn)[\s:]*([A-Z0-9\-]{6,30})',
+            r'(?:transaction\s+reference)[\s:]*([A-Z0-9\-]{6,30})'
+        ]
+        
+        for line in lines:
+            for pattern in label_patterns:
+                matches = re.findall(pattern, line, re.IGNORECASE)
+                if matches:
+                    # Filter out false-positives like raw bank name titles
+                    candidate = matches[0].strip().upper()
+                    if "COMMERCIAL" not in candidate and "BANK" not in candidate:
+                        return candidate
+
+        # 3. Fallback General Pattern (Moved to lowest priority to avoid false matches)
+        fallback_patterns = [
             r'([A-Z]{2,}[0-9]{4,}[A-Z0-9\-]*)',
             r'(?:STMT|TRF|PAY)[\s]*[:]?\s*([A-Z0-9\-]+)'
         ]
         
-        for pattern in patterns:
+        for pattern in fallback_patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
             if matches:
-                return matches[0].strip()
+                candidate = matches[0].strip().upper()
+                if "COMMERCIAL" not in candidate and "BANK" not in candidate:
+                    return candidate
         
-        return None
+        return ""
     
     def extract_date(self, text):
         """Extract transaction date from OCR text"""

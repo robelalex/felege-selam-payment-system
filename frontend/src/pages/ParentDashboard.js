@@ -21,19 +21,20 @@ function ParentDashboard() {
   const [student, setStudent] = useState(null);
   const [payments, setPayments] = useState([]);
   const [pendingPayments, setPendingPayments] = useState([]);
+  const [pendingSlips, setPendingSlips] = useState([]); // NEW: Track pending slips
   const [academicYear, setAcademicYear] = useState(null);
   const [processingPaymentId, setProcessingPaymentId] = useState(null);
   const [error, setError] = useState('');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedDeadline, setSelectedDeadline] = useState(null);
   const [showBankInfo, setShowBankInfo] = useState(null);
-  // ✅ NEW: State for receipt modal
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
 
   useEffect(() => {
     fetchStudentData();
     fetchAcademicYear();
+    fetchPendingSlips(); // NEW: Fetch pending slips
   }, [studentId]);
 
   const fetchStudentData = async () => {
@@ -58,6 +59,18 @@ function ParentDashboard() {
     }
   };
 
+  // NEW: Fetch pending slips to prevent double payment
+  const fetchPendingSlips = async () => {
+    try {
+      const response = await api.get(`/students/${studentId}/pending_slips/`);
+      setPendingSlips(response.data);
+      console.log('📋 Pending slips:', response.data);
+    } catch (err) {
+      console.error('Error fetching pending slips:', err);
+      setPendingSlips([]);
+    }
+  };
+
   const fetchAcademicYear = async () => {
     try {
       const response = await api.get('/academic-years/current/');
@@ -67,13 +80,43 @@ function ParentDashboard() {
     }
   };
 
-  // UPDATED: Track which specific deadline is being processed
+  // NEW: Check if a specific deadline has a pending slip
+  const hasPendingSlip = (deadlineId) => {
+    return pendingSlips.some(slip => slip.deadline_id === deadlineId && slip.status === 'pending');
+  };
+
+  // NEW: Check if already paid for a deadline
+  const isAlreadyPaid = (deadlineId) => {
+    return payments.some(payment => 
+      payment.deadline_id === deadlineId && 
+      (payment.status === 'verified' || payment.status === 'completed')
+    );
+  };
+
+  // UPDATED: Check if Pay Now button should be disabled
+  const isPayNowDisabled = (deadlineId) => {
+    return isAlreadyPaid(deadlineId) || hasPendingSlip(deadlineId);
+  };
+
+  // Get button disabled reason for tooltip
+  const getDisabledReason = (deadlineId) => {
+    if (isAlreadyPaid(deadlineId)) return 'Already paid for this month';
+    if (hasPendingSlip(deadlineId)) return 'You have a pending bank slip. Please wait for admin verification.';
+    return null;
+  };
+
   const handleMakePayment = async (deadlineId, amount) => {
+    // Prevent if already paid or has pending slip
+    if (isPayNowDisabled(deadlineId)) {
+      const reason = getDisabledReason(deadlineId);
+      alert(`❌ Cannot process payment: ${reason}`);
+      return;
+    }
+    
     setProcessingPaymentId(deadlineId);
     setError('');
     
     try {
-      // Find the specific payment month from pendingPayments
       const payment = pendingPayments.find(p => p.id === deadlineId);
       
       if (!payment) {
@@ -83,10 +126,7 @@ function ParentDashboard() {
       }
       
       console.log('💰 Paying for specific month:', payment.month_name);
-      console.log('💰 Deadline ID:', deadlineId);
-      console.log('💰 Amount:', amount);
       
-      // Store payment info in sessionStorage for receipt after payment
       const pendingPaymentInfo = {
         deadline_id: deadlineId,
         amount: parseFloat(amount),
@@ -99,7 +139,6 @@ function ParentDashboard() {
         school_name: student.school_name || 'School Name',
       };
       sessionStorage.setItem('pendingPayment', JSON.stringify(pendingPaymentInfo));
-      console.log('💾 Stored pending payment info:', pendingPaymentInfo);
       
       const response = await api.post('/chapa/test-payment/', {
         student_id: student.student_id,
@@ -110,14 +149,12 @@ function ParentDashboard() {
         paid_by_phone: student.parent_phone || '0912345678'
       });
       
-      console.log('💰 Payment response:', response.data);
-      
       if (response.data.checkout_url) {
-        // Redirect to Chapa payment page
         window.location.href = response.data.checkout_url;
       } else if (response.data.success) {
         alert('Payment initiated successfully!');
         fetchStudentData();
+        fetchPendingSlips();
       } else {
         setError(response.data.error || 'Payment initiation failed');
       }
@@ -130,50 +167,29 @@ function ParentDashboard() {
     }
   };
 
-const handleBankTransfer = (payment) => {
-  // Get school bank details from the student object
-  const schoolName = student?.school_name || 'School Name';
-  const bankName = student?.bank_name || 'Commercial Bank of Ethiopia';
-  const accountName = student?.bank_account_holder || schoolName;
-  const accountNumber = student?.bank_account_number || 'Not provided';
-  
-  setShowBankInfo({
-    payment: payment,
-    amount: payment.amount,
-    instructions: [
-      `Bank: ${bankName}`,
-      `Account Name: ${accountName}`,
-      `Account Number: ${accountNumber}`,
-      `Reference: Use Student ID: ${student?.student_id}`,
-      `Month: ${payment.month_name}`,
-      'After transfer, upload the bank slip'
-    ]
-  });
-};
+  const handleBankTransfer = (payment) => {
+    const schoolName = student?.school_name || 'School Name';
+    const bankName = student?.bank_name || 'Commercial Bank of Ethiopia';
+    const accountName = student?.bank_account_holder || schoolName;
+    const accountNumber = student?.bank_account_number || 'Not provided';
+    
+    setShowBankInfo({
+      payment: payment,
+      amount: payment.amount,
+      instructions: [
+        `Bank: ${bankName}`,
+        `Account Name: ${accountName}`,
+        `Account Number: ${accountNumber}`,
+        `Reference: Use Student ID: ${student?.student_id}`,
+        `Month: ${payment.month_name}`,
+        'After transfer, upload the bank slip'
+      ]
+    });
+  };
 
   const handleUploadClick = (deadline) => {
     setSelectedDeadline(deadline);
     setShowUploadModal(true);
-  };
-
-  const pollPaymentStatus = async (checkoutRequestId) => {
-    const interval = setInterval(async () => {
-      try {
-        const response = await api.get(`/payments/status/${checkoutRequestId}/`);
-        if (response.data.status === 'completed') {
-          clearInterval(interval);
-          alert('Payment successful!');
-          fetchStudentData();
-        } else if (response.data.status === 'failed') {
-          clearInterval(interval);
-          alert('Payment failed. Please try again.');
-        }
-      } catch (err) {
-        console.error('Status check error:', err);
-      }
-    }, 5000);
-    
-    setTimeout(() => clearInterval(interval), 120000);
   };
 
   const formatDate = (dateString) => {
@@ -190,22 +206,6 @@ const handleBankTransfer = (payment) => {
     const diffTime = due - today;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
-  };
-
-  const getPaymentStatusBadge = (status) => {
-    switch (status) {
-      case 'paid':
-      case 'completed':
-      case 'verified':
-        return <span className="flex items-center gap-1 text-green-600 bg-green-50 px-2 py-1 rounded-full text-xs"><CheckCircle className="h-3 w-3" /> Paid</span>;
-      case 'pending':
-      case 'unpaid':
-        return <span className="flex items-center gap-1 text-yellow-600 bg-yellow-50 px-2 py-1 rounded-full text-xs"><Clock className="h-3 w-3" /> Pending</span>;
-      case 'failed':
-        return <span className="flex items-center gap-1 text-red-600 bg-red-50 px-2 py-1 rounded-full text-xs"><XCircle className="h-3 w-3" /> Failed</span>;
-      default:
-        return <span className="text-gray-500 text-xs">{status}</span>;
-    }
   };
 
   if (loading) {
@@ -295,7 +295,7 @@ const handleBankTransfer = (payment) => {
           </div>
         </div>
 
-        {/* Pending Payments Section - Updated button with individual loading state */}
+        {/* Pending Payments Section - UPDATED with disabled logic */}
         {pendingPayments.length > 0 && (
           <div className="bg-white rounded-2xl shadow-lg p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -305,11 +305,15 @@ const handleBankTransfer = (payment) => {
             <div className="space-y-4">
               {pendingPayments.map((payment) => {
                 const daysRemaining = getDaysRemaining(payment.due_date);
+                const payNowDisabled = isPayNowDisabled(payment.id);
+                const disabledReason = getDisabledReason(payment.id);
+                const hasPending = hasPendingSlip(payment.id);
+                
                 return (
                   <div key={payment.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                       <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <p className="font-semibold text-gray-900">{payment.month_name}</p>
                           {daysRemaining <= 10 && daysRemaining > 0 && (
                             <span className="text-xs text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">
@@ -321,25 +325,42 @@ const handleBankTransfer = (payment) => {
                               Overdue
                             </span>
                           )}
+                          {/* NEW: Show pending slip badge */}
+                          {hasPending && (
+                            <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              Slip Pending
+                            </span>
+                          )}
                         </div>
                         <p className="text-sm text-gray-500">Due: {formatDate(payment.due_date)}</p>
                         <p className="text-xl font-bold text-red-600 mt-1">
                           ETB {parseFloat(payment.amount).toLocaleString()}
                         </p>
+                        {hasPending && (
+                          <p className="text-xs text-blue-600 mt-1">
+                            ⏳ Your bank slip is being reviewed by admin. You will receive notification once verified.
+                          </p>
+                        )}
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {/* UPDATED BUTTON: Only shows loading spinner for the clicked month */}
+                        {/* UPDATED Pay Now button with disabled state */}
                         <button
                           onClick={() => handleMakePayment(payment.id, payment.amount)}
-                          disabled={processingPaymentId === payment.id}
-                          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 text-sm"
+                          disabled={processingPaymentId === payment.id || payNowDisabled}
+                          title={disabledReason || ''}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                            payNowDisabled
+                              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                              : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                          }`}
                         >
                           {processingPaymentId === payment.id ? (
                             <Loader className="h-4 w-4 animate-spin" />
                           ) : (
                             <CreditCard className="h-4 w-4" />
                           )}
-                          Pay Now
+                          {hasPending ? 'Pending Review' : 'Pay Now'}
                         </button>
                         <button
                           onClick={() => handleBankTransfer(payment)}
@@ -350,10 +371,16 @@ const handleBankTransfer = (payment) => {
                         </button>
                         <button
                           onClick={() => handleUploadClick(payment)}
-                          className="flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm"
+                          disabled={hasPending}
+                          title={hasPending ? 'You already have a pending slip for this month' : ''}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                            hasPending
+                              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                          }`}
                         >
                           <Upload className="h-4 w-4" />
-                          Upload Slip
+                          {hasPending ? 'Slip Uploaded' : 'Upload Slip'}
                         </button>
                       </div>
                     </div>
@@ -364,81 +391,121 @@ const handleBankTransfer = (payment) => {
           </div>
         )}
 
-{/* Payment History */}
-<div className="bg-white rounded-2xl shadow-lg p-6">
-  <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-    <Receipt className="h-5 w-5 text-gray-600" />
-    Payment History
-  </h2>
-  
-  {payments.length === 0 ? (
-    <p className="text-gray-500 text-center py-8">No payment records found.</p>
-  ) : (
-    <div className="overflow-x-auto">
-      <table className="w-full">
-        <thead className="bg-gray-50">
-          <tr>
-            <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Date</th>
-            <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Description</th>
-            <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">Amount</th>
-            <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Status</th>
-            <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Action</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-200">
-          {payments.map((payment) => (
-            <tr key={payment.id} className="hover:bg-gray-50">
-              <td className="px-4 py-3 text-sm text-gray-600">
-                {formatDate(payment.payment_date || payment.created_at)}
-              </td>
-              <td className="px-4 py-3 text-sm text-gray-900">
-                {payment.description || payment.deadline_name || 'Tuition Fee'}
-                {payment.is_from_slip && (
-                  <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
-                    Bank Slip
-                  </span>
-                )}
-              </td>
-              <td className="px-4 py-3 text-sm text-gray-900 text-right font-medium">
-                ETB {parseFloat(payment.amount).toLocaleString()}
-              </td>
-              <td className="px-4 py-3 text-center">
-                {payment.status === 'verified' && (
-                  <span className="inline-flex items-center gap-1 text-green-600 bg-green-50 px-2 py-1 rounded-full text-xs">
-                    <CheckCircle className="h-3 w-3" /> Paid
-                  </span>
-                )}
-                {payment.status === 'pending' && (
-                  <span className="inline-flex items-center gap-1 text-yellow-600 bg-yellow-50 px-2 py-1 rounded-full text-xs">
-                    <Clock className="h-3 w-3" /> Pending
-                  </span>
-                )}
-                {payment.status === 'rejected' && (
-                  <span className="inline-flex items-center gap-1 text-red-600 bg-red-50 px-2 py-1 rounded-full text-xs">
-                    <XCircle className="h-3 w-3" /> Rejected
-                  </span>
-                )}
-              </td>
-              <td className="px-4 py-3 text-center">
-                {/* View Receipt Button - ONLY */}
-                <button
-                  onClick={() => {
-                    setSelectedPayment(payment);
-                    setShowReceiptModal(true);
-                  }}
-                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                  title="View Receipt"
-                >
-                  <Eye className="h-4 w-4" />
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )}
-</div>
+        {/* Payment History - UPDATED with slip status */}
+        <div className="bg-white rounded-2xl shadow-lg p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <Receipt className="h-5 w-5 text-gray-600" />
+            Payment History
+          </h2>
+          
+          {payments.length === 0 && pendingSlips.length === 0 ? (
+            <p className="text-gray-500 text-center py-8">No payment records found.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Date</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Description</th>
+                    <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">Amount</th>
+                    <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Status</th>
+                    <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {/* Show pending slips in history as well */}
+                  {pendingSlips.map((slip) => (
+                    <tr key={`slip-${slip.id}`} className="hover:bg-gray-50 bg-yellow-50/30">
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {formatDate(slip.uploaded_at)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {slip.month_name || slip.deadline?.month_name || 'Tuition Fee'}
+                        <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">
+                          Bank Slip Uploaded
+                        </span>
+                        {slip.transaction_reference && (
+                          <p className="text-xs text-gray-400 mt-0.5 font-mono">
+                            Ref: {slip.transaction_reference.substring(0, 20)}...
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-right font-medium">
+                        ETB {parseFloat(slip.amount).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="inline-flex items-center gap-1 text-yellow-600 bg-yellow-50 px-2 py-1 rounded-full text-xs">
+                          <Clock className="h-3 w-3" /> Pending Verification
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          onClick={() => {
+                            setSelectedPayment({ ...slip, is_slip: true });
+                            setShowReceiptModal(true);
+                          }}
+                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="View Slip"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  
+                  {/* Existing verified payments */}
+                  {payments.map((payment) => (
+                    <tr key={payment.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {formatDate(payment.payment_date || payment.created_at)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {payment.description || payment.deadline_name || 'Tuition Fee'}
+                        {payment.is_from_slip && (
+                          <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
+                            Bank Slip
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-right font-medium">
+                        ETB {parseFloat(payment.amount).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {payment.status === 'verified' && (
+                          <span className="inline-flex items-center gap-1 text-green-600 bg-green-50 px-2 py-1 rounded-full text-xs">
+                            <CheckCircle className="h-3 w-3" /> Verified
+                          </span>
+                        )}
+                        {payment.status === 'pending' && (
+                          <span className="inline-flex items-center gap-1 text-yellow-600 bg-yellow-50 px-2 py-1 rounded-full text-xs">
+                            <Clock className="h-3 w-3" /> Pending
+                          </span>
+                        )}
+                        {payment.status === 'rejected' && (
+                          <span className="inline-flex items-center gap-1 text-red-600 bg-red-50 px-2 py-1 rounded-full text-xs">
+                            <XCircle className="h-3 w-3" /> Rejected
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          onClick={() => {
+                            setSelectedPayment(payment);
+                            setShowReceiptModal(true);
+                          }}
+                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="View Receipt"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
         {/* Receipt Modal */}
         {showReceiptModal && selectedPayment && (
@@ -518,6 +585,7 @@ const handleBankTransfer = (payment) => {
           onClose={() => setShowUploadModal(false)}
           onSuccess={() => {
             fetchStudentData();
+            fetchPendingSlips();
             setShowUploadModal(false);
           }}
         />

@@ -189,3 +189,113 @@ class SchoolSMSTestView(APIView):
             return Response(result)
         except Exception as e:
             return Response({'error': str(e)}, status=400)
+
+
+# ========== VERIFY.ET CONFIGURATION VIEWS ==========
+# Each school configures their own Verify.ET credentials
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def verify_et_settings(request):
+    """Get or update Verify.ET settings for the school"""
+    try:
+        school = get_school_for_user(request)
+        
+        if request.method == 'GET':
+            return Response({
+                'verify_et_api_key': school.verify_et_api_key or '',
+                'verify_et_enabled': school.verify_et_enabled,
+                'cbe_account_number': school.cbe_account_number or '',
+                'cbe_account_suffix': school.cbe_account_suffix or '',
+                'verify_et_test_status': school.verify_et_test_status or '',
+                'verify_et_last_test': school.verify_et_last_test
+            })
+        
+        elif request.method == 'POST':
+            api_key = request.data.get('verify_et_api_key', '').strip()
+            enabled = request.data.get('verify_et_enabled', False)
+            account_number = request.data.get('cbe_account_number', '').strip()
+            account_suffix = request.data.get('cbe_account_suffix', '').strip()
+            
+            # Validate account suffix (must be 8 digits)
+            if account_suffix:
+                if len(account_suffix) != 8:
+                    return Response({'error': 'Account suffix must be exactly 8 digits'}, status=400)
+                if not account_suffix.isdigit():
+                    return Response({'error': 'Account suffix must contain only numbers'}, status=400)
+            
+            school.verify_et_api_key = api_key
+            school.verify_et_enabled = enabled
+            school.cbe_account_number = account_number
+            school.cbe_account_suffix = account_suffix
+            school.save()
+            
+            return Response({'success': True, 'message': 'Verify.ET settings saved successfully'})
+            
+    except ObjectDoesNotExist as e:
+        return Response(
+            {'error': 'School association not found.', 'detail': str(e)},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def test_verify_et_connection(request):
+    """Test Verify.ET API connection with current settings"""
+    import requests
+    from django.utils import timezone
+    
+    try:
+        school = get_school_for_user(request)
+        
+        if not school.verify_et_api_key:
+            return Response({'error': 'Verify.ET API key not configured'}, status=400)
+        
+        if not school.cbe_account_suffix:
+            return Response({'error': 'CBE account suffix not configured'}, status=400)
+        
+        # Test the API with a dummy reference
+        api_url = "https://verify.et/api/verify"
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": school.verify_et_api_key,
+        }
+        payload = {
+            "bank": "cbe",
+            "referenceNumber": "TEST123",
+            "accountSuffix": school.cbe_account_suffix,
+            "waitMs": 5000,
+        }
+        
+        response = requests.post(api_url, json=payload, headers=headers, timeout=10)
+        
+        school.verify_et_last_test = timezone.now()
+        
+        if response.status_code == 200:
+            school.verify_et_test_status = 'success'
+            school.verify_et_enabled = True
+            school.save()
+            return Response({'message': '✅ Connection successful! Your Verify.ET API key is valid.'})
+        elif response.status_code == 401:
+            school.verify_et_test_status = 'failed'
+            school.save()
+            return Response({'error': 'Invalid API key. Please check your Verify.ET API key.'}, status=401)
+        else:
+            school.verify_et_test_status = 'failed'
+            school.save()
+            return Response({'error': f'API returned status {response.status_code}. Please check your credentials.'}, status=400)
+            
+    except requests.exceptions.Timeout:
+        return Response({'error': 'Connection timeout. Please try again.'}, status=408)
+    except requests.exceptions.ConnectionError:
+        return Response({'error': 'Cannot connect to Verify.ET API. Please check your internet connection.'}, status=503)
+    except ObjectDoesNotExist as e:
+        return Response(
+            {'error': 'School association not found.', 'detail': str(e)},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
