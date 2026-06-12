@@ -22,3 +22,5 @@ frontend/.env.local
 # OS
 .DS_Store
 Thumbs.dbfrontend/.env.local
+backend/.env
+.env
