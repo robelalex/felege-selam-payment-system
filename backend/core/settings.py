@@ -237,20 +237,10 @@ if not DEBUG:
     SECURE_PROXY_SSL_HEADER      = ('HTTP_X_FORWARDED_PROTO', 'https')
     USE_X_FORWARDED_HOST         = True
 
-# ===== SMS =====
-# SMS Settings
-AFRICASTALKING_USERNAME = os.getenv('AFRICASTALKING_USERNAME')  # Remove 'sandbox' default
-AFRICASTALKING_API_KEY = os.getenv('AFRICASTALKING_API_KEY', '')
-SMS_SANDBOX = os.getenv('SMS_SANDBOX', 'False') == 'True'  # Default to False
-SMS_SENDER_ID = os.getenv('SMS_SENDER_ID', '')  # Empty default, no sender ID
 
 # ===== CHAPA =====
 CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY', '')
 
-
-# ===== VERIFIER API (Payment Verification) =====
-VERIFIER_API_KEY = os.getenv('VERIFIER_API_KEY', '')
-VERIFIER_API_URL = 'https://verify.leul.et'
 
 # ===== EMAIL =====
 # No SMTP — Render blocks outbound SMTP ports

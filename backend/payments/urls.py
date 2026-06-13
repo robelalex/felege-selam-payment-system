@@ -8,16 +8,13 @@ from .views.slip_views import (
     upload_slip, pending_slips, verify_slip, ai_stats,
     delete_slip, bulk_delete_slips,
     update_transaction_reference,
-    extract_slip_data,  # <-- ADDED COMMA HERE
+    extract_slip_data,
     auto_verify_with_api,
     check_receipt_with_verify_et,  
     verify_slip_from_api 
 )
-from .views.sms_views import (
-    sms_balance, send_test_sms, sms_history,
-    send_payment_reminder, send_bulk_reminders
-)
 
+# ✅ ONLY import from sms_views_v2 (old sms_views is deleted)
 from .views.sms_views_v2 import (
     MultiSchoolSMSBalanceView,
     MultiSchoolSendTestSMSView,
@@ -69,18 +66,12 @@ urlpatterns = [
     path('send-reminders/', send_reminders, name='send-reminders'),
     path('payment-confirmation/<int:payment_id>/', send_payment_confirmation, name='payment-confirmation'),
     
-    # NEW: Email reminders endpoint (via ReminderViewSet)
+    # Email reminders endpoint (via ReminderViewSet)
     path('reminders/send_email_reminders/', ReminderViewSet.as_view({'post': 'send_email_reminders'}), name='send-email-reminders'),
 ]
 
-# SMS API URLs
+# ✅ SMS API URLs - ONLY multi-school endpoints (old ones removed)
 urlpatterns += [
-    path('sms/balance/', sms_balance, name='sms-balance'),
-    path('sms/send-test/', send_test_sms, name='send-test-sms'),
-    path('sms/history/', sms_history, name='sms-history'),
-    path('sms/send-reminder/', send_payment_reminder, name='send-payment-reminder'),
-    path('sms/send-bulk/', send_bulk_reminders, name='send-bulk-reminders'),
-
     path('sms/multi-school/balance/', MultiSchoolSMSBalanceView.as_view(), name='multi-school-sms-balance'),
     path('sms/multi-school/test/', MultiSchoolSendTestSMSView.as_view(), name='multi-school-sms-test'),
     path('sms/multi-school/reminder/', MultiSchoolSendPaymentReminderView.as_view(), name='multi-school-sms-reminder'),
@@ -107,7 +98,6 @@ urlpatterns += [
     path('slips/extract-data/', extract_slip_data, name='extract-slip-data'),
     path('slips/<int:slip_id>/update-transaction-ref/', update_transaction_reference, name='update-transaction-reference'),
     path('slips/<int:slip_id>/auto-verify/', auto_verify_with_api, name='auto-verify-slip'),
-
     path('slips/<int:slip_id>/check-receipt/', check_receipt_with_verify_et, name='check-receipt-verify-et'),
     path('slips/<int:slip_id>/verify-from-api/', verify_slip_from_api, name='verify-slip-from-api'),
 ]

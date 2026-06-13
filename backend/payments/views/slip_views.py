@@ -765,6 +765,7 @@ def check_receipt_with_verify_et(request, slip_id):
     import requests
     import json
     from datetime import datetime
+    import time
     
     try:
         slip = PaymentSlip.objects.get(id=slip_id)
@@ -779,9 +780,6 @@ def check_receipt_with_verify_et(request, slip_id):
             try:
                 school = School.objects.get(id=int(school_id))
                 print(f"🔍 Found school: {school.name}")
-                print(f"🔍 School has verify_et_api_key: {bool(school.verify_et_api_key)}")
-                print(f"🔍 School verify_et_enabled: {school.verify_et_enabled}")
-                print(f"🔍 School cbe_account_suffix: {school.cbe_account_suffix}")
                 
                 if str(slip.student.school_id) != school_id:
                     return Response({'error': 'Slip does not belong to your school'}, status=403)
@@ -799,8 +797,7 @@ def check_receipt_with_verify_et(request, slip_id):
                 'error': 'No transaction reference found. Please ensure the slip has a reference number.'
             }, status=400)
         
-        # ========== CHECK IF SCHOOL HAS VERIFY.ET CONFIGURED ==========
-        # If not configured, show user-friendly message with instructions
+        # Check if school has Verify.ET configured
         if not school.verify_et_api_key:
             return Response({
                 'success': False,
@@ -840,17 +837,15 @@ def check_receipt_with_verify_et(request, slip_id):
         
         # Prepare request to Verify.ET API
         api_url = "https://verify.et/api/verify"
-        
         headers = {
             "Content-Type": "application/json",
             "x-api-key": school.verify_et_api_key,
         }
-        
         payload = {
             "bank": "cbe",
             "referenceNumber": clean_ref,
             "accountSuffix": account_suffix,
-            "waitMs": 8000,
+            "waitMs": 15000,  # Wait up to 15 seconds
         }
         
         # Add settlement account if available (optional)
@@ -868,94 +863,72 @@ def check_receipt_with_verify_et(request, slip_id):
         
         if response.status_code == 200:
             data = response.json()
+            return process_verify_et_response(slip, data, clean_ref)
             
-            # Save the raw response for debugging
-            slip.verify_et_response_raw = data
-            slip.verify_et_checked_at = timezone.now()
+        elif response.status_code == 202:
+            # Request queued - poll for result
+            data = response.json()
+            status_url = data.get('links', {}).get('statusUrl') or data.get('statusUrl')
             
-            if data.get("success"):
-                verification = data.get("verification", {})
-                status = verification.get("status", "unknown")
-                tx_data = verification.get("data", {})
-                
-                # Update slip with verification results
-                slip.verify_et_status = status
-                slip.verify_et_payer_name = tx_data.get("senderName") or tx_data.get("payer", "")
-                slip.verify_et_amount = tx_data.get("amount")
-                slip.verify_et_date = tx_data.get("date") or tx_data.get("transactionDate", "")
-                slip.verify_et_receiver = tx_data.get("receiverName") or tx_data.get("receiver", "")
-                
-                # Check if amount matches
-                amount_matches = False
-                if slip.verify_et_amount:
-                    diff = abs(float(slip.verify_et_amount) - float(slip.amount))
-                    amount_matches = diff <= 1.0
-                
-                slip.save()
-                
-                # Prepare response for admin
-                if status == "verified":
-                    return Response({
-                        'success': True,
-                        'verified': True,
-                        'message': f'✅ Payment VERIFIED by CBE!',
-                        'details': {
-                            'payer_name': slip.verify_et_payer_name,
-                            'amount': str(slip.verify_et_amount),
-                            'date': slip.verify_et_date,
-                            'receiver': slip.verify_et_receiver,
-                            'reference': clean_ref,
-                            'amount_matches': amount_matches,
-                            'declared_amount': str(slip.amount)
-                        }
-                    })
-                elif status == "queued":
-                    return Response({
-                        'success': True,
-                        'verified': False,
-                        'queued': True,
-                        'message': '⏳ Verification queued. Please check again in a few moments.',
-                        'details': {
-                            'reference': clean_ref,
-                            'status': 'queued'
-                        }
-                    })
-                else:
-                    return Response({
-                        'success': True,
-                        'verified': False,
-                        'message': f'❌ Transaction {status}. Could not verify this payment.',
-                        'details': {
-                            'status': status,
-                            'reference': clean_ref,
-                            'api_response': data
-                        }
-                    })
-            else:
-                # API returned success=False
-                error_msg = data.get("message", "Unknown error")
-                slip.verify_et_status = 'error'
-                slip.verify_et_error = error_msg
-                slip.save()
-                
+            if not status_url:
                 return Response({
                     'success': False,
                     'verified': False,
-                    'message': f'❌ Verification failed: {error_msg}',
-                    'error': error_msg
+                    'queued': True,
+                    'message': 'Request queued but no status URL provided. Please try again.',
+                    'reference': clean_ref
                 })
-        else:
-            # HTTP error
-            error_msg = f"API returned status {response.status_code}"
-            slip.verify_et_status = 'error'
-            slip.verify_et_error = error_msg
-            slip.save()
             
+            # Poll for result
+            full_url = f"https://verify.et{status_url}" if status_url.startswith('/') else status_url
+            
+            print(f"📡 Polling status URL: {full_url}")
+            
+            # Poll up to 10 times (30 seconds max)
+            for attempt in range(10):
+                time.sleep(3)  # Wait 3 seconds between polls
+                try:
+                    poll_response = requests.get(full_url, headers=headers, timeout=10)
+                    print(f"📡 Poll attempt {attempt + 1}: Status {poll_response.status_code}")
+                    
+                    if poll_response.status_code == 200:
+                        poll_data = poll_response.json()
+                        verification = poll_data.get('verification', {})
+                        status = verification.get('status', 'pending')
+                        
+                        if status == 'verified':
+                            # Transaction verified!
+                            return process_verify_et_response(slip, poll_data, clean_ref)
+                        elif status == 'failed':
+                            return Response({
+                                'success': False,
+                                'verified': False,
+                                'message': '❌ Transaction verification failed. The transaction was not found in CBE system.',
+                                'reference': clean_ref
+                            })
+                        elif status == 'pending':
+                            continue  # Still pending, keep polling
+                    elif poll_response.status_code == 404:
+                        # Still processing
+                        continue
+                except Exception as e:
+                    print(f"⚠️ Poll error: {e}")
+                    continue
+            
+            # Timeout after polling
             return Response({
                 'success': False,
                 'verified': False,
-                'message': f'❌ API Error: {error_msg}',
-                'error': error_msg
+                'queued': True,
+                'message': '⏳ Verification is taking longer than expected. Please try again in a few moments.',
+                'reference': clean_ref
+            })
+        else:
+            return Response({
+                'success': False,
+                'verified': False,
+                'message': f'API returned status {response.status_code}',
+                'reference': clean_ref
             })
             
     except requests.exceptions.Timeout:
@@ -977,6 +950,78 @@ def check_receipt_with_verify_et(request, slip_id):
         import traceback
         traceback.print_exc()
         return Response({'error': str(e)}, status=500)
+
+
+def process_verify_et_response(slip, data, clean_ref):
+    """Process the verification response from Verify.ET"""
+    try:
+        verification = data.get('verification', {})
+        status = verification.get('status', 'unknown')
+        tx_data = verification.get('data', {})
+        
+        # Update slip with verification results
+        slip.verify_et_status = status
+        slip.verify_et_payer_name = tx_data.get('senderName') or tx_data.get('payer', '')
+        slip.verify_et_amount = tx_data.get('amount')
+        slip.verify_et_date = tx_data.get('date') or tx_data.get('transactionDate', '')
+        slip.verify_et_receiver = tx_data.get('receiverName') or tx_data.get('receiver', '')
+        slip.verify_et_response_raw = data
+        slip.verify_et_checked_at = timezone.now()
+        
+        # Check if amount matches
+        amount_matches = False
+        if slip.verify_et_amount:
+            try:
+                diff = abs(float(slip.verify_et_amount) - float(slip.amount))
+                amount_matches = diff <= 1.0  # Within 1 Birr tolerance
+            except:
+                pass
+        
+        slip.save()
+        
+        if status == 'verified':
+            return Response({
+                'success': True,
+                'verified': True,
+                'message': f'✅ Payment VERIFIED by CBE!',
+                'details': {
+                    'payer_name': slip.verify_et_payer_name,
+                    'amount': str(slip.verify_et_amount),
+                    'date': slip.verify_et_date,
+                    'receiver': slip.verify_et_receiver,
+                    'reference': clean_ref,
+                    'amount_matches': amount_matches,
+                    'declared_amount': str(slip.amount)
+                }
+            })
+        elif status == 'pending':
+            return Response({
+                'success': True,
+                'verified': False,
+                'queued': True,
+                'message': '⏳ Verification still processing. Please check again in a moment.',
+                'details': {
+                    'reference': clean_ref,
+                    'status': 'pending'
+                }
+            })
+        else:
+            return Response({
+                'success': True,
+                'verified': False,
+                'message': f'❌ Transaction {status}. Could not verify this payment.',
+                'details': {
+                    'status': status,
+                    'reference': clean_ref
+                }
+            })
+    except Exception as e:
+        print(f"❌ Error processing response: {e}")
+        return Response({
+            'success': False,
+            'verified': False,
+            'message': f'Error processing verification: {str(e)}'
+        })
 
 
 @api_view(['POST'])

@@ -1,9 +1,14 @@
 # backend/payments/views/__init__.py
 from .views import PaymentViewSet, PaymentDeadlineViewSet, payments_filtered_by_year
 from .reminder_views import ReminderViewSet, send_reminders, send_payment_confirmation
-from .sms_views import (
-    sms_balance, send_test_sms, sms_history,
-    send_payment_reminder, send_bulk_reminders
+# ✅ REMOVED old sms_views import (file deleted)
+# ✅ ADD new sms_views_v2 imports
+from .sms_views_v2 import (
+    MultiSchoolSMSBalanceView,
+    MultiSchoolSendTestSMSView,
+    MultiSchoolSendPaymentReminderView,
+    MultiSchoolSendBulkRemindersView,
+    MultiSchoolSMSPendingRemindersView
 )
 from .report_views import monthly_report, student_report, annual_summary
 from .slip_views import upload_slip, pending_slips, verify_slip, ai_stats
@@ -19,11 +24,12 @@ __all__ = [
     'payments_filtered_by_year',
     'send_reminders',
     'send_payment_confirmation',
-    'sms_balance',
-    'send_test_sms',
-    'sms_history',
-    'send_payment_reminder',
-    'send_bulk_reminders',
+    # ✅ NEW SMS exports
+    'MultiSchoolSMSBalanceView',
+    'MultiSchoolSendTestSMSView',
+    'MultiSchoolSendPaymentReminderView',
+    'MultiSchoolSendBulkRemindersView',
+    'MultiSchoolSMSPendingRemindersView',
     'monthly_report',
     'student_report',
     'annual_summary',
