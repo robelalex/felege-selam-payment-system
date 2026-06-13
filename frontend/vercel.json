@@ -1,0 +1,8 @@
+{
+    "rewrites": [
+        {
+            "source": "/api/:path*",
+            "destination": "https://felege-selam-payment-system.onrender.com/api/:path*"
+        }
+    ]
+}
