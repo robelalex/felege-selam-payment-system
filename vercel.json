@@ -1,8 +1,8 @@
 {
     "rewrites": [
         {
-            "source": "/api/(.*)",
-            "destination": "https://felege-selam-payment-system.onrender.com/api/$1"
+            "source": "/api/:path*",
+            "destination": "https://felege-selam-payment-system.onrender.com/api/:path*"
         }
     ]
 }
