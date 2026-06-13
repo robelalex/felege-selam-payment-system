@@ -199,7 +199,14 @@ class SchoolSMSTestView(APIView):
 def verify_et_settings(request):
     """Get or update Verify.ET settings for the school"""
     try:
+        # Get the school first
         school = get_school_for_user(request)
+        
+        # FORCE a fresh fetch from database to avoid any caching issues
+        from schools.models import School
+        school = School.objects.get(pk=school.pk)
+        
+        print(f"🔍 Working with school: {school.name} (ID: {school.pk})")
         
         if request.method == 'GET':
             return Response({
@@ -217,6 +224,11 @@ def verify_et_settings(request):
             account_number = request.data.get('cbe_account_number', '').strip()
             account_suffix = request.data.get('cbe_account_suffix', '').strip()
             
+            print(f"💾 Saving Verify.ET settings for school: {school.name}")
+            print(f"   API Key: {'Yes' if api_key else 'No'}")
+            print(f"   Enabled: {enabled}")
+            print(f"   Suffix: {account_suffix}")
+            
             # Validate account suffix (must be 8 digits)
             if account_suffix:
                 if len(account_suffix) != 8:
@@ -224,13 +236,28 @@ def verify_et_settings(request):
                 if not account_suffix.isdigit():
                     return Response({'error': 'Account suffix must contain only numbers'}, status=400)
             
+            # Direct assignment and save
             school.verify_et_api_key = api_key
             school.verify_et_enabled = enabled
             school.cbe_account_number = account_number
             school.cbe_account_suffix = account_suffix
-            school.save()
             
-            return Response({'success': True, 'message': 'Verify.ET settings saved successfully'})
+            # Save with explicit update_fields
+            school.save(update_fields=[
+                'verify_et_api_key',
+                'verify_et_enabled',
+                'cbe_account_number', 
+                'cbe_account_suffix'
+            ])
+            
+            print(f"✅ Saved successfully!")
+            print(f"   API Key in DB: {'Yes' if school.verify_et_api_key else 'No'}")
+            print(f"   Enabled in DB: {school.verify_et_enabled}")
+            
+            return Response({
+                'success': True, 
+                'message': 'Verify.ET settings saved successfully'
+            })
             
     except ObjectDoesNotExist as e:
         return Response(
@@ -238,6 +265,9 @@ def verify_et_settings(request):
             status=status.HTTP_403_FORBIDDEN
         )
     except Exception as e:
+        import traceback
+        print(f"❌ Error in verify_et_settings: {e}")
+        traceback.print_exc()
         return Response({'error': str(e)}, status=500)
 
 
@@ -247,15 +277,24 @@ def test_verify_et_connection(request):
     """Test Verify.ET API connection with current settings"""
     import requests
     from django.utils import timezone
+    import time
     
     try:
         school = get_school_for_user(request)
         
+        # Force fresh fetch
+        from schools.models import School
+        school = School.objects.get(pk=school.pk)
+        
+        print(f"🔍 Testing Verify.ET for school: {school.name}")
+        print(f"   API Key exists: {bool(school.verify_et_api_key)}")
+        print(f"   Suffix: {school.cbe_account_suffix}")
+        
         if not school.verify_et_api_key:
-            return Response({'error': 'Verify.ET API key not configured'}, status=400)
+            return Response({'error': 'Verify.ET API key not configured. Please save it first.'}, status=400)
         
         if not school.cbe_account_suffix:
-            return Response({'error': 'CBE account suffix not configured'}, status=400)
+            return Response({'error': 'CBE account suffix not configured. Please save it first.'}, status=400)
         
         # Test the API with a dummy reference
         api_url = "https://verify.et/api/verify"
@@ -270,22 +309,47 @@ def test_verify_et_connection(request):
             "waitMs": 5000,
         }
         
-        response = requests.post(api_url, json=payload, headers=headers, timeout=10)
+        print(f"📡 Calling Verify.ET API...")
+        response = requests.post(api_url, json=payload, headers=headers, timeout=30)
         
         school.verify_et_last_test = timezone.now()
         
-        if response.status_code == 200:
-            school.verify_et_test_status = 'success'
-            school.verify_et_enabled = True
-            school.save()
-            return Response({'message': '✅ Connection successful! Your Verify.ET API key is valid.'})
+        # Handle 202 as success (request accepted, will be processed)
+        if response.status_code in [200, 202]:
+            # Try to parse response
+            try:
+                data = response.json()
+                print(f"📡 Response data: {data}")
+            except:
+                data = {}
+            
+            # 202 means request is queued - that's still a valid connection
+            if response.status_code == 202:
+                school.verify_et_test_status = 'success'
+                school.verify_et_enabled = True
+                school.save(update_fields=['verify_et_test_status', 'verify_et_enabled', 'verify_et_last_test'])
+                print(f"✅ API connection successful (202 - request queued)")
+                return Response({'message': '✅ Connection successful! Your API key is valid. (Request queued - this is normal)'})
+            else:
+                # 200 means immediate verification
+                if data.get('success') or data.get('verification', {}).get('status') == 'verified':
+                    school.verify_et_test_status = 'success'
+                    school.verify_et_enabled = True
+                    school.save(update_fields=['verify_et_test_status', 'verify_et_enabled', 'verify_et_last_test'])
+                    return Response({'message': '✅ Connection successful! Your Verify.ET API key is valid.'})
+                else:
+                    school.verify_et_test_status = 'success'
+                    school.verify_et_enabled = True
+                    school.save(update_fields=['verify_et_test_status', 'verify_et_enabled', 'verify_et_last_test'])
+                    return Response({'message': '✅ API key is valid! (Test reference not found in system - this is expected)'})
+                    
         elif response.status_code == 401:
             school.verify_et_test_status = 'failed'
-            school.save()
+            school.save(update_fields=['verify_et_test_status', 'verify_et_last_test'])
             return Response({'error': 'Invalid API key. Please check your Verify.ET API key.'}, status=401)
         else:
             school.verify_et_test_status = 'failed'
-            school.save()
+            school.save(update_fields=['verify_et_test_status', 'verify_et_last_test'])
             return Response({'error': f'API returned status {response.status_code}. Please check your credentials.'}, status=400)
             
     except requests.exceptions.Timeout:
@@ -298,4 +362,7 @@ def test_verify_et_connection(request):
             status=status.HTTP_403_FORBIDDEN
         )
     except Exception as e:
+        import traceback
+        print(f"❌ Error: {e}")
+        traceback.print_exc()
         return Response({'error': str(e)}, status=500)

@@ -66,9 +66,9 @@ function SMSDashboard() {
   const checkSMSConfiguration = useCallback(async () => {
     setCheckingConfig(true);
     try {
-      const response = await api.get('/schools/sms-config/', {
-        headers: getAuthHeader()
-      });
+         const response = await api.get('/sms-config/', {
+             headers: getAuthHeader()
+          });
       setSmsConfigured(response.data.sms_enabled === true);
     } catch (err) {
       console.error('Error checking SMS config:', err);
