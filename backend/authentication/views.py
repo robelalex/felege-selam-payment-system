@@ -11,6 +11,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.decorators import throttle_classes
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -141,9 +142,15 @@ def admin_login_step2(request):
         except:
             pass
         
+        # ✅ Generate JWT token
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(user)
+        
         return Response({
             'success': True,
             'message': 'Login successful',
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
             'user': {
                 'id': user.id,
                 'email': user.email,
@@ -196,9 +203,15 @@ def admin_login_step2(request):
     except:
         pass
     
+    # ✅ Generate JWT token
+    from rest_framework_simplejwt.tokens import RefreshToken
+    refresh = RefreshToken.for_user(user)
+    
     return Response({
         'success': True,
         'message': 'Login successful',
+        'access': str(refresh.access_token),
+        'refresh': str(refresh),
         'user': {
             'id': user.id,
             'email': user.email,

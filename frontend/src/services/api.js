@@ -46,6 +46,12 @@ api.interceptors.request.use(
   (config) => {
     console.log('📤 INTERCEPTOR - URL:', config.url);
     console.log('📤 INTERCEPTOR - Method:', config.method);
+
+    // ✅ ADD THIS BLOCK — attach JWT token to every request
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
     
     // ✅ Ensure CSRF token is included for non-GET requests
     if (config.method !== 'get' && !config.headers['X-CSRFToken']) {

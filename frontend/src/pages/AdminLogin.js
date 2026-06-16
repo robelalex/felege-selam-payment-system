@@ -72,6 +72,11 @@ const handleVerifyOTP = async (e) => {
     if (response.data.success) {
       localStorage.setItem('isAdmin', 'true');
       localStorage.setItem('adminUser', JSON.stringify(response.data.user));
+
+      // ✅ ADD THESE 3 LINES — save the token
+      if (response.data.access) {
+        localStorage.setItem('access_token', response.data.access);
+      }
       
       if (response.data.user.school) {
         localStorage.setItem('selectedSchool', JSON.stringify({
