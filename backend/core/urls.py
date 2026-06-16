@@ -17,6 +17,7 @@ from schools.approval_views import pending_approvals, approve_school, reject_sch
 from reports.views import dashboard_stats as reports_dashboard_stats, pending_payments_report
 from authentication.views import change_password
 from authentication import views as auth_views
+from rest_framework_simplejwt.views import TokenRefreshView
 
 # Import the specific action methods
 from academics.views import AcademicYearViewSet
@@ -46,6 +47,7 @@ urlpatterns = [
     path('api/', include('payments.urls')),
     path('api/users/me/', CurrentUserView.as_view(), name='current_user'),
     path('api/me/', auth_views.get_current_user, name='current-user'),
+    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
     # Payment endpoints
     path('api/payments-filtered/', payments_filtered_by_year, name='payments-filtered'),

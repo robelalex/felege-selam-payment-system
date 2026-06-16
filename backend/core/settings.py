@@ -7,6 +7,7 @@ import logging
 import cloudinary
 import cloudinary.uploader
 import cloudinary.api
+from datetime import timedelta
 
 logging.basicConfig(level=logging.DEBUG)
 load_dotenv()
@@ -171,6 +172,16 @@ REST_FRAMEWORK = {
         'login': '10/hour',
     },
 }
+
+
+# ===== SIMPLE JWT =====
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),   # stays logged in for 8 hours
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
 
 # ===== SESSION =====
 SESSION_COOKIE_AGE = 3600
