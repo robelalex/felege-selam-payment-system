@@ -1,10 +1,6 @@
 // src/services/api.js
 import axios from 'axios';
 
-// ✅ Use environment variable for API URL
-// Production: uses /api (Vercel proxy)
-// Local: uses localhost
-// const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000/api';
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://felege-selam-payment-system.onrender.com/api';
 
 console.log('🔍 API Base URL:', API_BASE_URL);
@@ -41,27 +37,32 @@ if (csrfToken) {
   console.log('✅ CSRF Token set in axios defaults');
 }
 
-// Add a request interceptor to include the selected year and school
+// ===== REQUEST INTERCEPTOR =====
 api.interceptors.request.use(
   (config) => {
     console.log('📤 INTERCEPTOR - URL:', config.url);
     console.log('📤 INTERCEPTOR - Method:', config.method);
 
-    // ✅ ADD THIS BLOCK — attach JWT token to every request
+    // ✅ Attach JWT token — but NOT on login/verify endpoints
+    const isAuthEndpoint = config.url && (
+      config.url.includes('/login/') ||
+      config.url.includes('/verify/') ||
+      config.url.includes('/token/refresh/')
+    );
     const token = localStorage.getItem('access_token');
-    if (token) {
+    if (token && !isAuthEndpoint) {
       config.headers['Authorization'] = `Bearer ${token}`;
     }
-    
+
     // ✅ Ensure CSRF token is included for non-GET requests
     if (config.method !== 'get' && !config.headers['X-CSRFToken']) {
-      const token = getCSRFToken();
-      if (token) {
-        config.headers['X-CSRFToken'] = token;
+      const csrf = getCSRFToken();
+      if (csrf) {
+        config.headers['X-CSRFToken'] = csrf;
       }
     }
-    
-    // ✅ SKIP adding parameters for excluded endpoints
+
+    // ✅ SKIP adding year/school parameters for excluded endpoints
     const isRegistration = config.url && config.url.includes('/admin/register/');
     const isPaymentInitiation = config.url && config.url.includes('/payments/initiate-payment/');
     const isChapaPayment = config.url && config.url.includes('/chapa/test-payment/');
@@ -69,32 +70,24 @@ api.interceptors.request.use(
     const isStaffCreate = config.url && config.url.includes('/staff/create/');
     const isLogin = config.url && config.url.includes('/login/');
     const isVerify = config.url && config.url.includes('/verify/');
-    
-    // ✅ FIX: SMS endpoints - use the correct URL patterns (without /schools/ prefix)
     const isSMSConfig = config.url && (config.url.includes('/sms-config/') || config.url.includes('/sms-config-preflight/'));
     const isSMSTest = config.url && config.url.includes('/sms-test/');
     const isSMSMultiSchool = config.url && config.url.includes('/sms/multi-school/');
 
     const shouldSkipParams = isLogin || isVerify || isStaffCreate || isChapaPayment || isChapaInitiate || isSMSConfig || isSMSTest || isSMSMultiSchool;
-    
+
     if (shouldSkipParams) {
       console.log('📤 INTERCEPTOR - SKIPPING year params for excluded endpoint');
-    } 
-    else if (!isRegistration && !isPaymentInitiation) {
-      // Get selected year from localStorage
+    } else if (!isRegistration && !isPaymentInitiation) {
       const savedYear = localStorage.getItem('selectedAcademicYear');
       console.log('📤 INTERCEPTOR - savedYear from localStorage:', savedYear);
-      
+
       if (savedYear) {
         try {
           const year = JSON.parse(savedYear);
           console.log('📤 INTERCEPTOR - Parsed year object:', year);
-          
           if (year && year.id) {
-            // Add year as a query parameter
-            if (!config.params) {
-              config.params = {};
-            }
+            if (!config.params) config.params = {};
             config.params.academic_year_id = year.id;
             config.params.academic_year = year.year_ec;
             config.params.year_id = year.id;
@@ -107,23 +100,17 @@ api.interceptors.request.use(
         console.log('📤 INTERCEPTOR - No saved year found!');
       }
     } else {
-      if (isRegistration) {
-        console.log('📤 INTERCEPTOR - SKIPPING year params for registration endpoint');
-      }
-      if (isPaymentInitiation) {
-        console.log('📤 INTERCEPTOR - SKIPPING year params for payment initiation endpoint');
-      }
+      if (isRegistration) console.log('📤 INTERCEPTOR - SKIPPING year params for registration endpoint');
+      if (isPaymentInitiation) console.log('📤 INTERCEPTOR - SKIPPING year params for payment initiation endpoint');
     }
-    
-    // Get selected school from localStorage and add to headers
+
+    // ✅ Add school ID header
     const savedSchool = localStorage.getItem('selectedSchool');
     console.log('📤 INTERCEPTOR - savedSchool from localStorage:', savedSchool);
-    
     if (savedSchool) {
       try {
         const school = JSON.parse(savedSchool);
         console.log('📤 INTERCEPTOR - Parsed school object:', school);
-        
         if (school && school.id) {
           config.headers['X-School-ID'] = school.id;
           console.log('📤 INTERCEPTOR - Added X-School-ID header:', school.id);
@@ -134,27 +121,102 @@ api.interceptors.request.use(
     } else {
       console.log('📤 INTERCEPTOR - No saved school found!');
     }
-    
+
     console.log('📤 INTERCEPTOR - Final config.params:', config.params);
     console.log('📤 INTERCEPTOR - Final headers:', config.headers);
     return config;
   },
-  (error) => {
+  (error) => Promise.reject(error)
+);
+
+// ===== RESPONSE INTERCEPTOR - auto refresh token on 401 =====
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+
+    // Don't try to refresh on auth endpoints
+    const isAuthEndpoint = originalRequest.url?.includes('/login/') ||
+      originalRequest.url?.includes('/verify/') ||
+      originalRequest.url?.includes('/token/refresh/');
+
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
+      
+      if (isRefreshing) {
+        // Queue this request until token is refreshed
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then(token => {
+          originalRequest.headers['Authorization'] = `Bearer ${token}`;
+          return api(originalRequest);
+        }).catch(err => Promise.reject(err));
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      const refreshToken = localStorage.getItem('refresh_token');
+
+      if (!refreshToken) {
+        console.log('❌ No refresh token found — logging out');
+        localStorage.clear();
+        window.location.href = '/admin/login';
+        return Promise.reject(error);
+      }
+
+      try {
+        console.log('🔄 Refreshing access token...');
+        const response = await axios.post(
+          `${API_BASE_URL}/token/refresh/`,
+          { refresh: refreshToken },
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+
+        const newAccessToken = response.data.access;
+        localStorage.setItem('access_token', newAccessToken);
+        console.log('✅ Token refreshed successfully');
+
+        processQueue(null, newAccessToken);
+        originalRequest.headers['Authorization'] = `Bearer ${newAccessToken}`;
+        return api(originalRequest);
+
+      } catch (refreshError) {
+        console.log('❌ Token refresh failed — logging out');
+        processQueue(refreshError, null);
+        localStorage.clear();
+        window.location.href = '/admin/login';
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
+      }
+    }
+
     return Promise.reject(error);
   }
 );
 
 // ========== USER PROFILE API ==========
-export const getCurrentUserProfile = () => {
-  return api.get('/users/me/');
-};
+export const getCurrentUserProfile = () => api.get('/users/me/');
 
 export const getUserSchoolId = () => {
   const savedSchool = localStorage.getItem('selectedSchool');
   if (savedSchool) {
     try {
-      const school = JSON.parse(savedSchool);
-      return school.id;
+      return JSON.parse(savedSchool).id;
     } catch (e) {
       console.error('Error getting school ID:', e);
       return null;
@@ -164,60 +226,28 @@ export const getUserSchoolId = () => {
 };
 
 // Student APIs
-export const getStudentById = (studentId) => {
-  return api.get(`/students/search_by_id/?student_id=${studentId}`);
-};
+export const getStudentById = (studentId) => api.get(`/students/search_by_id/?student_id=${studentId}`);
 
-export const getStudentPaymentHistory = (studentId) => {
-  return getStudentById(studentId).then(response => {
-    const studentDbId = response.data.id;
-    return api.get(`/students/${studentDbId}/payment_history/`);
-  });
-};
+export const getStudentPaymentHistory = (studentId) =>
+  getStudentById(studentId).then(response => api.get(`/students/${response.data.id}/payment_history/`));
 
-export const getStudentPendingPayments = (studentId) => {
-  return getStudentById(studentId).then(response => {
-    const studentDbId = response.data.id;
-    return api.get(`/students/${studentDbId}/pending_payments/`);
-  });
-};
+export const getStudentPendingPayments = (studentId) =>
+  getStudentById(studentId).then(response => api.get(`/students/${response.data.id}/pending_payments/`));
 
 // Payment APIs
-export const getActiveDeadlines = () => {
-  return api.get('/deadlines/active_deadlines/');
-};
-
-export const initiatePayment = (paymentData) => {
-  return api.post('/payments/initiate-payment/', paymentData);
-};
+export const getActiveDeadlines = () => api.get('/deadlines/active_deadlines/');
+export const initiatePayment = (paymentData) => api.post('/payments/initiate-payment/', paymentData);
 
 // School APIs
-export const getSchoolInfo = () => {
-  return api.get('/schools/');
-};
+export const getSchoolInfo = () => api.get('/schools/');
 
 // Academic Year APIs
-export const getAcademicYears = () => {
-  return api.get('/academic-years/');
-};
-
-export const getCurrentAcademicYear = () => {
-  return api.get('/academic-years/current/');
-};
-
-export const setCurrentAcademicYear = (yearId) => {
-  return api.post(`/academic-years/${yearId}/set_current/`);
-};
-
-export const createAcademicYear = (yearData) => {
-  return api.post('/academic-years/', yearData);
-};
-
-export const promoteStudents = (fromYearId, toYearId) => {
-  return api.post(`/academic-years/${fromYearId}/promote_students/`, {
-    to_year_id: toYearId
-  });
-};
+export const getAcademicYears = () => api.get('/academic-years/');
+export const getCurrentAcademicYear = () => api.get('/academic-years/current/');
+export const setCurrentAcademicYear = (yearId) => api.post(`/academic-years/${yearId}/set_current/`);
+export const createAcademicYear = (yearData) => api.post('/academic-years/', yearData);
+export const promoteStudents = (fromYearId, toYearId) =>
+  api.post(`/academic-years/${fromYearId}/promote_students/`, { to_year_id: toYearId });
 
 // ✅ Function to fetch CSRF token from backend
 export const fetchCSRFToken = async () => {

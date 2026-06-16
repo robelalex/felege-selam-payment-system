@@ -77,6 +77,9 @@ const handleVerifyOTP = async (e) => {
       if (response.data.access) {
         localStorage.setItem('access_token', response.data.access);
       }
+      if (response.data.refresh) {
+        localStorage.setItem('refresh_token', response.data.refresh);
+      }
       
       if (response.data.user.school) {
         localStorage.setItem('selectedSchool', JSON.stringify({
