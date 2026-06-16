@@ -283,3 +283,4 @@ if not DEBUG:
     WHITENOISE_ROOT = STATIC_ROOT
     if not os.path.exists(STATIC_ROOT):
         os.makedirs(STATIC_ROOT, exist_ok=True)
+

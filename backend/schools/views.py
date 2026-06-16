@@ -166,6 +166,8 @@ class SchoolSMSTestView(APIView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
+        from django.utils import timezone
+        
         try:
             school = get_school_for_user(request)
         except ObjectDoesNotExist as e:
@@ -186,9 +188,26 @@ class SchoolSMSTestView(APIView):
         try:
             sms_service = MultiSchoolSMSService(school.id)
             result = sms_service.test_credentials()
+            
+            # ✅ Success - update status
+            school.sms_enabled = True
+            school.sms_test_status = 'success'
+            school.sms_last_test = timezone.now()
+            school.save(update_fields=['sms_enabled', 'sms_test_status', 'sms_last_test'])
+            
             return Response(result)
+            
         except Exception as e:
-            return Response({'error': str(e)}, status=400)
+            # ✅ Failure - update status with error
+            error_msg = str(e)
+            
+            # Update school status with the error
+            school.sms_enabled = False
+            school.sms_test_status = f"Failed: {error_msg[:100]}"
+            school.save(update_fields=['sms_enabled', 'sms_test_status'])
+            
+            # Return error response
+            return Response({'error': error_msg}, status=400)
 
 
 # ========== VERIFY.ET CONFIGURATION VIEWS ==========

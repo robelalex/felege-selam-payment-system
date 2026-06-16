@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
 const SchoolSettings = () => {
-    const { getAuthHeader } = useAuth();  // Keep this for X-School-ID if needed
+    const { getAuthHeader } = useAuth();
     const [loading, setLoading] = useState(false);
     const [testing, setTesting] = useState(false);
     const [config, setConfig] = useState({
@@ -24,7 +24,6 @@ const SchoolSettings = () => {
     const fetchSMSConfig = async () => {
         setLoading(true);
         try {
-            // ✅ REMOVED manual headers - let interceptor handle it
             const response = await api.get('/sms-config/');
             setConfig(response.data);
         } catch (error) {
@@ -48,7 +47,6 @@ const SchoolSettings = () => {
         setLoading(true);
         
         try {
-            // ✅ REMOVED manual headers
             await api.post('/sms-config/', config);
             alert('SMS configuration saved successfully! Please test your credentials.');
             await fetchSMSConfig();
@@ -60,16 +58,44 @@ const SchoolSettings = () => {
         }
     };
 
+    // ✅ UPDATED: Better error handling for test
     const handleTest = async () => {
         setTesting(true);
         try {
-            // ✅ REMOVED manual headers
             const response = await api.post('/sms-test/', {});
-            alert(response.data.message || 'Test SMS sent successfully to school phone!');
+            
+            // ✅ Success case
+            if (response.data && response.data.success) {
+                alert(response.data.message || '✅ Test SMS sent successfully to school phone!');
+            } else {
+                alert(response.data?.message || '✅ Test SMS sent successfully!');
+            }
+            
+            // ✅ Refresh config to update status
             await fetchSMSConfig();
+            
         } catch (error) {
             console.error('Test failed:', error);
-            alert(error.response?.data?.error || 'Test failed. Please check your credentials.');
+            
+            // ✅ Extract error message from response
+            let errorMessage = 'Test failed. Please check your credentials.';
+            
+            if (error.response?.data?.error) {
+                errorMessage = error.response.data.error;
+            } else if (error.response?.data?.detail) {
+                errorMessage = error.response.data.detail;
+            } else if (error.response?.data?.message) {
+                errorMessage = error.response.data.message;
+            } else if (error.message) {
+                errorMessage = error.message;
+            }
+            
+            // ✅ Show error to user
+            alert(`❌ ${errorMessage}`);
+            
+            // ✅ Refresh config to update status (even on failure)
+            await fetchSMSConfig();
+            
         } finally {
             setTesting(false);
         }
