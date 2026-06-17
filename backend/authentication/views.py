@@ -376,7 +376,7 @@ def register(request):
         }, status=status.HTTP_400_BAD_REQUEST)
     
     try:
-        # Create school
+        # Create school WITHOUT logo first
         school = School.objects.create(
             name=school_name,
             code=school_code,
@@ -386,10 +386,19 @@ def register(request):
             bank_name='',
             bank_account_number='',
             bank_account_holder='',
-            logo=logo if logo else None,
+            # logo=logo if logo else None,  # ← REMOVE this line
             subscription_active=False
         )
         print(f"✅ School created: {school.name} (Code: {school.code}) - ID: {school.id}")
+        
+        # ✅ Save logo separately after creation
+        if logo:
+            try:
+                school.logo.save(logo.name, logo)
+                school.save()
+                print(f"✅ Logo saved successfully: {school.logo.url}")
+            except Exception as logo_error:
+                print(f"⚠️ Logo save error: {logo_error}")
         
         # Create user (is_active=False for approval)
         user = User.objects.create_user(

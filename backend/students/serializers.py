@@ -12,14 +12,14 @@ class StudentSerializer(serializers.ModelSerializer):
     bank_account_holder = serializers.CharField(source='school.bank_account_holder', read_only=True)
     school_name = serializers.CharField(source='school.name', read_only=True)
     
+    # ✅ CRITICAL: Make school read-only to prevent moving students between schools
+    school = serializers.PrimaryKeyRelatedField(read_only=True)
+    
     class Meta:
         model = Student
         fields = '__all__'
-        # Or explicitly list fields:
-        # fields = ['id', 'student_id', 'first_name', 'last_name', 'full_name', 'grade', 
-        #          'section', 'academic_year', 'parent_email', 'parent_phone', 
-        #          'parent_full_name', 'monthly_fee', 'status', 'school', 
-        #          'bank_name', 'bank_account_number', 'bank_account_holder', 'school_name']
+        # ✅ Extra protection: explicitly list read-only fields
+        read_only_fields = ['school']
 
 class PaymentDeadlineSerializer(serializers.ModelSerializer):
     month_name = serializers.CharField(source='get_month_display', read_only=True)
