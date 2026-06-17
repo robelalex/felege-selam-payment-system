@@ -100,6 +100,28 @@ class StudentViewSet(viewsets.ModelViewSet):
             raise serializers.ValidationError({"error": "School not found"})
         except ValueError:
             raise serializers.ValidationError({"error": "Invalid school ID"})
+        
+
+    def perform_update(self, serializer):
+        """✅ CRITICAL: Prevent school_id from being changed during update"""
+        # Get the existing student
+        student = self.get_object()
+    
+        # Get the school from the request header
+        school_id = self.request.headers.get('X-School-ID')
+    
+        if not school_id:
+           raise serializers.ValidationError({"error": "School ID required (X-School-ID header)"})
+    
+        # ✅ Verify the student belongs to the current school
+        if str(student.school_id) != str(school_id):
+           raise serializers.ValidationError({
+            "error": "You cannot modify a student from another school"
+        })
+    
+        # ✅ Save without changing the school
+        serializer.save(school=student.school)
+        print(f"📚 Updated student {student.student_id} for school {student.school.name}")
     
     @action(detail=False, methods=['get'], url_path='search_by_id')
     def search_by_id(self, request):

@@ -95,15 +95,26 @@ useEffect(() => {
     }
   };
 
-  const getLogoUrl = () => {
-    if (schoolInfo?.logo) {
-      if (schoolInfo.logo.startsWith('http')) {
-        return schoolInfo.logo;
-      }
+const getLogoUrl = () => {
+  if (schoolInfo?.logo) {
+    if (schoolInfo.logo.startsWith('http')) {
+      return schoolInfo.logo;
+    }
+    if (process.env.NODE_ENV === 'development') {
       return `http://127.0.0.1:8000${schoolInfo.logo}`;
     }
-    return '/images/logo.jpg';
-  };
+    const backendUrl = process.env.REACT_APP_API_URL || 'https://felege-selam-payment-system.onrender.com';
+    return `${backendUrl}${schoolInfo.logo}`;
+  }
+  
+  // ✅ DEFAULT: Use a generic school icon
+  return `data:image/svg+xml,${encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+      <rect width="40" height="40" rx="8" fill="#4F46E5"/>
+      <text x="20" y="26" font-family="Arial" font-size="14" fill="white" text-anchor="middle">🏫</text>
+    </svg>
+  `)}`;
+};
 
   const handleLogout = () => {
     localStorage.removeItem('isAdmin');
