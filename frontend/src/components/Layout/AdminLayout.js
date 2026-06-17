@@ -24,6 +24,7 @@ import {
   Users as UsersIcon
 } from 'lucide-react';
 import api from '../../services/api';
+import { useChapaWarning } from '../../context/ChapaWarningContext';  // ✅ ADD THIS
 
 const AdminLayout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -35,6 +36,19 @@ const AdminLayout = ({ children }) => {
   const [userRole, setUserRole] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
+
+  // ===== CHAPA STATUS BADGE =====
+  const ChapaStatusBadge = () => {
+    const { chapaConfigured, loading } = useChapaWarning();
+    
+    if (loading || chapaConfigured) return null;
+    
+    return (
+      <span className="ml-auto inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500 text-white animate-pulse">
+        ⚠️ Not Configured
+      </span>
+    );
+  };
 
 useEffect(() => {
   setSidebarOpen(false);
@@ -139,14 +153,14 @@ const getLogoUrl = () => {
     { path: '/admin/sms', label: 'Send SMS', icon: MessageSquare },
   ];
 
-  // School Admin Settings Mode
+  // ✅ ADDED badge to Chapa Payment
   const schoolAdminSettingsNavItems = [
     { path: '/admin/academic-years', label: 'Academic Years', icon: Calendar },
     { path: '/admin/deadlines', label: 'Payment Deadlines', icon: Calendar },
     { path: '/admin/reports', label: 'Reports', icon: BarChart3 },
     { path: '/admin/reminders', label: 'Reminders', icon: Bell },
-    { path: '/admin-dashboard/payment-history', label: 'Payment History', icon: Archive }
-    // { path: '/admin/staff', label: 'Staff Management', icon: UsersIcon },
+    { path: '/admin-dashboard/payment-history', label: 'Payment History', icon: Archive },
+    { path: '/admin/chapa-settings', label: 'Chapa Payment', icon: CreditCard, badge: <ChapaStatusBadge /> },
   ];
 
   // Registrar Navigation (Only Students)
@@ -353,7 +367,13 @@ const getLogoUrl = () => {
                   title={isCollapsed ? item.label : ''}
                 >
                   <Icon className={`h-4 w-4 ${isActive ? (isSettingsMode ? 'text-purple-600' : 'text-primary-600') : 'text-gray-500'}`} />
-                  {!isCollapsed && <span className="text-sm font-medium">{item.label}</span>}
+                  {!isCollapsed && (
+                    <>
+                      <span className="text-sm font-medium flex-1">{item.label}</span>
+                      {/* ✅ Show badge if it exists */}
+                      {item.badge && item.badge}
+                    </>
+                  )}
                 </Link>
               );
             })}

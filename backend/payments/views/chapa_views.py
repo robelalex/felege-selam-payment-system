@@ -12,6 +12,7 @@ from rest_framework.permissions import AllowAny
 from ..services.chapa_service import ChapaService
 from ..models import Payment, PaymentDeadline
 from students.models import Student
+from schools.models import School
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ def _generate_tx_ref(student_id, deadline_id):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def initiate_chapa_payment(request):
-    """Initiate a Chapa payment - used by Flutter app"""
+    """Initiate a Chapa payment using school's OWN credentials"""
     try:
         data = request.data
         student_id  = data.get('student_id')
@@ -41,6 +42,14 @@ def initiate_chapa_payment(request):
         first_name  = data.get('first_name', 'Parent')
         last_name   = data.get('last_name', 'User')
         platform    = data.get('platform', 'web')
+        
+        # ✅ Get school from header
+        school_id = request.headers.get('X-School-ID')
+        if not school_id:
+            return JsonResponse(
+                {'success': False, 'error': 'X-School-ID header required'},
+                status=400
+            )
 
         if not all([student_id, deadline_id, amount]):
             return JsonResponse(
@@ -55,6 +64,31 @@ def initiate_chapa_payment(request):
                 {'success': False, 'error': f'Student {student_id} not found'},
                 status=404
             )
+
+        # ✅ Verify student belongs to this school
+        if str(student.school_id) != str(school_id):
+            return JsonResponse(
+                {'success': False, 'error': 'Student does not belong to your school'},
+                status=403
+            )
+
+        # ✅ Get school and check Chapa configuration
+        try:
+            school = School.objects.get(id=int(school_id))
+        except School.DoesNotExist:
+            return JsonResponse(
+                {'success': False, 'error': 'School not found'},
+                status=404
+            )
+
+        # ✅ CRITICAL: Check if school has Chapa configured
+        if not school.chapa_enabled or not school.chapa_api_key:
+            return JsonResponse({
+                'success': False,
+                'error': 'chapa_not_configured',
+                'message': '⚠️ Online payments are not configured for this school. Please contact school administration.',
+                'redirect': '/admin/chapa-settings'
+            }, status=400)
 
         try:
             deadline = PaymentDeadline.objects.get(id=deadline_id)
@@ -104,18 +138,18 @@ def initiate_chapa_payment(request):
         else:
             return_url = f'https://felege-selam-payment-system.vercel.app/payment/success?tx_ref={tx_ref}'
 
-        service = ChapaService()
-        result = service.initialize_payment(
+        # ✅ Use school's Chapa credentials instead of global
+        from ..services.school_chapa_service import SchoolChapaService
+        chapa_service = SchoolChapaService(school.id)
+        
+        result = chapa_service.initialize_payment(
             amount=float(amount),
-            currency='ETB',
             email=email or student.parent_email or f"{student.student_id}@parent.com",
             first_name=first_name,
             last_name=last_name,
             tx_ref=tx_ref,
             callback_url='https://felege-selam-payment-system.onrender.com/api/chapa/webhook/',
             return_url=return_url,
-            title=f"{month_english} Fee",
-            description=f"{month_english} {deadline.academic_year}",
         )
 
         if result.get('success'):
@@ -170,7 +204,20 @@ def chapa_webhook(request):
         logger.info(f"📥 Chapa webhook received: {data}")
 
         # ── Signature verification ──────────────────────────────────────────
-        chapa_secret = getattr(settings, 'CHAPA_SECRET_KEY', '')
+        # Get school from webhook data
+        tx_ref = data.get('tx_ref') or data.get('trx_ref')
+        
+        # Find payment first to get school
+        payment = Payment.objects.filter(transaction_reference=tx_ref).first()
+        if not payment:
+            logger.warning(f"⚠️ Webhook: payment not found for tx_ref={tx_ref}")
+            return JsonResponse({'status': 'not_found'}, status=404)
+        
+        # Get school from payment
+        school = payment.student.school
+        
+        # ── Verify signature using school's webhook secret ──────────────────
+        chapa_secret = school.chapa_webhook_secret or school.chapa_api_key
         signature    = request.headers.get('Chapa-Signature', '')
 
         if chapa_secret and signature:
@@ -183,16 +230,8 @@ def chapa_webhook(request):
                 logger.warning("❌ Webhook signature mismatch")
                 return JsonResponse({'error': 'Invalid signature'}, status=401)
 
-        tx_ref = data.get('tx_ref') or data.get('trx_ref')
-        status = data.get('status')
-
-        if not tx_ref:
-            return JsonResponse({'error': 'Missing tx_ref'}, status=400)
-
-        # ── Find payment ────────────────────────────────────────────────────
-        payment = Payment.objects.filter(transaction_reference=tx_ref).first()
+        # ── Find payment (already found above) ─────────────────────────────
         if not payment:
-            logger.warning(f"⚠️ Webhook: payment not found for tx_ref={tx_ref}")
             return JsonResponse({'status': 'not_found'}, status=404)
 
         # ── Idempotency: skip if already processed ──────────────────────────
@@ -205,7 +244,7 @@ def chapa_webhook(request):
         payment.webhook_received_at = timezone.now()
         payment.chapa_reference     = data.get('ref_id', '')
 
-        if status == 'success':
+        if data.get('status') == 'success':
             payment.status      = 'verified'
             payment.verified_at = timezone.now()
 
@@ -219,7 +258,7 @@ def chapa_webhook(request):
             # ── Send SMS confirmation ───────────────────────────────────────
             _send_payment_confirmation(payment)
 
-        elif status in ('failed', 'cancelled'):
+        elif data.get('status') in ('failed', 'cancelled'):
             payment.status = 'failed'
             payment.save()
             logger.info(f"❌ Payment failed/cancelled: {tx_ref}")
@@ -278,29 +317,28 @@ def verify_chapa_payment(request):
             })
 
         # Poll Chapa API to confirm
-        service = ChapaService()
-        result  = service.verify_payment(tx_ref)
+        # ✅ Use school's credentials
+        if payment:
+            from ..services.school_chapa_service import SchoolChapaService
+            chapa_service = SchoolChapaService(payment.student.school.id)
+            result = chapa_service.verify_payment(tx_ref)
 
-        if result.get('success'):
-            chapa_status = (
-                result.get('data', {})
-                      .get('data', {})
-                      .get('status', '')
-            )
-            if chapa_status == 'success' and payment and payment.status != 'verified':
-                payment.status      = 'verified'
-                payment.verified_at = timezone.now()
-                if not payment.invoice_number:
-                    payment.invoice_number = payment.generate_invoice_number()
-                payment.save()
-                _send_payment_confirmation(payment)
+            if result.get('success'):
+                chapa_status = result.get('status', '')
+                if chapa_status == 'success' and payment.status != 'verified':
+                    payment.status = 'verified'
+                    payment.verified_at = timezone.now()
+                    if not payment.invoice_number:
+                        payment.invoice_number = payment.generate_invoice_number()
+                    payment.save()
+                    _send_payment_confirmation(payment)
 
-            return JsonResponse({
-                'success': True,
-                'status': chapa_status,
-                'verified': chapa_status == 'success',
-                'invoice_number': payment.invoice_number if payment else None,
-            })
+                return JsonResponse({
+                    'success': True,
+                    'status': chapa_status,
+                    'verified': chapa_status == 'success',
+                    'invoice_number': payment.invoice_number if payment else None,
+                })
 
         # Chapa API unreachable — return local status
         if payment:
@@ -342,14 +380,19 @@ def payment_status(request, tx_ref):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_chapa_banks(request):
-    """Get list of supported banks from Chapa."""
+    """Get list of supported banks from Chapa using school's credentials."""
+    school_id = request.headers.get('X-School-ID')
+    if not school_id:
+        return JsonResponse({'success': False, 'error': 'X-School-ID header required'}, status=400)
+    
     try:
-        service = ChapaService()
-        result  = service.get_banks()
+        from ..services.school_chapa_service import SchoolChapaService
+        chapa_service = SchoolChapaService(int(school_id))
+        result = chapa_service.get_banks()
         if result.get('success'):
             return JsonResponse({'success': True, 'banks': result.get('data')})
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Chapa banks fetch error: {e}")
 
     return JsonResponse({
         'success': True,

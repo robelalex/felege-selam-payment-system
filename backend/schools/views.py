@@ -385,3 +385,118 @@ def test_verify_et_connection(request):
         print(f"❌ Error: {e}")
         traceback.print_exc()
         return Response({'error': str(e)}, status=500)
+    
+
+    # ========== CHAPA CONFIGURATION VIEWS ==========
+
+class SchoolChapaConfigView(APIView):
+    """View for schools to update their Chapa credentials"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get current Chapa configuration for the school"""
+        try:
+            school = get_school_for_user(request)
+        except ObjectDoesNotExist as e:
+            return Response(
+                {'error': 'School association not found.', 'detail': str(e)},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        return Response({
+            'chapa_api_key': '********' if school.chapa_api_key else '',
+            'chapa_enabled': school.chapa_enabled,
+            'chapa_test_status': school.chapa_test_status or '',
+            'chapa_last_test': school.chapa_last_test,
+        })
+    
+    def post(self, request):
+        """Save Chapa credentials"""
+        try:
+            school = get_school_for_user(request)
+        except ObjectDoesNotExist as e:
+            return Response(
+                {'error': 'School association not found.', 'detail': str(e)},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Update fields
+        if 'chapa_api_key' in request.data and request.data['chapa_api_key'] != '********':
+            school.chapa_api_key = request.data['chapa_api_key']
+        
+        # Reset enabled flag since credentials changed
+        school.chapa_enabled = False
+        school.chapa_test_status = 'pending'
+        
+        school.save()
+        
+        return Response({
+            'message': 'Chapa credentials saved. Please test them.',
+            'chapa_enabled': school.chapa_enabled,
+        })
+
+
+class SchoolChapaTestView(APIView):
+    """Test school's Chapa credentials"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        import requests
+        from django.utils import timezone
+        
+        try:
+            school = get_school_for_user(request)
+        except ObjectDoesNotExist as e:
+            return Response(
+                {'error': 'School association not found.', 'detail': str(e)},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if not school.chapa_api_key:
+            return Response({'error': 'No Chapa API key configured. Please save credentials first.'}, status=400)
+        
+        try:
+            # Test Chapa API by getting banks list
+            headers = {
+                "Authorization": f"Bearer {school.chapa_api_key}"
+            }
+            
+            response = requests.get(
+                "https://api.chapa.co/v1/banks",
+                headers=headers,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                school.chapa_enabled = True
+                school.chapa_test_status = 'success'
+                school.chapa_last_test = timezone.now()
+                school.save(update_fields=['chapa_enabled', 'chapa_test_status', 'chapa_last_test'])
+                
+                return Response({
+                    'success': True,
+                    'message': '✅ Chapa credentials are valid! Online payments are now enabled.'
+                })
+            else:
+                school.chapa_enabled = False
+                school.chapa_test_status = f'failed: {response.status_code}'
+                school.save(update_fields=['chapa_enabled', 'chapa_test_status'])
+                
+                return Response({
+                    'success': False,
+                    'message': f'❌ Invalid credentials. Please check your API key.'
+                }, status=400)
+                
+        except requests.exceptions.Timeout:
+            return Response({'error': 'Connection timeout. Please try again.'}, status=408)
+        except requests.exceptions.ConnectionError:
+            return Response({'error': 'Cannot connect to Chapa API. Please check your internet connection.'}, status=503)
+        except Exception as e:
+            school.chapa_enabled = False
+            school.chapa_test_status = f'error: {str(e)[:50]}'
+            school.save(update_fields=['chapa_enabled', 'chapa_test_status'])
+            
+            return Response({
+                'success': False,
+                'message': f'❌ Connection error: {str(e)}'
+            }, status=400)
