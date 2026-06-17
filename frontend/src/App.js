@@ -10,7 +10,8 @@ import AdminLayout from './components/Layout/AdminLayout';
 
 // Context 
 import { YearProvider } from './context/YearContext';
-import { AuthProvider } from './context/AuthContext';  // ✅ ADD THIS
+import { AuthProvider } from './context/AuthContext';
+import { ChapaWarningProvider } from './context/ChapaWarningContext';  // ✅ ADD THIS
 
 // Pages
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
@@ -45,9 +46,10 @@ import ReportingDashboard from './pages/ReportingDashboard';
 import ReminderDashboard from './pages/ReminderDashboard';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import AdminPaymentHistory from './pages/AdminPaymentHistory';
-import SchoolSettings from './pages/SchoolSettings';  // ✅ ADD THIS
+import SchoolSettings from './pages/SchoolSettings';
 import BankSlips from './pages/BankSlips';
 import VerifyETSettings from './pages/VerifyETSettings';
+import SchoolChapaSettings from './pages/SchoolChapaSettings';
 
 // Styles
 import './index.css';
@@ -71,7 +73,7 @@ const ProtectedRoute = ({ children }) => {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>  {/* ✅ WRAP WITH AuthProvider */}
+      <AuthProvider>
         <YearProvider>
           <Router>
             <Toaster position="top-right" />
@@ -103,97 +105,134 @@ function App() {
               <Route path="/admin/forgot-password" element={<ForgotPassword />} />
               <Route path="/admin/reset-password" element={<ResetPassword />} />
 
-              {/* Admin Routes - Using AdminLayout (Protected) */}
+              {/* ========== ADMIN ROUTES - WRAPPED WITH CHAPA WARNING PROVIDER ========== */}
+              {/* Dashboard */}
               <Route
                 path="/admin/dashboard"
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <AdminDashboard />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <AdminDashboard />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 }
               />
+
+              {/* Reminders */}
               <Route
                 path="/admin/reminders"
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <AdminReminders />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <AdminReminders />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 }
               />
+
+              {/* Reports */}
               <Route
                 path="/admin/reports"
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <Reports />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <Reports />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 }
               />
+
+              {/* Students */}
               <Route
                 path="/admin/students"
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <AdminStudents />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <AdminStudents />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 }
               />
+
+              {/* Payments */}
               <Route
                 path="/admin/payments"
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <AdminPayments />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <AdminPayments />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 }
               />
+
+              {/* Academic Years */}
               <Route
                 path="/admin/academic-years"
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <AdminAcademicYears />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <AdminAcademicYears />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 }
               />
+
+              {/* SMS Dashboard */}
               <Route
                 path="/admin/sms"
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <SMSDashboard />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <SMSDashboard />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 }
               />
+
+              {/* Bank Slips */}
               <Route
                 path="/admin/slips"
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <AdminSlips />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <AdminSlips />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 }
               />
+
+              {/* Test */}
               <Route
                 path="/admin/test"
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <TestDashboard />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <TestDashboard />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 }
               />
+
+              {/* Super Admin */}
               <Route
                 path="/superadmin/dashboard"
                 element={
@@ -203,84 +242,118 @@ function App() {
                 }
               />
 
+              {/* Deadlines */}
               <Route 
                 path="/admin/deadlines" 
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <AdminDeadlines />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <AdminDeadlines />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 } 
               />
 
+              {/* Staff Management */}
               <Route 
                 path="/admin/staff" 
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <StaffManagement />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <StaffManagement />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 } 
               />
 
+              {/* Registrar Dashboard */}
               <Route 
                 path="/registrar/dashboard" 
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <RegistrarDashboard />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <RegistrarDashboard />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 } 
               />
 
+              {/* Payment Manager Dashboard */}
               <Route 
                 path="/payment/dashboard" 
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <PaymentManagerDashboard />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <PaymentManagerDashboard />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 } 
               />
 
+              {/* Reporting Dashboard */}
               <Route 
                 path="/reports/dashboard" 
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <ReportingDashboard />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <ReportingDashboard />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 } 
               />
 
+              {/* Reminder Dashboard */}
               <Route 
                 path="/reminder/dashboard" 
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <ReminderDashboard />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <ReminderDashboard />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 } 
               />
 
-              {/* ✅ NEW: School Settings Page - SMS Configuration */}
+              {/* School Settings - SMS Configuration */}
               <Route 
                 path="/school-settings" 
                 element={
                   <ProtectedRoute>
-                    <AdminLayout>
-                      <SchoolSettings />
-                    </AdminLayout>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <SchoolSettings />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
                   </ProtectedRoute>
                 } 
               />
-               <Route path="/bank-slips" element={<BankSlips />} />
+
+              {/* Bank Slips */}
+              <Route 
+                path="/bank-slips" 
+                element={
+                  <ProtectedRoute>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <BankSlips />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
+                  </ProtectedRoute>
+                } 
+              />
+
               {/* Test Routes */}
               <Route path="/login-test" element={<LoginTest />} />
               <Route path="/simple-test" element={<SimpleTest />} />
@@ -296,6 +369,17 @@ function App() {
               <Route path="/privacy-policy" element={<PrivacyPolicy />} />
               <Route path="/admin-dashboard/payment-history" element={<AdminPaymentHistory />} />
               <Route path="/school/verify-et-settings" element={<VerifyETSettings />} />
+              
+              {/* ✅ Chapa Settings - Already wrapped with ChapaWarningProvider */}
+              <Route path="/admin/chapa-settings" element={
+                <ProtectedRoute>
+                  <ChapaWarningProvider>
+                    <AdminLayout>
+                      <SchoolChapaSettings />
+                    </AdminLayout>
+                  </ChapaWarningProvider>
+                </ProtectedRoute>
+              } />
             </Routes>
           </Router>
         </YearProvider>

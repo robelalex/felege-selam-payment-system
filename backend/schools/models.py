@@ -72,6 +72,36 @@ class School(models.Model):
         help_text="Last time monthly counter was reset"
     )
     
+    # ========== NEW: Chapa Payment Configuration ==========
+    # Each school has their OWN Chapa account
+    chapa_api_key = models.CharField(
+        max_length=200, 
+        blank=True, 
+        null=True, 
+        help_text="Chapa API key (starts with CHASECK_)"
+    )
+    chapa_enabled = models.BooleanField(
+        default=False, 
+        help_text="Is Chapa configured and working for this school?"
+    )
+    chapa_webhook_secret = models.CharField(
+        max_length=200, 
+        blank=True, 
+        null=True, 
+        help_text="Chapa webhook secret for verifying webhook requests"
+    )
+    chapa_last_test = models.DateTimeField(
+        blank=True, 
+        null=True, 
+        help_text="Last time Chapa credentials were tested"
+    )
+    chapa_test_status = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True, 
+        help_text="Status of last Chapa test (success/failed/pending)"
+    )
+    
     # ========== NEW: Verify.ET API Configuration ==========
     # Each school registers their OWN Verify.ET account
     verify_et_api_key = models.CharField(
@@ -112,6 +142,16 @@ class School(models.Model):
     
     def __str__(self):
         return self.name
+    
+    @property
+    def has_chapa_credentials(self):
+        """Check if Chapa is properly configured"""
+        return bool(self.chapa_api_key and self.chapa_enabled)
+    
+    @property
+    def has_sms_credentials(self):
+        """Check if SMS is properly configured"""
+        return bool(self.at_username and self.at_api_key and self.sms_enabled)
     
     @property
     def has_verify_et_credentials(self):

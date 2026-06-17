@@ -7,6 +7,7 @@ import {
   CreditCard, 
   Clock, 
   CheckCircle,
+  XCircle,
   AlertTriangle,
   Calendar,
   Download,
@@ -43,6 +44,8 @@ function AdminDashboard() {
   const [gradeOverview, setGradeOverview] = useState([]);
   const [pendingStudents, setPendingStudents] = useState([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [chapaStatus, setChapaStatus] = useState(null);
+  const [loadingChapa, setLoadingChapa] = useState(true);
   
   const { selectedYear } = useYear();
   const isFetching = useRef(false);
@@ -94,6 +97,18 @@ function AdminDashboard() {
       start_date: startDate ? startDate.toISOString().split('T')[0] : null,
       end_date: endDate ? endDate.toISOString().split('T')[0] : null
     };
+  }, []);
+
+  // ✅ MOVED THIS OUTSIDE fetchData
+  const checkChapaStatus = useCallback(async () => {
+    try {
+      const response = await api.get('/schools/chapa-config/');
+      setChapaStatus(response.data);
+    } catch (err) {
+      console.error('Error checking Chapa status:', err);
+    } finally {
+      setLoadingChapa(false);
+    }
   }, []);
 
   const fetchData = useCallback(async () => {
@@ -193,7 +208,8 @@ function AdminDashboard() {
 
   useEffect(() => {
     fetchData();
-    
+    checkChapaStatus();
+
     const handleRefresh = () => {
       fetchData();
     };
@@ -205,7 +221,7 @@ function AdminDashboard() {
       window.removeEventListener('refreshData', handleRefresh);
       window.removeEventListener('yearChanged', handleRefresh);
     };
-  }, [fetchData]);
+  }, [fetchData, checkChapaStatus]);
 
   const overall = {
     total: dashboardStats.total_students,
@@ -307,6 +323,48 @@ function AdminDashboard() {
           </button>
         </div>
       </div>
+
+      {/* ===== CHAPA STATUS NOTIFICATION ===== */}
+      {!loadingChapa && chapaStatus && !chapaStatus.chapa_enabled && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg shadow-sm"
+        >
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-6 w-6 text-red-500 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="font-semibold text-red-800 text-sm">⚠️ Online Payments Not Configured</h3>
+              <p className="text-red-700 text-sm mt-1">
+                Parents cannot make online payments until you configure your Chapa payment gateway.
+              </p>
+              <Link
+                to="/admin/chapa-settings"
+                className="mt-2 inline-block bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700 transition-colors"
+              >
+                Configure Chapa Now
+              </Link>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Chapa Configured Successfully */}
+      {!loadingChapa && chapaStatus && chapaStatus.chapa_enabled && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-green-50 border-l-4 border-green-500 p-4 rounded-lg shadow-sm"
+        >
+          <div className="flex items-center gap-3">
+            <CheckCircle className="h-5 w-5 text-green-500" />
+            <div>
+              <p className="font-semibold text-green-800 text-sm">✅ Online Payments Enabled</p>
+              <p className="text-green-700 text-sm">Chapa is configured and working. Parents can make online payments.</p>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Stats Cards - Responsive grid: 1 column on mobile, 2 on tablet, 4 on desktop */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">

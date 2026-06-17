@@ -7,7 +7,7 @@ import {
   XCircle, AlertCircle, Loader, Eye, Download, 
   ChevronRight, User, Home, Receipt, TrendingUp,
   Shield, Smartphone, Building2, Lock, ArrowLeft,
-  Upload, Banknote, Trash2
+  Upload, Banknote, Trash2, AlertTriangle
 } from 'lucide-react';
 import api from '../services/api';
 import ParentLayout from '../components/Layout/ParentLayout';
@@ -21,7 +21,7 @@ function ParentDashboard() {
   const [student, setStudent] = useState(null);
   const [payments, setPayments] = useState([]);
   const [pendingPayments, setPendingPayments] = useState([]);
-  const [pendingSlips, setPendingSlips] = useState([]); // NEW: Track pending slips
+  const [pendingSlips, setPendingSlips] = useState([]);
   const [academicYear, setAcademicYear] = useState(null);
   const [processingPaymentId, setProcessingPaymentId] = useState(null);
   const [error, setError] = useState('');
@@ -30,12 +30,31 @@ function ParentDashboard() {
   const [showBankInfo, setShowBankInfo] = useState(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
+  
+  // ✅ NEW: Chapa status state
+  const [chapaConfigured, setChapaConfigured] = useState(true);
+  const [loadingChapa, setLoadingChapa] = useState(true);
 
   useEffect(() => {
     fetchStudentData();
     fetchAcademicYear();
-    fetchPendingSlips(); // NEW: Fetch pending slips
+    fetchPendingSlips();
+    checkChapaStatus(); // ✅ Check if Chapa is configured
   }, [studentId]);
+
+  // ✅ NEW: Check Chapa status for this school
+  const checkChapaStatus = async () => {
+    setLoadingChapa(true);
+    try {
+      const response = await api.get('/schools/chapa-config/');
+      setChapaConfigured(response.data.chapa_enabled);
+    } catch (err) {
+      console.error('Error checking Chapa status:', err);
+      setChapaConfigured(false);
+    } finally {
+      setLoadingChapa(false);
+    }
+  };
 
   const fetchStudentData = async () => {
     setLoading(true);
@@ -59,7 +78,6 @@ function ParentDashboard() {
     }
   };
 
-  // NEW: Fetch pending slips to prevent double payment
   const fetchPendingSlips = async () => {
     try {
       const response = await api.get(`/students/${studentId}/pending_slips/`);
@@ -80,12 +98,10 @@ function ParentDashboard() {
     }
   };
 
-  // NEW: Check if a specific deadline has a pending slip
   const hasPendingSlip = (deadlineId) => {
     return pendingSlips.some(slip => slip.deadline_id === deadlineId && slip.status === 'pending');
   };
 
-  // NEW: Check if already paid for a deadline
   const isAlreadyPaid = (deadlineId) => {
     return payments.some(payment => 
       payment.deadline_id === deadlineId && 
@@ -93,20 +109,19 @@ function ParentDashboard() {
     );
   };
 
-  // UPDATED: Check if Pay Now button should be disabled
   const isPayNowDisabled = (deadlineId) => {
-    return isAlreadyPaid(deadlineId) || hasPendingSlip(deadlineId);
+    return isAlreadyPaid(deadlineId) || hasPendingSlip(deadlineId) || !chapaConfigured;
   };
 
-  // Get button disabled reason for tooltip
   const getDisabledReason = (deadlineId) => {
+    if (!chapaConfigured) return 'Online payments are currently unavailable. Please contact the school.';
     if (isAlreadyPaid(deadlineId)) return 'Already paid for this month';
     if (hasPendingSlip(deadlineId)) return 'You have a pending bank slip. Please wait for admin verification.';
     return null;
   };
 
   const handleMakePayment = async (deadlineId, amount) => {
-    // Prevent if already paid or has pending slip
+    // Prevent if already paid, has pending slip, or Chapa not configured
     if (isPayNowDisabled(deadlineId)) {
       const reason = getDisabledReason(deadlineId);
       alert(`❌ Cannot process payment: ${reason}`);
@@ -277,6 +292,21 @@ function ParentDashboard() {
           </div>
         </div>
 
+        {/* ✅ NEW: Chapa Configuration Warning */}
+        {!loadingChapa && !chapaConfigured && (
+          <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-lg shadow-sm">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-semibold text-yellow-800 text-sm">⚠️ Online Payments Unavailable</h3>
+                <p className="text-yellow-700 text-sm mt-1">
+                  Online payments are currently not available for this school. Please contact the school administration for payment options.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Contact Information */}
         <div className="bg-white rounded-2xl shadow-lg p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -295,7 +325,7 @@ function ParentDashboard() {
           </div>
         </div>
 
-        {/* Pending Payments Section - UPDATED with disabled logic */}
+        {/* Pending Payments Section */}
         {pendingPayments.length > 0 && (
           <div className="bg-white rounded-2xl shadow-lg p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -325,7 +355,6 @@ function ParentDashboard() {
                               Overdue
                             </span>
                           )}
-                          {/* NEW: Show pending slip badge */}
                           {hasPending && (
                             <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full flex items-center gap-1">
                               <Clock className="h-3 w-3" />
@@ -344,7 +373,7 @@ function ParentDashboard() {
                         )}
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {/* UPDATED Pay Now button with disabled state */}
+                        {/* Pay Now button with Chapa status check */}
                         <button
                           onClick={() => handleMakePayment(payment.id, payment.amount)}
                           disabled={processingPaymentId === payment.id || payNowDisabled}
@@ -360,7 +389,7 @@ function ParentDashboard() {
                           ) : (
                             <CreditCard className="h-4 w-4" />
                           )}
-                          {hasPending ? 'Pending Review' : 'Pay Now'}
+                          {!chapaConfigured ? 'Unavailable' : hasPending ? 'Pending Review' : 'Pay Now'}
                         </button>
                         <button
                           onClick={() => handleBankTransfer(payment)}
@@ -391,7 +420,7 @@ function ParentDashboard() {
           </div>
         )}
 
-        {/* Payment History - UPDATED with slip status */}
+        {/* Payment History */}
         <div className="bg-white rounded-2xl shadow-lg p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
             <Receipt className="h-5 w-5 text-gray-600" />
@@ -413,7 +442,6 @@ function ParentDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {/* Show pending slips in history as well */}
                   {pendingSlips.map((slip) => (
                     <tr key={`slip-${slip.id}`} className="hover:bg-gray-50 bg-yellow-50/30">
                       <td className="px-4 py-3 text-sm text-gray-600">
@@ -453,7 +481,6 @@ function ParentDashboard() {
                     </tr>
                   ))}
                   
-                  {/* Existing verified payments */}
                   {payments.map((payment) => (
                     <tr key={payment.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-sm text-gray-600">
