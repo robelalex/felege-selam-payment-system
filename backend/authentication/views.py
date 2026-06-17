@@ -386,7 +386,6 @@ def register(request):
             bank_name='',
             bank_account_number='',
             bank_account_holder='',
-            # logo=logo if logo else None,  # ← REMOVE this line
             subscription_active=False
         )
         print(f"✅ School created: {school.name} (Code: {school.code}) - ID: {school.id}")
@@ -399,6 +398,38 @@ def register(request):
                 print(f"✅ Logo saved successfully: {school.logo.url}")
             except Exception as logo_error:
                 print(f"⚠️ Logo save error: {logo_error}")
+        
+        # ================================================================
+        # ✅ AUTO-CREATE ACADEMIC YEARS FOR THE SCHOOL (PERMANENT FIX)
+        # ================================================================
+        from academics.models import AcademicYear
+        from datetime import date
+        import datetime as dt
+        
+        # Calculate current Ethiopian year
+        current_gregorian_year = dt.datetime.now().year
+        ethiopian_year = current_gregorian_year - 8  # Approximate conversion
+        
+        # Create 4 academic years (previous, current, next, next+1)
+        years_to_create = [ethiopian_year - 1, ethiopian_year, ethiopian_year + 1, ethiopian_year + 2]
+        
+        for year_ec in years_to_create:
+            year_name = f"{year_ec} E.C."
+            try:
+                AcademicYear.objects.create(
+                    school=school,
+                    year_ec=year_ec,
+                    name=year_name,
+                    start_date=date(year_ec + 8, 9, 10),
+                    end_date=date(year_ec + 9, 7, 9),
+                    is_current=(year_ec == ethiopian_year),
+                    is_active=True,
+                    is_archived=False
+                )
+                print(f"✅ Created academic year: {year_name}")
+            except Exception as e:
+                print(f"⚠️ Could not create {year_name}: {e}")
+        # ================================================================
         
         # Create user (is_active=False for approval)
         user = User.objects.create_user(
