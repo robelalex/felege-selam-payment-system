@@ -22,7 +22,7 @@ const VerifyETSettings = () => {
     const fetchVerifyETConfig = async () => {
         setLoading(true);
         try {
-            const response = await api.get('/verify-et-settings/');
+            const response = await api.get('/schools/verify-et-settings/');
             setConfig(response.data);
         } catch (error) {
             console.error('Error fetching Verify.ET config:', error);
@@ -46,7 +46,7 @@ const VerifyETSettings = () => {
         setTestResult(null);
         
         try {
-            await api.post('/verify-et-settings/', {
+            await api.post('/schools/verify-et-settings/', {
                 verify_et_api_key: config.verify_et_api_key,
                 verify_et_enabled: config.verify_et_enabled,
                 cbe_account_number: config.cbe_account_number,
@@ -66,7 +66,7 @@ const VerifyETSettings = () => {
         setTesting(true);
         setTestResult(null);
         try {
-            const response = await api.post('/verify-et-test/');
+            const response = await api.post('/schools/verify-et-test/');
             setTestResult({
                 success: true,
                 message: response.data.message || 'Connection successful! API key is valid.'

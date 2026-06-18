@@ -24,7 +24,7 @@ const SchoolSettings = () => {
     const fetchSMSConfig = async () => {
         setLoading(true);
         try {
-            const response = await api.get('/sms-config/');
+            const response = await api.get('/schools/sms-config/');
             setConfig(response.data);
         } catch (error) {
             console.error('Error fetching config:', error);
@@ -47,7 +47,7 @@ const SchoolSettings = () => {
         setLoading(true);
         
         try {
-            await api.post('/sms-config/', config);
+            await api.post('/schools/sms-config/', config);
             alert('SMS configuration saved successfully! Please test your credentials.');
             await fetchSMSConfig();
         } catch (error) {
@@ -62,7 +62,7 @@ const SchoolSettings = () => {
     const handleTest = async () => {
         setTesting(true);
         try {
-            const response = await api.post('/sms-test/', {});
+            const response = await api.post('/schools/sms-test/', {});
             
             // ✅ Success case
             if (response.data && response.data.success) {
