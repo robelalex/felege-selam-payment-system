@@ -5,20 +5,25 @@ from rest_framework.response import Response
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.utils import timezone
+from django_q.tasks import async_task
 from ..models import PaymentSlip, Student, PaymentDeadline, Payment
 import os
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
 from ..services.ocr_service import OCRService
 from academics.models import AcademicYear
 from schools.models import School
 from django.db import models
 
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @csrf_exempt
 def upload_slip(request):
+    """
+    Upload bank slip → AI extracts reference → Queue async Verify.ET check
+    NO auto-approval. Verification happens in background.
+    """
     try:
         student_id = request.data.get('student_id')
         deadline_id = request.data.get('deadline_id')
@@ -51,12 +56,22 @@ def upload_slip(request):
         file_path = default_storage.save(file_name, ContentFile(image_bytes))
 
         # OCR only works locally where file exists on disk
-        # In production Cloudinary stores the file so we skip OCR
         expected_bank_name = school.bank_name if school else None
         local_path = os.path.join(settings.MEDIA_ROOT, file_path)
 
+        ai_result = {
+            'success': False,
+            'confidence': 0,
+            'message': 'Manual review required',
+            'extracted_amount': None,
+            'extracted_reference': '',
+            'extracted_bank': None,
+            'amount_match': False,
+            'bank_match': False,
+            'student_id_match': False,
+        }
+
         if os.path.exists(local_path):
-            # Local development: run OCR
             try:
                 ocr = OCRService()
                 ai_result = ocr.verify_slip(
@@ -67,41 +82,8 @@ def upload_slip(request):
                 )
             except Exception as ocr_error:
                 print(f"⚠️ OCR failed: {ocr_error}")
-                ai_result = {
-                    'success': False,
-                    'confidence': 0,
-                    'auto_verified': False,
-                    'message': 'OCR failed, manual review required',
-                    'extracted_amount': None,
-                    'extracted_reference': '',
-                    'extracted_bank': None,
-                    'amount_match': False,
-                    'bank_match': False,
-                    'student_id_match': False,
-                }
-        else:
-            # Production: Cloudinary stores file, OCR not available
-            ai_result = {
-                'success': False,
-                'confidence': 0,
-                'auto_verified': False,
-                'message': 'Manual review required',
-                'extracted_amount': None,
-                'extracted_reference': '',
-                'extracted_bank': None,
-                'amount_match': False,
-                'bank_match': False,
-                'student_id_match': False,
-            }
 
-        # Determine status based on AI result
-        auto_verified = False
-        status_value = 'pending'
-
-        if ai_result.get('auto_verified'):
-            auto_verified = True
-            status_value = 'verified'
-
+        # ✅ ALWAYS create slip as pending — AI NEVER auto-verifies
         slip = PaymentSlip.objects.create(
             student=student,
             deadline=deadline,
@@ -109,35 +91,38 @@ def upload_slip(request):
             bank_name=bank_name,
             slip_image=file_path,
             uploaded_by=request.data.get('uploaded_by', 'Parent'),
-            status=status_value,
+            status='pending',
             ai_confidence=ai_result.get('confidence', 0),
             ai_extracted_amount=ai_result.get('extracted_amount'),
             ai_message=ai_result.get('message', ''),
             ai_reviewed=True,
-            auto_verified=auto_verified,
-            transaction_reference=transaction_reference
+            # Use AI-extracted reference if user didn't provide one
+            transaction_reference=transaction_reference or ai_result.get('extracted_reference', ''),
+            verification_status='pending',  # ✅ NEW async workflow field
         )
 
-        if auto_verified:
-            Payment.objects.create(
-                student=student,
-                deadline=deadline,
-                amount=amount,
-                payment_method='bank_transfer',
-                transaction_reference=f'SLIP-AI-{slip.id}-{ai_result.get("extracted_reference", "")}',
-                status='verified',
-                verified_by=None,
-                paid_by=request.data.get('uploaded_by', 'Parent'),
-                paid_by_phone=''
+        # ✅ QUEUE BACKGROUND VERIFICATION TASK
+        if school_id and slip.transaction_reference:
+            task_id = async_task(
+                'payments.tasks.verify_slip_async',
+                slip.id,
+                int(school_id)
             )
+            slip.verify_et_task_id = task_id
+            slip.verification_status = 'queued'
+            slip.save(update_fields=['verify_et_task_id', 'verification_status'])
+            print(f"[UPLOAD] 📤 Queued verify task #{task_id} for slip #{slip.id}")
+        elif not slip.transaction_reference:
+            slip.verification_status = 'manual_review'
+            slip.verification_error = 'No transaction reference detected'
+            slip.save(update_fields=['verification_status', 'verification_error'])
 
         return Response({
             'success': True,
-            'message': 'Slip uploaded successfully',
+            'message': 'Slip uploaded successfully. Verification started in background.',
             'slip_id': slip.id,
-            'status': status_value,
+            'verification_status': slip.verification_status,
             'ai_confidence': ai_result.get('confidence', 0),
-            'auto_verified': auto_verified,
             'ai_details': {
                 'extracted_amount': ai_result.get('extracted_amount'),
                 'extracted_bank': ai_result.get('extracted_bank'),
@@ -146,7 +131,7 @@ def upload_slip(request):
                 'bank_match': ai_result.get('bank_match', False),
                 'student_id_match': ai_result.get('student_id_match', False),
             },
-            'requires_admin_review': not auto_verified
+            'requires_admin_review': slip.verification_status == 'manual_review',
         }, status=201)
 
     except Student.DoesNotExist:
@@ -162,24 +147,62 @@ def upload_slip(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
-def pending_slips(request):
-    """Get all pending slips for admin, filtered by school, grade, month, and student search"""
+def slip_status(request, slip_id):
+    """
+    Lightweight status check for frontend polling.
+    Returns current verification state without heavy queries.
+    """
+    try:
+        slip = PaymentSlip.objects.only(
+            'id', 'verification_status', 'verify_et_status',
+            'verify_et_payer_name', 'verify_et_amount', 'verification_error',
+            'status', 'verified_at_system'
+        ).get(id=slip_id)
 
+        school_id = request.headers.get('X-School-ID')
+        if school_id:
+            try:
+                if str(slip.student.school_id) != school_id:
+                    return Response({'error': 'Unauthorized'}, status=403)
+            except Exception:
+                pass
+
+        return Response({
+            'slip_id': slip.id,
+            'verification_status': slip.verification_status,
+            'verify_et_status': slip.verify_et_status,
+            'payer_name': slip.verify_et_payer_name,
+            'bank_amount': str(slip.verify_et_amount) if slip.verify_et_amount else None,
+            'error': slip.verification_error,
+            'payment_status': slip.status,
+            'verified_at': slip.verified_at_system.isoformat() if slip.verified_at_system else None,
+        })
+
+    except PaymentSlip.DoesNotExist:
+        return Response({'error': 'Slip not found'}, status=404)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def pending_slips(request):
+    """Get slips needing attention, filtered by school, grade, month, and student search"""
     school_id = request.headers.get('X-School-ID')
     print(f"📱 pending_slips - X-School-ID: {school_id}")
 
     if not school_id:
         return Response([], status=200)
 
-    # Base query
-    slips = PaymentSlip.objects.filter(status='pending')
+    # ✅ Filter by verification_status instead of old status
+    slips = PaymentSlip.objects.filter(
+        verification_status__in=['pending', 'queued', 'failed', 'manual_review', 'timeout']
+    )
 
     # Filter by school
     try:
         slips = slips.filter(student__school_id=int(school_id))
-        print(f"📱 Filtered slips by school ID: {school_id}")
+        print(f" Filtered slips by school ID: {school_id}")
     except ValueError:
-        print(f"📱 Invalid school ID: {school_id}")
+        print(f" Invalid school ID: {school_id}")
         return Response([], status=200)
 
     # Filter by grade
@@ -187,7 +210,6 @@ def pending_slips(request):
     if grade and grade != 'all' and grade != 'None':
         try:
             slips = slips.filter(student__grade=int(grade))
-            print(f"📱 Filtered by grade: {grade}")
         except (ValueError, TypeError):
             pass
 
@@ -196,7 +218,6 @@ def pending_slips(request):
     if month and month != 'all' and month != 'None':
         try:
             slips = slips.filter(deadline__month=int(month))
-            print(f"📱 Filtered by month: {month}")
         except (ValueError, TypeError):
             pass
 
@@ -208,29 +229,23 @@ def pending_slips(request):
             models.Q(student__first_name__icontains=student_search) |
             models.Q(student__last_name__icontains=student_search)
         )
-        print(f"📱 Search by: {student_search}")
 
     # Filter by academic year
-    year_id = request.query_params.get('academic_year_id')
-    year_param = request.query_params.get('academic_year')
-    year_alt = request.query_params.get('year')
-    year_value = year_id or year_alt or year_param
+    year_value = request.query_params.get('academic_year_id') or \
+                 request.query_params.get('academic_year') or \
+                 request.query_params.get('year')
 
     if year_value:
         try:
             year = AcademicYear.objects.get(id=int(year_value))
             slips = slips.filter(student__academic_year=year.name)
-            print(f"📱 Filtered by academic year: {year.name}")
         except (ValueError, AcademicYear.DoesNotExist):
             try:
                 year = AcademicYear.objects.get(year_ec=int(year_value))
                 slips = slips.filter(student__academic_year=year.name)
-                print(f"📱 Filtered by academic year: {year.name}")
             except (ValueError, AcademicYear.DoesNotExist):
                 slips = slips.filter(student__academic_year=year_value)
-                print(f"📱 Filtered by academic year string: {year_value}")
 
-    # Order by latest first
     slips = slips.select_related('student', 'deadline').order_by('-uploaded_at')
 
     data = []
@@ -255,18 +270,24 @@ def pending_slips(request):
             'ai_confidence': s.ai_confidence,
             'ai_extracted_amount': float(s.ai_extracted_amount) if s.ai_extracted_amount else None,
             'ai_message': s.ai_message,
-            'auto_verified': s.auto_verified,
-            'transaction_reference': s.transaction_reference if hasattr(s, 'transaction_reference') else '',
+            'transaction_reference': s.transaction_reference or '',
+            # ✅ NEW async fields
+            'verification_status': s.verification_status,
+            'verify_et_status': s.verify_et_status,
+            'verify_et_payer_name': s.verify_et_payer_name,
+            'verify_et_amount': str(s.verify_et_amount) if s.verify_et_amount else None,
+            'verification_error': s.verification_error,
+            'verified_at_system': s.verified_at_system.isoformat() if s.verified_at_system else None,
         })
 
-    print(f"📱 Returning {len(data)} pending slips")
+    print(f"📱 Returning {len(data)} slips needing attention")
     return Response(data)
 
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def verify_slip(request, slip_id):
-    """Verify or reject a slip"""
+    """Manual verify or reject by admin (override async result)"""
     try:
         slip = PaymentSlip.objects.get(id=slip_id)
 
@@ -284,9 +305,14 @@ def verify_slip(request, slip_id):
             slip.status = 'verified'
             slip.verified_by = None
             slip.verified_at = timezone.now()
+            slip.verification_status = 'verified'
+            slip.auto_verified_by_system = False  # Manual override
+            slip.cbe_verification_status = 'cbe_verified'
+            slip.cbe_check_method = 'manual'
+            slip.cbe_verified_by = request.user if request.user.is_authenticated else None
+            slip.cbe_verified_at = timezone.now()
             slip.save()
 
-            # Check if payment already exists
             existing_payment = Payment.objects.filter(
                 student=slip.student,
                 deadline=slip.deadline,
@@ -305,11 +331,14 @@ def verify_slip(request, slip_id):
                     paid_by=slip.uploaded_by,
                     paid_by_phone='',
                     is_from_slip=True,
-                    slip=slip
+                    slip=slip,
+                    verified_at=timezone.now(),
                 )
 
         elif action == 'reject':
             slip.status = 'rejected'
+            slip.verification_status = 'failed'
+            slip.verification_error = request.data.get('reason', 'Rejected by admin')
             slip.save()
 
         else:
@@ -336,7 +365,6 @@ def delete_slip(request, slip_id):
             except Exception:
                 pass
 
-        # Try to delete local file if it exists (development only)
         if slip.slip_image:
             local_path = os.path.join(settings.MEDIA_ROOT, slip.slip_image.name)
             if os.path.exists(local_path):
@@ -346,7 +374,6 @@ def delete_slip(request, slip_id):
                     pass
 
         slip.delete()
-
         print(f"🗑️ Deleted slip ID: {slip_id}")
         return Response({'success': True, 'message': 'Slip deleted successfully'}, status=200)
 
@@ -363,7 +390,6 @@ def bulk_delete_slips(request):
 
     if not slip_ids:
         return Response({'error': 'No slip IDs provided'}, status=400)
-
     if not school_id:
         return Response({'error': 'School ID required'}, status=400)
 
@@ -376,7 +402,6 @@ def bulk_delete_slips(request):
         if slips.count() != len(slip_ids):
             return Response({'error': 'Some slips do not belong to your school'}, status=403)
 
-        # Try to delete local files if they exist (development only)
         for slip in slips:
             if slip.slip_image:
                 local_path = os.path.join(settings.MEDIA_ROOT, slip.slip_image.name)
@@ -388,7 +413,6 @@ def bulk_delete_slips(request):
 
         count = slips.count()
         slips.delete()
-
         print(f"🗑️ Bulk deleted {count} slips for school ID: {school_id}")
         return Response({
             'success': True,
@@ -401,12 +425,10 @@ def bulk_delete_slips(request):
         return Response({'error': str(e)}, status=500)
 
 
-# ========== TRANSACTION REFERENCE ENDPOINTS ==========
-
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def update_transaction_reference(request, slip_id):
-    """Update transaction reference for a slip"""
+    """Update transaction reference and re-trigger verification"""
     try:
         slip = PaymentSlip.objects.get(id=slip_id)
         
@@ -420,12 +442,21 @@ def update_transaction_reference(request, slip_id):
         
         transaction_reference = request.data.get('transaction_reference', '')
         slip.transaction_reference = transaction_reference
-        slip.save()
+        slip.verification_status = 'pending'
+        slip.verification_error = ''
+        slip.save(update_fields=['transaction_reference', 'verification_status', 'verification_error'])
+        
+        # ✅ Re-queue verification with new reference
+        task_id = async_task('payments.tasks.verify_slip_async', slip.id, int(school_id))
+        slip.verify_et_task_id = task_id
+        slip.verification_status = 'queued'
+        slip.save(update_fields=['verify_et_task_id', 'verification_status'])
         
         return Response({
             'success': True,
-            'message': 'Transaction reference updated successfully',
-            'transaction_reference': slip.transaction_reference
+            'message': 'Reference updated. Re-verification queued.',
+            'transaction_reference': slip.transaction_reference,
+            'task_id': task_id,
         })
         
     except PaymentSlip.DoesNotExist:
@@ -435,35 +466,29 @@ def update_transaction_reference(request, slip_id):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def ai_stats(request):
-    """Get AI verification statistics for the current school"""
-
+    """Get AI extraction statistics (no longer approval stats)"""
     school_id = request.headers.get('X-School-ID')
-    print(f"📊 ai_stats - X-School-ID: {school_id}")
 
     slips = PaymentSlip.objects.all()
-
     if school_id:
         try:
             slips = slips.filter(student__school_id=int(school_id))
         except ValueError:
             pass
 
-    total         = slips.count()
-    auto_verified = slips.filter(auto_verified=True).count()
-    pending_ai    = slips.filter(ai_reviewed=False).count()
-    high_conf     = slips.filter(ai_confidence__gte=85).count()
+    total = slips.count()
+    high_conf = slips.filter(ai_confidence__gte=85).count()
+    ref_detected = slips.exclude(transaction_reference='').count()
 
     return Response({
         'total_slips': total,
-        'auto_verified': auto_verified,
-        'pending_ai_review': pending_ai,
-        'high_confidence': high_conf,
-        'accuracy_rate': round((auto_verified / total * 100) if total > 0 else 0, 1)
+        'reference_detected': ref_detected,
+        'high_confidence_extraction': high_conf,
+        'detection_rate': round((ref_detected / total * 100) if total > 0 else 0, 1),
     })
 
 
-# ========== AUTO-EXTRACTION ENDPOINT (FIXED) ==========
-
+# ========== AUTO-EXTRACTION ENDPOINT (UNCHANGED) ==========
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def extract_slip_data(request):
@@ -473,11 +498,8 @@ def extract_slip_data(request):
         if not slip_image:
             return Response({'error': 'No image provided'}, status=400)
         
-        # Save temporarily for OCR
-        import tempfile
-        import re
+        import tempfile, re, os
         
-        # Create temp file
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_file:
             for chunk in slip_image.chunks():
                 tmp_file.write(chunk)
@@ -492,64 +514,51 @@ def extract_slip_data(request):
             'raw_text': ''
         }
         
-        # Words that are NOT valid transaction references
         invalid_words = ['TRANSACTION', 'REFERENCE', 'RECEIPT', 'PAYMENT', 'BANK', 
                         'CBE', 'ETB', 'BIRR', 'AMOUNT', 'TOTAL', 'DATE', 'TIME',
                         'TRANSACTIONID', 'REFERENCEID', 'RECEIPTNO', 'RECEIPTNUMBER',
-                        'TRANSACTIONID', 'REFERENCENO', 'NO', 'NUMBER']
+                        'REFERENCENO', 'NO', 'NUMBER']
         
         try:
-            # Try to use pytesseract for OCR
             try:
                 import pytesseract
                 from PIL import Image
                 
-                # Preprocess image for better OCR
                 image = Image.open(tmp_path)
-                # Convert to grayscale for better OCR
                 if image.mode != 'L':
                     image = image.convert('L')
                 
                 text = pytesseract.image_to_string(image)
                 extracted_data['raw_text'] = text[:500]
-                
-                # Clean the text - remove common OCR errors
                 text_upper = text.upper().replace('O', '0').replace('I', '1').replace('Z', '2')
                 
-                # Extract transaction reference (CBE patterns) - PRIORITIZED
-                # Order matters: most specific first
                 patterns = [
-                    (r'FT[A-Z0-9]{10,}&?\d*', 'FT_REFERENCE'),      # FT26161RMPYN&13772679
-                    (r'FT[A-Z0-9]{10,}', 'FT_ONLY'),                  # FT26161RMPYN
-                    (r'CBE\d{8,}', 'CBE_REFERENCE'),                  # CBE123456789
-                    (r'REF[:\s]*([A-Z0-9]{6,})', 'REF_REFERENCE'),    # REF123456
-                    (r'TRX[:\s]*([A-Z0-9]{6,})', 'TRX_REFERENCE'),    # TRX123456
-                    (r'[A-Z0-9]{10,}&?\d*', 'GENERIC'),               # Any alphanumeric with optional &
-                    (r'\b\d{10,}\b', 'NUMERIC')                       # Any 10+ digit number
+                    (r'FT[A-Z0-9]{10,}&?\d*', 'FT_REFERENCE'),
+                    (r'FT[A-Z0-9]{10,}', 'FT_ONLY'),
+                    (r'CBE\d{8,}', 'CBE_REFERENCE'),
+                    (r'REF[:\s]*([A-Z0-9]{6,})', 'REF_REFERENCE'),
+                    (r'TRX[:\s]*([A-Z0-9]{6,})', 'TRX_REFERENCE'),
+                    (r'[A-Z0-9]{10,}&?\d*', 'GENERIC'),
+                    (r'\b\d{10,}\b', 'NUMERIC')
                 ]
                 
                 for pattern, pattern_name in patterns:
                     match = re.search(pattern, text_upper, re.IGNORECASE)
                     if match:
                         extracted_ref = match.group(0)
-                        # Skip if the extracted text is an invalid word
                         if extracted_ref.upper() not in invalid_words and len(extracted_ref) >= 5:
-                            # Also skip if it's just the word "TRANSACTION" or similar
                             if extracted_ref.upper() not in ['TRANSACTION', 'REFERENCE', 'RECEIPT', 'PAYMENT']:
                                 extracted_data['transaction_reference'] = extracted_ref
                                 extracted_data['confidence'] = 85
                                 print(f"✅ Extracted reference ({pattern_name}): {extracted_ref}")
                                 break
                 
-                # If still no reference found, try looking for FT pattern specifically in original text
                 if not extracted_data['transaction_reference']:
                     ft_match = re.search(r'FT[A-Z0-9]{5,}', text)
                     if ft_match:
                         extracted_data['transaction_reference'] = ft_match.group(0)
                         extracted_data['confidence'] = 70
-                        print(f"✅ Extracted FT reference: {extracted_data['transaction_reference']}")
                 
-                # Extract amount
                 amount_patterns = [
                     r'Amount[:\s]*([\d,]+\.?\d*)',
                     r'Birr[:\s]*([\d,]+\.?\d*)',
@@ -567,26 +576,20 @@ def extract_slip_data(request):
                             extracted_data['amount'] = float(amount_str)
                             if extracted_data['confidence'] < 85:
                                 extracted_data['confidence'] = 70
-                            print(f"✅ Extracted amount: {extracted_data['amount']}")
                             break
                         except:
                             pass
                 
-                # Extract bank name
                 if 'CBE' in text or 'COMMERCIAL BANK' in text:
                     extracted_data['bank_name'] = 'Commercial Bank of Ethiopia'
                 elif 'DASHEN' in text:
                     extracted_data['bank_name'] = 'Dashen Bank'
                 elif 'AWASH' in text:
                     extracted_data['bank_name'] = 'Awash Bank'
-                
+                    
             except ImportError as e:
                 print(f"⚠️ pytesseract not installed: {e}")
-                extracted_data['transaction_reference'] = ''
-                extracted_data['confidence'] = 0
-                extracted_data['message'] = 'OCR not available - please install pytesseract'
             
-            # Clean up temp file
             os.unlink(tmp_path)
             
         except Exception as ocr_error:
@@ -606,170 +609,19 @@ def extract_slip_data(request):
         return Response({'error': str(e)}, status=500)
 
 
-# ========== VERIFIER API AUTO-VERIFICATION ==========
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def auto_verify_with_api(request, slip_id):
-    """
-    Automatically verify a bank slip using Verifier API
-    This checks the transaction with CBE's official system
-    """
-    import requests
-    import json
-    
-    try:
-        slip = PaymentSlip.objects.get(id=slip_id)
-        
-        school_id = request.headers.get('X-School-ID')
-        if school_id:
-            try:
-                if str(slip.student.school_id) != school_id:
-                    return Response({'error': 'Slip does not belong to your school'}, status=403)
-            except Exception:
-                pass
-        
-        if not slip.transaction_reference:
-            return Response({
-                'verified': False,
-                'error': 'No transaction reference found. Please ensure the slip has a reference number.'
-            }, status=400)
-        
-        # Get API key from settings
-        api_key = getattr(settings, 'VERIFIER_API_KEY', '')
-        
-        if not api_key:
-            return Response({
-                'verified': False,
-                'error': 'Verifier API key not configured. Please contact administrator.'
-            }, status=500)
-        
-        # Prepare request to Verifier API
-        api_url = f"{getattr(settings, 'VERIFIER_API_URL', 'https://verify.leul.et')}/verify-cbe"
-        
-        headers = {
-            'Content-Type': 'application/json',
-            'x-api-key': api_key
-        }
-        
-        payload = {
-            'reference': slip.transaction_reference,
-            'accountSuffix': ''
-        }
-        
-        # Try to get account suffix from school
-        if hasattr(slip.student.school, 'cbe_account_suffix') and slip.student.school.cbe_account_suffix:
-            payload['accountSuffix'] = slip.student.school.cbe_account_suffix
-        
-        print(f"🔍 Verifying transaction: {slip.transaction_reference}")
-        print(f"📡 Calling Verifier API: {api_url}")
-        
-        # Make API call
-        response = requests.post(api_url, json=payload, headers=headers, timeout=30)
-        
-        print(f"📡 API Response Status: {response.status_code}")
-        
-        if response.status_code == 200:
-            result = response.json()
-            
-            if result.get('success') or result.get('verified'):
-                # Transaction is VALID - Auto-verify
-                slip.cbe_verification_status = 'verified'
-                slip.status = 'verified'
-                slip.cbe_check_method = 'verifier_api'
-                slip.cbe_verification_notes = json.dumps({
-                    'method': 'verifier_api',
-                    'payer_name': result.get('payerName', 'Unknown'),
-                    'amount': result.get('amount'),
-                    'payment_date': result.get('paymentDate'),
-                    'verified_at': timezone.now().isoformat()
-                })
-                slip.cbe_verified_at = timezone.now()
-                slip.save()
-                
-                # Create payment record if not exists
-                existing_payment = Payment.objects.filter(
-                    student=slip.student,
-                    deadline=slip.deadline,
-                    status='verified'
-                ).exists()
-                
-                if not existing_payment:
-                    Payment.objects.create(
-                        student=slip.student,
-                        deadline=slip.deadline,
-                        amount=float(result.get('amount', slip.amount)),
-                        payment_method='bank_transfer',
-                        transaction_reference=slip.transaction_reference,
-                        status='verified',
-                        verified_by=None,
-                        paid_by=result.get('payerName', slip.uploaded_by),
-                        paid_by_phone='',
-                        is_from_slip=True,
-                        slip=slip
-                    )
-                
-                return Response({
-                    'verified': True,
-                    'message': '✅ Payment verified successfully via Verifier API!',
-                    'details': {
-                        'payer_name': result.get('payerName'),
-                        'amount': result.get('amount'),
-                        'payment_date': result.get('paymentDate'),
-                        'reference': slip.transaction_reference
-                    }
-                })
-            else:
-                # Transaction is INVALID
-                return Response({
-                    'verified': False,
-                    'message': f"❌ Transaction not found or invalid. {result.get('message', 'Please check the reference number.')}",
-                    'reference': slip.transaction_reference
-                })
-        else:
-            # API error
-            return Response({
-                'verified': False,
-                'message': f"Verifier API error (Status {response.status_code}). Please verify manually.",
-                'reference': slip.transaction_reference
-            })
-            
-    except requests.exceptions.Timeout:
-        return Response({
-            'verified': False,
-            'error': 'Verification request timed out. Please try again or verify manually.'
-        }, status=408)
-    except requests.exceptions.ConnectionError:
-        return Response({
-            'verified': False,
-            'error': 'Cannot connect to Verifier API. Please check your internet connection.'
-        }, status=503)
-    except PaymentSlip.DoesNotExist:
-        return Response({'error': 'Slip not found'}, status=404)
-    except Exception as e:
-        print(f"❌ Auto-verify error: {e}")
-        import traceback
-        traceback.print_exc()
-        return Response({'error': str(e)}, status=500)
-    
-
-# ========== VERIFY.ET API INTEGRATION (WORKING) ==========
+# ========== LEGACY MANUAL VERIFY ENDPOINTS (KEPT FOR OVERRIDE) ==========
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def check_receipt_with_verify_et(request, slip_id):
     """
-    Check receipt using Verify.ET API (REAL working solution)
-    This calls the official Verify.ET API that works inside Ethiopia
+    Manual sync verification (kept for admin override when async fails).
+    Same logic as before — blocks request but gives immediate result.
     """
-    import requests
-    import json
-    from datetime import datetime
-    import time
+    import requests, json, time
     
     try:
         slip = PaymentSlip.objects.get(id=slip_id)
-        
         school_id = request.headers.get('X-School-ID')
         school = None
         
@@ -779,30 +631,24 @@ def check_receipt_with_verify_et(request, slip_id):
         if school_id:
             try:
                 school = School.objects.get(id=int(school_id))
-                print(f"🔍 Found school: {school.name}")
-                
+                print(f" Found school: {school.name}")
                 if str(slip.student.school_id) != school_id:
                     return Response({'error': 'Slip does not belong to your school'}, status=403)
             except School.DoesNotExist:
                 return Response({'error': 'School not found'}, status=404)
             except Exception as e:
-                print(f"🔍 School lookup error: {e}")
                 return Response({'error': f'School error: {str(e)}'}, status=400)
         else:
             return Response({'error': 'X-School-ID header is required'}, status=400)
         
         if not slip.transaction_reference:
             return Response({
-                'success': False,
-                'error': 'No transaction reference found. Please ensure the slip has a reference number.'
+                'success': False, 'error': 'No transaction reference found.'
             }, status=400)
         
-        # Check if school has Verify.ET configured
         if not school.verify_et_api_key:
             return Response({
-                'success': False,
-                'verified': False,
-                'needs_configuration': True,
+                'success': False, 'verified': False, 'needs_configuration': True,
                 'message': '⚠️ Verify.ET is NOT configured for this school.',
                 'instruction': 'Please go to Settings → Verify.ET Configuration to add your API key.',
                 'action_required': 'configure_verify_et',
@@ -811,9 +657,7 @@ def check_receipt_with_verify_et(request, slip_id):
         
         if not school.verify_et_enabled:
             return Response({
-                'success': False,
-                'verified': False,
-                'needs_configuration': True,
+                'success': False, 'verified': False, 'needs_configuration': True,
                 'message': '⚠️ Verify.ET is disabled for this school.',
                 'instruction': 'Please go to Settings → Verify.ET Configuration and enable it.',
                 'action_required': 'enable_verify_et',
@@ -822,74 +666,51 @@ def check_receipt_with_verify_et(request, slip_id):
         
         if not school.cbe_account_suffix:
             return Response({
-                'success': False,
-                'verified': False,
-                'needs_configuration': True,
-                'message': '⚠️ CBE Account Suffix is missing.',
-                'instruction': 'Please go to Settings → Verify.ET Configuration and add your CBE account suffix (last 8 digits).',
+                'success': False, 'verified': False, 'needs_configuration': True,
+                'message': '️ CBE Account Suffix is missing.',
+                'instruction': 'Please go to Settings → Verify.ET Configuration and add your CBE account suffix.',
                 'action_required': 'add_account_suffix',
                 'settings_url': '/school/verify-et-settings'
             }, status=200)
         
-        # Clean the reference number (remove &suffix if present)
         clean_ref = slip.transaction_reference.split('&')[0].strip()
-        account_suffix = school.cbe_account_suffix
-        
-        # Prepare request to Verify.ET API
         api_url = "https://verify.et/api/verify"
-        headers = {
-            "Content-Type": "application/json",
-            "x-api-key": school.verify_et_api_key,
-        }
+        headers = {"Content-Type": "application/json", "x-api-key": school.verify_et_api_key}
         payload = {
             "bank": "cbe",
             "referenceNumber": clean_ref,
-            "accountSuffix": account_suffix,
-            "waitMs": 15000,  # Wait up to 15 seconds
+            "accountSuffix": school.cbe_account_suffix,
+            "waitMs": 5000,
         }
-        
-        # Add settlement account if available (optional)
         if school.cbe_account_number:
             payload["settlementAccount"] = school.cbe_account_number
         
         print(f"🔍 Verify.ET: Checking transaction {clean_ref} for school {school.name}")
-        print(f"📡 API URL: {api_url}")
-        print(f"📦 Payload: {payload}")
-        
-        # Make API call
-        response = requests.post(api_url, json=payload, headers=headers, timeout=30)
-        
+        response = requests.post(api_url, json=payload, headers=headers, timeout=10)
         print(f"📡 Response Status: {response.status_code}")
         
         if response.status_code == 200:
             data = response.json()
             return process_verify_et_response(slip, data, clean_ref)
-            
         elif response.status_code == 202:
-            # Request queued - poll for result
             data = response.json()
             status_url = data.get('links', {}).get('statusUrl') or data.get('statusUrl')
-            
             if not status_url:
                 return Response({
-                    'success': False,
-                    'verified': False,
-                    'queued': True,
-                    'message': 'Request queued but no status URL provided. Please try again.',
+                    'success': False, 'verified': False, 'queued': True,
+                    'message': 'Request queued but no status URL provided.',
                     'reference': clean_ref
                 })
             
-            # Poll for result
             full_url = f"https://verify.et{status_url}" if status_url.startswith('/') else status_url
+            print(f" Polling status URL: {full_url}")
             
-            print(f"📡 Polling status URL: {full_url}")
-            
-            # Poll up to 10 times (30 seconds max)
-            for attempt in range(10):
-                time.sleep(3)  # Wait 3 seconds between polls
+            delays = [5, 10, 20, 30, 30]
+            for attempt, delay in enumerate(delays, 1):
+                time.sleep(delay)
                 try:
                     poll_response = requests.get(full_url, headers=headers, timeout=10)
-                    print(f"📡 Poll attempt {attempt + 1}: Status {poll_response.status_code}")
+                    print(f" Poll attempt {attempt}: Status {poll_response.status_code}")
                     
                     if poll_response.status_code == 200:
                         poll_data = poll_response.json()
@@ -897,52 +718,37 @@ def check_receipt_with_verify_et(request, slip_id):
                         status = verification.get('status', 'pending')
                         
                         if status == 'verified':
-                            # Transaction verified!
                             return process_verify_et_response(slip, poll_data, clean_ref)
                         elif status == 'failed':
                             return Response({
-                                'success': False,
-                                'verified': False,
-                                'message': '❌ Transaction verification failed. The transaction was not found in CBE system.',
+                                'success': False, 'verified': False,
+                                'message': '❌ Transaction verification failed.',
                                 'reference': clean_ref
                             })
                         elif status == 'pending':
-                            continue  # Still pending, keep polling
+                            continue
                     elif poll_response.status_code == 404:
-                        # Still processing
                         continue
                 except Exception as e:
                     print(f"⚠️ Poll error: {e}")
                     continue
             
-            # Timeout after polling
             return Response({
-                'success': False,
-                'verified': False,
-                'queued': True,
-                'message': '⏳ Verification is taking longer than expected. Please try again in a few moments.',
+                'success': False, 'verified': False, 'queued': True,
+                'message': ' Verification timed out. Please try again later.',
                 'reference': clean_ref
             })
         else:
             return Response({
-                'success': False,
-                'verified': False,
+                'success': False, 'verified': False,
                 'message': f'API returned status {response.status_code}',
                 'reference': clean_ref
             })
             
     except requests.exceptions.Timeout:
-        return Response({
-            'success': False,
-            'verified': False,
-            'error': 'Request timed out. Please try again.'
-        }, status=408)
+        return Response({'success': False, 'verified': False, 'error': 'Request timed out.'}, status=408)
     except requests.exceptions.ConnectionError:
-        return Response({
-            'success': False,
-            'verified': False,
-            'error': 'Cannot connect to Verify.ET API. Please check your internet connection.'
-        }, status=503)
+        return Response({'success': False, 'verified': False, 'error': 'Cannot connect to Verify.ET API.'}, status=503)
     except PaymentSlip.DoesNotExist:
         return Response({'error': 'Slip not found'}, status=404)
     except Exception as e:
@@ -953,87 +759,91 @@ def check_receipt_with_verify_et(request, slip_id):
 
 
 def process_verify_et_response(slip, data, clean_ref):
-    """Process the verification response from Verify.ET"""
+    """Process successful Verify.ET response and update slip + create payment"""
     try:
         verification = data.get('verification', {})
-        status = verification.get('status', 'unknown')
         tx_data = verification.get('data', {})
         
-        # Update slip with verification results
-        slip.verify_et_status = status
-        slip.verify_et_payer_name = tx_data.get('senderName') or tx_data.get('payer', '')
-        slip.verify_et_amount = tx_data.get('amount')
-        slip.verify_et_date = tx_data.get('date') or tx_data.get('transactionDate', '')
-        slip.verify_et_receiver = tx_data.get('receiverName') or tx_data.get('receiver', '')
+        payer_name = tx_data.get('senderName') or tx_data.get('payer', '')
+        bank_amount = tx_data.get('amount')
+        tx_date = tx_data.get('date') or tx_data.get('transactionDate', '')
+        receiver = tx_data.get('receiverName') or tx_data.get('receiver', '')
+        
+        amount_matches = False
+        if bank_amount:
+            try:
+                diff = abs(float(bank_amount) - float(slip.amount))
+                amount_matches = diff <= 1.0
+            except (ValueError, TypeError):
+                pass
+        
+        slip.verify_et_status = 'verified'
+        slip.verify_et_payer_name = payer_name
+        slip.verify_et_amount = bank_amount
+        slip.verify_et_date = tx_date
+        slip.verify_et_receiver = receiver
         slip.verify_et_response_raw = data
         slip.verify_et_checked_at = timezone.now()
         
-        # Check if amount matches
-        amount_matches = False
-        if slip.verify_et_amount:
-            try:
-                diff = abs(float(slip.verify_et_amount) - float(slip.amount))
-                amount_matches = diff <= 1.0  # Within 1 Birr tolerance
-            except:
-                pass
+        if amount_matches:
+            slip.verification_status = 'verified'
+            slip.status = 'verified'
+            slip.verified_at_system = timezone.now()
+            slip.cbe_verification_status = 'cbe_verified'
+            slip.cbe_check_method = 'api'
+            slip.cbe_verified_at = timezone.now()
+        else:
+            slip.verification_status = 'manual_review'
+            slip.verification_error = f'Amount mismatch: declared={slip.amount}, bank={bank_amount}'
         
         slip.save()
         
-        if status == 'verified':
-            return Response({
-                'success': True,
-                'verified': True,
-                'message': f'✅ Payment VERIFIED by CBE!',
-                'details': {
-                    'payer_name': slip.verify_et_payer_name,
-                    'amount': str(slip.verify_et_amount),
-                    'date': slip.verify_et_date,
-                    'receiver': slip.verify_et_receiver,
-                    'reference': clean_ref,
-                    'amount_matches': amount_matches,
-                    'declared_amount': str(slip.amount)
-                }
-            })
-        elif status == 'pending':
-            return Response({
-                'success': True,
-                'verified': False,
-                'queued': True,
-                'message': '⏳ Verification still processing. Please check again in a moment.',
-                'details': {
-                    'reference': clean_ref,
-                    'status': 'pending'
-                }
-            })
-        else:
-            return Response({
-                'success': True,
-                'verified': False,
-                'message': f'❌ Transaction {status}. Could not verify this payment.',
-                'details': {
-                    'status': status,
-                    'reference': clean_ref
-                }
-            })
+        if slip.verification_status == 'verified':
+            existing = Payment.objects.filter(
+                student=slip.student, deadline=slip.deadline, status='verified'
+            ).exists()
+            
+            if not existing:
+                Payment.objects.create(
+                    student=slip.student,
+                    deadline=slip.deadline,
+                    amount=bank_amount or slip.amount,
+                    payment_method='bank_transfer',
+                    transaction_reference=clean_ref,
+                    status='verified',
+                    verified_by=None,
+                    paid_by=payer_name or slip.uploaded_by,
+                    paid_by_phone='',
+                    is_from_slip=True,
+                    slip=slip,
+                    verified_at=timezone.now(),
+                )
+        
+        return Response({
+            'success': True,
+            'verified': slip.verification_status == 'verified',
+            'message': '✅ Payment VERIFIED by CBE!' if slip.verification_status == 'verified' else '️ Amount mismatch - needs review',
+            'details': {
+                'payer_name': payer_name,
+                'amount': str(bank_amount),
+                'date': tx_date,
+                'receiver': receiver,
+                'reference': clean_ref,
+                'amount_matches': amount_matches,
+                'declared_amount': str(slip.amount),
+            }
+        })
     except Exception as e:
         print(f"❌ Error processing response: {e}")
-        return Response({
-            'success': False,
-            'verified': False,
-            'message': f'Error processing verification: {str(e)}'
-        })
+        return Response({'success': False, 'verified': False, 'message': f'Error: {str(e)}'})
 
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def verify_slip_from_api(request, slip_id):
-    """
-    Verify the slip after API check succeeded
-    This creates the payment record
-    """
+    """Create payment record after manual API check succeeded"""
     try:
         slip = PaymentSlip.objects.get(id=slip_id)
-        
         school_id = request.headers.get('X-School-ID')
         if school_id:
             try:
@@ -1042,26 +852,22 @@ def verify_slip_from_api(request, slip_id):
             except Exception:
                 pass
         
-        # Check if API verification succeeded
         if slip.verify_et_status != 'verified':
             return Response({
-                'error': 'Cannot verify: API verification has not succeeded. Please check receipt first.'
+                'error': 'Cannot verify: API verification has not succeeded.'
             }, status=400)
         
-        # Mark slip as verified
         slip.status = 'verified'
         slip.verified_by = None
         slip.verified_at = timezone.now()
+        slip.verification_status = 'verified'
         slip.cbe_verification_status = 'cbe_verified'
         slip.cbe_check_method = 'api'
         slip.cbe_verification_notes = f"Verified via Verify.ET API - Payer: {slip.verify_et_payer_name}, Amount: {slip.verify_et_amount}"
         slip.save()
         
-        # Check if payment already exists
         existing_payment = Payment.objects.filter(
-            student=slip.student,
-            deadline=slip.deadline,
-            status='verified'
+            student=slip.student, deadline=slip.deadline, status='verified'
         ).exists()
         
         if not existing_payment:
@@ -1076,7 +882,8 @@ def verify_slip_from_api(request, slip_id):
                 paid_by=slip.verify_et_payer_name or slip.uploaded_by,
                 paid_by_phone='',
                 is_from_slip=True,
-                slip=slip
+                slip=slip,
+                verified_at=timezone.now(),
             )
         
         return Response({

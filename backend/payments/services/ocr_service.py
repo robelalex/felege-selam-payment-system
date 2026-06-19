@@ -37,31 +37,27 @@ class OCRService:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             
             # 3. Dynamic Rescaling (Crucial for small fonts on mobile uploads)
-            # Upscale the image if it's too small so Tesseract can see characters clearly
             height, width = gray.shape[:2]
             if width < 1000:
                 scale_factor = 1.5
                 gray = cv2.resize(gray, (int(width * scale_factor), int(height * scale_factor)), interpolation=cv2.INTER_CUBIC)
 
             # 4. Remove Shadows using Morphological Closing
-            # This extracts the background lighting grid and subtracts it to flatten shadows
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11))
             background = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, kernel)
             normalized_gray = cv2.divide(gray, background, scale=255)
 
-            # 5. Adaptive Thresholding (Instead of hardcoded 150)
-            # Calculates threshold locally row-by-row, keeping text sharp under any lighting
+            # 5. Adaptive Thresholding
             thresh = cv2.adaptiveThreshold(
                 normalized_gray, 
                 255, 
                 cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
                 cv2.THRESH_BINARY, 
-                15, # Block size (looks at a 15x15 pixel window)
-                9   # Constant subtracted from the mean
+                15, 
+                9   
             )
             
             # 6. Gentle Denoising
-            # Cleans up stray smartphone camera sensor noise without blurring the text edges
             denoised = cv2.fastNlMeansDenoising(thresh, None, h=10, templateWindowSize=7, searchWindowSize=21)
             
             return denoised
@@ -72,16 +68,12 @@ class OCRService:
     def extract_text(self, image_path):
         """Extract text from image using Tesseract"""
         try:
-            # Preprocess image
             processed_img = self.preprocess_image(image_path)
             
             if processed_img is None:
                 return ""
             
-            # Convert to PIL Image
             pil_img = Image.fromarray(processed_img)
-            
-            # Extract text with multiple configurations
             text = pytesseract.image_to_string(pil_img, lang='eng')
             
             return text
@@ -102,7 +94,6 @@ class OCRService:
         for pattern in patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
             if matches:
-                # Clean the amount
                 amount_str = matches[0].replace(',', '')
                 try:
                     return float(amount_str)
@@ -125,13 +116,12 @@ class OCRService:
             r'(?:account|a/c|acc|acct)[\s:]*([\d\s-]{8,20})',
             r'(?:account number)[\s:]*([\d\s-]{8,20})',
             r'([\d\s-]{10,20})(?:\s|$)',
-            r'(?:1000[\d\s-]{6,15})'  # CBE accounts often start with 1000
+            r'(?:1000[\d\s-]{6,15})'
         ]
         
         for pattern in patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
             if matches:
-                # Clean the account number
                 account = re.sub(r'[\s-]', '', matches[0])
                 if len(account) >= 8:
                     return account
@@ -139,51 +129,47 @@ class OCRService:
         return None
     
     def extract_reference_number(self, text):
-        """Extract transaction reference number with enhanced Ethiopian bank logic"""
+        """Extract transaction reference number with CBE/Ethiopian bank specific logic"""
         if not text:
             return ""
 
-        # 1. High Priority Strategy: Match specific Ethiopian banking reference formats 
-        # (e.g., CBE starts with TT or FT followed by digits and letters)
-        ethiopian_bank_patterns = [
-            r'\b(TT\d+[A-Z0-9]+)\b',   # CBE standard transfers (e.g., TT242851POCT)
-            r'\b(FT\d+[A-Z0-9]+)\b',   # Alternative CBE/Dashen funds transfers
-            r'\b(NIB\d+[A-Z0-9]+)\b'   # Nib Bank structures
+        # Clean text: remove extra whitespace but preserve line breaks
+        cleaned = re.sub(r'[^\S\n]+', ' ', text)
+        
+        # 1. PRIMARY: CBE/Dashen Specific Patterns (Highest Priority)
+        cbe_patterns = [
+            r'\b(FSPAY[A-Z0-9\-]{10,})\b',           # Felege Selam Payment pattern
+            r'\b(FT[A-Z0-9]{8,}(?:&\d+)?)\b',         # Funds Transfer + optional suffix
+            r'\b(TT[A-Z0-9]{8,})\b',                  # Telegraphic Transfer
+            r'\b(CBE[A-Z0-9\-]{8,})\b',               # CBE prefixed references
         ]
         
-        for pattern in ethiopian_bank_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
+        for pattern in cbe_patterns:
+            matches = re.findall(pattern, cleaned, re.IGNORECASE)
             if matches:
-                return matches[0].strip().upper()
+                ref = matches[0].strip().upper()
+                # Filter out false positives that are just headers
+                if len(ref) > 8 and not any(word in ref for word in ['PAYMENT', 'TRANSACTION', 'RECEIPT', 'BANK']):
+                    return ref
 
-        # 2. Line-by-Line Contextual Strategy: Look for anchor labels first
-        lines = text.split('\n')
-        label_patterns = [
-            r'(?:tr\s*\.?\s*ref|ref|reference|trx|txn)[\s:]*([A-Z0-9\-]{6,30})',
-            r'(?:transaction\s+reference)[\s:]*([A-Z0-9\-]{6,30})'
+        # 2. SECONDARY: Label-Based Extraction (Contextual)
+        label_lines = [
+            r'(?:tr\s*\.?\s*ref|ref\s*no|reference\s*no|trx\s*id|transaction\s*id)[\s:]*([A-Z0-9\-]{8,30})',
+            r'(?:payment\s*ref|pay\s*ref|slip\s*no|receipt\s*no)[\s:]*([A-Z0-9\-]{8,30})',
         ]
         
-        for line in lines:
-            for pattern in label_patterns:
-                matches = re.findall(pattern, line, re.IGNORECASE)
-                if matches:
-                    # Filter out false-positives like raw bank name titles
-                    candidate = matches[0].strip().upper()
-                    if "COMMERCIAL" not in candidate and "BANK" not in candidate:
-                        return candidate
-
-        # 3. Fallback General Pattern (Moved to lowest priority to avoid false matches)
-        fallback_patterns = [
-            r'([A-Z]{2,}[0-9]{4,}[A-Z0-9\-]*)',
-            r'(?:STMT|TRF|PAY)[\s]*[:]?\s*([A-Z0-9\-]+)'
-        ]
-        
-        for pattern in fallback_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
+        for pattern in label_lines:
+            matches = re.findall(pattern, cleaned, re.IGNORECASE)
             if matches:
-                candidate = matches[0].strip().upper()
-                if "COMMERCIAL" not in candidate and "BANK" not in candidate:
-                    return candidate
+                ref = matches[0].strip().upper()
+                if len(ref) > 8 and not any(word in ref for word in ['COMMERCIAL', 'BANK', 'AMOUNT']):
+                    return ref
+
+        # 3. TERTIARY: Standalone Alphanumeric Codes (Fallback)
+        fallback = re.findall(r'\b([A-Z]{2,}[0-9]{3,}[A-Z0-9\-]{3,})\b', cleaned, re.IGNORECASE)
+        for candidate in fallback:
+            if len(candidate) >= 10 and not any(word in candidate.upper() for word in ['PAYMENT', 'TRANSACTION', 'RECEIPT', 'BANK', 'TOTAL', 'AMOUNT']):
+                return candidate.upper()
         
         return ""
     
@@ -208,7 +194,7 @@ class OCRService:
         patterns = [
             r'(?:student|stud|std)[\s:]*([A-Z0-9\-]{6,20})',
             r'(?:ref|reference)[\s:]*([A-Z0-9\-]{6,20})',
-            r'([A-Z]{2,}[0-9\-]{4,15})'  # Matches patterns like FS-2024-001
+            r'([A-Z]{2,}[0-9\-]{4,15})'
         ]
         
         for pattern in patterns:
@@ -221,38 +207,21 @@ class OCRService:
     def verify_slip(self, image_path, expected_amount, expected_student_id=None, expected_bank_name=None):
         """
         Complete slip verification with multi-factor validation
-        
-        Returns detailed verification results including:
-        - Amount match
-        - Bank name match  
-        - Student ID match
-        - Confidence score
-        - Auto-verify decision
         """
         try:
-            # Extract text from image
             text = self.extract_text(image_path)
             
             if not text:
                 return {
-                    'success': False,
-                    'confidence': 0,
-                    'auto_verified': False,
-                    'message': 'Could not read text from image',
-                    'extracted_text': '',
-                    'extracted_amount': None,
-                    'extracted_bank': None,
-                    'extracted_reference': None,
-                    'extracted_account': None,
-                    'extracted_student_id': None,
-                    'extracted_date': None,
-                    'amount_match': False,
-                    'bank_match': False,
-                    'student_id_match': False,
-                    'reference_found': False
+                    'success': False, 'confidence': 0, 'auto_verified': False,
+                    'message': 'Could not read text from image', 'extracted_text': '',
+                    'extracted_amount': None, 'extracted_bank': None,
+                    'extracted_reference': None, 'extracted_account': None,
+                    'extracted_student_id': None, 'extracted_date': None,
+                    'amount_match': False, 'bank_match': False,
+                    'student_id_match': False, 'reference_found': False
                 }
             
-            # Extract all data
             extracted_amount = self.extract_amount(text)
             extracted_bank = self.extract_bank_name(text)
             extracted_reference = self.extract_reference_number(text)
@@ -260,14 +229,13 @@ class OCRService:
             extracted_date = self.extract_date(text)
             extracted_student_id = self.extract_student_reference(text)
             
-            # Calculate confidence and matches
             confidence = 0
             amount_match = False
             bank_match = False
             student_id_match = False
             match_details = []
             
-            # 1. Amount check (most important - up to 50 points)
+            # 1. Amount check (up to 50 points)
             if extracted_amount and expected_amount:
                 amount_diff = abs(extracted_amount - expected_amount)
                 if amount_diff == 0:
@@ -316,7 +284,6 @@ class OCRService:
             else:
                 match_details.append("No reference number found")
             
-            # Determine verification result
             message = "; ".join(match_details)
             auto_verified = False
             success = True
@@ -356,19 +323,12 @@ class OCRService:
         except Exception as e:
             logger.error(f"Slip verification error: {e}")
             return {
-                'success': False,
-                'confidence': 0,
-                'auto_verified': False,
+                'success': False, 'confidence': 0, 'auto_verified': False,
                 'message': f'Error processing image: {str(e)}',
-                'extracted_amount': None,
-                'extracted_bank': None,
-                'extracted_reference': None,
-                'extracted_account': None,
-                'extracted_student_id': None,
-                'extracted_date': None,
-                'amount_match': False,
-                'bank_match': False,
-                'student_id_match': False,
-                'reference_found': False,
+                'extracted_amount': None, 'extracted_bank': None,
+                'extracted_reference': None, 'extracted_account': None,
+                'extracted_student_id': None, 'extracted_date': None,
+                'amount_match': False, 'bank_match': False,
+                'student_id_match': False, 'reference_found': False,
                 'extracted_text': ''
             }

@@ -366,11 +366,12 @@ function ParentDashboard() {
                         <p className="text-xl font-bold text-red-600 mt-1">
                           ETB {parseFloat(payment.amount).toLocaleString()}
                         </p>
-                        {hasPending && (
-                          <p className="text-xs text-blue-600 mt-1">
-                            ⏳ Your bank slip is being reviewed by admin. You will receive notification once verified.
-                          </p>
-                        )}
+{hasPending && (
+  <p className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+    <Clock className="h-3 w-3" />
+    Slip uploaded. Auto-verifying with CBE...
+  </p>
+)}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {/* Pay Now button with Chapa status check */}
@@ -461,11 +462,21 @@ function ParentDashboard() {
                       <td className="px-4 py-3 text-sm text-gray-900 text-right font-medium">
                         ETB {parseFloat(slip.amount).toLocaleString()}
                       </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="inline-flex items-center gap-1 text-yellow-600 bg-yellow-50 px-2 py-1 rounded-full text-xs">
-                          <Clock className="h-3 w-3" /> Pending Verification
-                        </span>
-                      </td>
+<td className="px-4 py-3 text-center">
+  {slip.verification_status === 'verified' ? (
+    <span className="inline-flex items-center gap-1 text-green-600 bg-green-50 px-2 py-1 rounded-full text-xs">
+      <CheckCircle className="h-3 w-3" /> Verified by System
+    </span>
+  ) : slip.verification_status === 'failed' || slip.verification_status === 'manual_review' ? (
+    <span className="inline-flex items-center gap-1 text-orange-600 bg-orange-50 px-2 py-1 rounded-full text-xs">
+      <AlertTriangle className="h-3 w-3" /> Needs Attention
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 text-blue-600 bg-blue-50 px-2 py-1 rounded-full text-xs">
+      <Loader className="h-3 w-3 animate-spin" /> Verifying...
+    </span>
+  )}
+</td>
                       <td className="px-4 py-3 text-center">
                         <button
                           onClick={() => {

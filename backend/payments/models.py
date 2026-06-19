@@ -1,3 +1,4 @@
+# backend/payments/models.py
 from django.db import models
 from django.core.validators import MinValueValidator
 from students.models import Student
@@ -6,7 +7,7 @@ from schools.models import School
 
 class PaymentDeadline(models.Model):
     MONTH_CHOICES = [
-        (1, 'መስከረም'), (2, 'ጥቅምት'), (3, 'ህዳር'), (4, 'ታህሳስ'),
+        (1, 'መስረም'), (2, 'ጥቅምት'), (3, 'ህር'), (4, 'ታህስ'),
         (5, 'ጥር'), (6, 'የካቲት'), (7, 'መጋቢት'), (8, 'ሚያዝያ'),
         (9, 'ግንቦት'), (10, 'ሰኔ'), (11, 'ሐምሌ'), (12, 'ነሐሴ'), (13, 'ጳጉሜ'),
     ]
@@ -164,16 +165,17 @@ class PaymentSlip(models.Model):
     uploaded_at = models.DateTimeField(auto_now_add=True)
     verified_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
     verified_at = models.DateTimeField(null=True, blank=True)
+    
+    # ✅ AI Extraction Fields (KEPT for reference detection ONLY, not approval)
     ai_confidence = models.IntegerField(default=0)
     ai_extracted_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     ai_message = models.TextField(blank=True)
     ai_reviewed = models.BooleanField(default=False)
-    auto_verified = models.BooleanField(default=False)
     
     # Transaction reference (auto-detected from image)
     transaction_reference = models.CharField(max_length=100, blank=True, help_text="CBE transaction reference number")
     
-    # Verify.ET API Results - NEW FIELDS
+    # Verify.ET API Results
     verify_et_status = models.CharField(
         max_length=20,
         choices=[
@@ -195,6 +197,29 @@ class PaymentSlip(models.Model):
     verify_et_response_raw = models.JSONField(default=dict, blank=True, help_text="Raw API response")
     verify_et_checked_at = models.DateTimeField(null=True, blank=True, help_text="When API was last called")
     verify_et_error = models.TextField(blank=True, help_text="Error message if API failed")
+    
+    # ✅ NEW: Async Background Task Tracking Fields
+    verify_et_task_id = models.CharField(
+        max_length=255, 
+        blank=True, 
+        null=True,
+        help_text="Django-Q task ID for background verification"
+    )
+    verification_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('pending', 'Pending Verification'),
+            ('queued', 'Queued for Background Check'),
+            ('verified', 'Verified by System'),
+            ('failed', 'Verification Failed'),
+            ('manual_review', 'Needs Manual Review'),
+            ('timeout', 'Verification Timed Out'),
+        ],
+        default='pending',
+        help_text="Current verification workflow status"
+    )
+    verified_at_system = models.DateTimeField(null=True, blank=True, help_text="When system verification completed")
+    verification_error = models.TextField(blank=True, help_text="Detailed error from background task")
     
     # Legacy CBE fields (keep for backward compatibility)
     cbe_verification_status = models.CharField(
@@ -247,13 +272,17 @@ class PaymentSlip(models.Model):
 
     @property
     def verification_summary(self):
-        """Return a human-readable verification summary"""
-        if self.verify_et_status == 'verified':
+        """Return a human-readable verification summary based on NEW async workflow"""
+        if self.verification_status == 'verified':
             return f"✅ Verified via API - Payer: {self.verify_et_payer_name}, Amount: {self.verify_et_amount} Birr"
-        elif self.verify_et_status == 'failed':
-            return f"❌ API verification failed: {self.verify_et_error}"
-        elif self.verify_et_status == 'queued':
-            return "⏳ Verification queued, waiting for result..."
+        elif self.verification_status == 'queued':
+            return "⏳ Verification queued in background, waiting for CBE..."
+        elif self.verification_status == 'failed':
+            return f"❌ Verification failed: {self.verification_error or self.verify_et_error}"
+        elif self.verification_status == 'manual_review':
+            return "️ Needs manual review - API could not verify automatically"
+        elif self.verification_status == 'timeout':
+            return "⏱️ Verification timed out - please retry or verify manually"
         elif self.verify_et_status == 'invalid':
             return "❌ Invalid transaction reference"
         elif self.verify_et_status == 'error':
