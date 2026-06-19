@@ -98,8 +98,12 @@ function ParentDashboard() {
     }
   };
 
+  // ✅ FIXED: Check verification_status instead of legacy status
   const hasPendingSlip = (deadlineId) => {
-    return pendingSlips.some(slip => slip.deadline_id === deadlineId && slip.status === 'pending');
+    return pendingSlips.some(slip => 
+      slip.deadline_id === deadlineId && 
+      slip.verification_status !== 'verified'
+    );
   };
 
   const isAlreadyPaid = (deadlineId) => {
@@ -116,7 +120,7 @@ function ParentDashboard() {
   const getDisabledReason = (deadlineId) => {
     if (!chapaConfigured) return 'Online payments are currently unavailable. Please contact the school.';
     if (isAlreadyPaid(deadlineId)) return 'Already paid for this month';
-    if (hasPendingSlip(deadlineId)) return 'You have a pending bank slip. Please wait for admin verification.';
+    if (hasPendingSlip(deadlineId)) return 'You have a pending bank slip. Please wait for auto-verification.';
     return null;
   };
 
@@ -358,7 +362,7 @@ function ParentDashboard() {
                           {hasPending && (
                             <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full flex items-center gap-1">
                               <Clock className="h-3 w-3" />
-                              Slip Pending
+                              Slip Verifying...
                             </span>
                           )}
                         </div>
@@ -366,12 +370,12 @@ function ParentDashboard() {
                         <p className="text-xl font-bold text-red-600 mt-1">
                           ETB {parseFloat(payment.amount).toLocaleString()}
                         </p>
-{hasPending && (
-  <p className="text-xs text-blue-600 mt-1 flex items-center gap-1">
-    <Clock className="h-3 w-3" />
-    Slip uploaded. Auto-verifying with CBE...
-  </p>
-)}
+                        {hasPending && (
+                          <p className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            Auto-verifying with CBE bank servers...
+                          </p>
+                        )}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {/* Pay Now button with Chapa status check */}
@@ -390,7 +394,7 @@ function ParentDashboard() {
                           ) : (
                             <CreditCard className="h-4 w-4" />
                           )}
-                          {!chapaConfigured ? 'Unavailable' : hasPending ? 'Pending Review' : 'Pay Now'}
+                          {!chapaConfigured ? 'Unavailable' : hasPending ? 'Verifying...' : 'Pay Now'}
                         </button>
                         <button
                           onClick={() => handleBankTransfer(payment)}
@@ -402,7 +406,7 @@ function ParentDashboard() {
                         <button
                           onClick={() => handleUploadClick(payment)}
                           disabled={hasPending}
-                          title={hasPending ? 'You already have a pending slip for this month' : ''}
+                          title={hasPending ? 'Verification in progress. Wait for completion.' : ''}
                           className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
                             hasPending
                               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
@@ -410,7 +414,7 @@ function ParentDashboard() {
                           }`}
                         >
                           <Upload className="h-4 w-4" />
-                          {hasPending ? 'Slip Uploaded' : 'Upload Slip'}
+                          {hasPending ? 'Verifying...' : 'Upload Slip'}
                         </button>
                       </div>
                     </div>
@@ -462,21 +466,21 @@ function ParentDashboard() {
                       <td className="px-4 py-3 text-sm text-gray-900 text-right font-medium">
                         ETB {parseFloat(slip.amount).toLocaleString()}
                       </td>
-<td className="px-4 py-3 text-center">
-  {slip.verification_status === 'verified' ? (
-    <span className="inline-flex items-center gap-1 text-green-600 bg-green-50 px-2 py-1 rounded-full text-xs">
-      <CheckCircle className="h-3 w-3" /> Verified by System
-    </span>
-  ) : slip.verification_status === 'failed' || slip.verification_status === 'manual_review' ? (
-    <span className="inline-flex items-center gap-1 text-orange-600 bg-orange-50 px-2 py-1 rounded-full text-xs">
-      <AlertTriangle className="h-3 w-3" /> Needs Attention
-    </span>
-  ) : (
-    <span className="inline-flex items-center gap-1 text-blue-600 bg-blue-50 px-2 py-1 rounded-full text-xs">
-      <Loader className="h-3 w-3 animate-spin" /> Verifying...
-    </span>
-  )}
-</td>
+                      <td className="px-4 py-3 text-center">
+                        {slip.verification_status === 'verified' ? (
+                          <span className="inline-flex items-center gap-1 text-green-600 bg-green-50 px-2 py-1 rounded-full text-xs">
+                            <CheckCircle className="h-3 w-3" /> Verified by System
+                          </span>
+                        ) : slip.verification_status === 'failed' || slip.verification_status === 'manual_review' ? (
+                          <span className="inline-flex items-center gap-1 text-orange-600 bg-orange-50 px-2 py-1 rounded-full text-xs">
+                            <AlertTriangle className="h-3 w-3" /> Needs Attention
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-blue-600 bg-blue-50 px-2 py-1 rounded-full text-xs">
+                            <Loader className="h-3 w-3 animate-spin" /> Verifying...
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-center">
                         <button
                           onClick={() => {

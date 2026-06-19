@@ -27,7 +27,7 @@ def verify_slip_async(slip_id: int, school_id: int):
         
         print(f"[Q] ✅ Task started for slip #{slip_id} | School: {school.name}")
         
-        # Skip if already verified or no reference
+        # Skip if already verified or rejected
         if slip.verification_status in ('verified', 'rejected'):
             print(f"[Q] ⏭️ Slip #{slip_id} already {slip.verification_status}, skipping")
             return
@@ -180,12 +180,43 @@ def _process_verify_et_result(slip: PaymentSlip, data: dict, clean_ref: str):
     """
     try:
         verification = data.get('verification', {})
-        tx_data = verification.get('data', {})
+        # Handle multiple possible response structures from Verify.ET
+        tx_data = verification.get('data', {}) or verification.get('transaction', {}) or {}
         
-        payer_name = tx_data.get('senderName') or tx_data.get('payer', '')
-        bank_amount = tx_data.get('amount')
-        tx_date = tx_data.get('date') or tx_data.get('transactionDate', '')
-        receiver = tx_data.get('receiverName') or tx_data.get('receiver', '')
+        # Try multiple field names for payer name
+        payer_name = (
+            tx_data.get('senderName') or 
+            tx_data.get('payer') or 
+            tx_data.get('fromName') or
+            tx_data.get('sender') or
+            verification.get('payerName') or
+            ''
+        )
+        
+        # Try multiple field names for amount
+        bank_amount = (
+            tx_data.get('amount') or 
+            tx_data.get('value') or
+            tx_data.get('totalAmount') or
+            verification.get('amount')
+        )
+        
+        # Try multiple field names for date
+        tx_date = (
+            tx_data.get('date') or 
+            tx_data.get('transactionDate') or
+            tx_data.get('createdAt') or
+            verification.get('date') or
+            ''
+        )
+        
+        receiver = (
+            tx_data.get('receiverName') or 
+            tx_data.get('receiver') or
+            tx_data.get('toName') or
+            verification.get('receiverName') or
+            ''
+        )
         
         # Check amount match (within 1 Birr tolerance)
         amount_matches = False
@@ -205,10 +236,10 @@ def _process_verify_et_result(slip: PaymentSlip, data: dict, clean_ref: str):
         slip.verify_et_response_raw = data
         slip.verify_et_checked_at = timezone.now()
         
-        # Set workflow status
+        # Set workflow status AND legacy status for dashboard compatibility
         if amount_matches:
             slip.verification_status = 'verified'
-            slip.status = 'verified'
+            slip.status = 'verified'  # ✅ CRITICAL: Sync legacy status field
             slip.verified_at_system = timezone.now()
             slip.cbe_verification_status = 'cbe_verified'
             slip.cbe_check_method = 'api'
@@ -247,7 +278,7 @@ def _process_verify_et_result(slip: PaymentSlip, data: dict, clean_ref: str):
                     slip=slip,
                     verified_at=timezone.now(),
                 )
-                print(f"[Q]  Payment record created for slip #{slip.id}")
+                print(f"[Q] 💰 Payment record created for slip #{slip.id}")
             
             # TODO: Trigger SMS notification here when service is ready
             # _send_verification_sms(slip)
