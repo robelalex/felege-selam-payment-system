@@ -5,11 +5,10 @@ from .views.views import PaymentViewSet, PaymentDeadlineViewSet
 from .views import ReminderViewSet, send_reminders, send_payment_confirmation
 from .views.report_views import monthly_report, student_report, annual_summary, monthly_detailed_report
 from .views.slip_views import (
-    upload_slip, pending_slips, verify_slip, ai_stats,
+    upload_slip, pending_slips, verify_slip, ai_stats, slip_status,
     delete_slip, bulk_delete_slips,
     update_transaction_reference,
     extract_slip_data,
-    auto_verify_with_api,
     check_receipt_with_verify_et,  
     verify_slip_from_api 
 )
@@ -90,6 +89,7 @@ urlpatterns += [
 # Slip API URLs
 urlpatterns += [
     path('slips/upload/', upload_slip, name='upload-slip'),
+    path('slips/<int:slip_id>/status/', slip_status, name='slip-status'),
     path('slips/pending/', pending_slips, name='pending-slips'),
     path('slips/<int:slip_id>/verify/', verify_slip, name='verify-slip'),
     path('slips/<int:slip_id>/delete/', delete_slip, name='delete-slip'),
@@ -97,7 +97,6 @@ urlpatterns += [
     path('slips/ai-stats/', ai_stats, name='ai-stats'),
     path('slips/extract-data/', extract_slip_data, name='extract-slip-data'),
     path('slips/<int:slip_id>/update-transaction-ref/', update_transaction_reference, name='update-transaction-reference'),
-    path('slips/<int:slip_id>/auto-verify/', auto_verify_with_api, name='auto-verify-slip'),
     path('slips/<int:slip_id>/check-receipt/', check_receipt_with_verify_et, name='check-receipt-verify-et'),
     path('slips/<int:slip_id>/verify-from-api/', verify_slip_from_api, name='verify-slip-from-api'),
 ]
