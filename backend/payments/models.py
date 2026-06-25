@@ -13,7 +13,20 @@ class PaymentDeadline(models.Model):
     ]
 
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='deadlines')
-    academic_year = models.CharField(max_length=20)
+
+    # ✅ FIX: Changed from CharField to ForeignKey so payments are anchored
+    # to the year they were created in — NOT the student's current year.
+    # After promotion, students move to 2021 but their 2020 payments stay
+    # linked to the 2020 AcademicYear via this FK.
+    academic_year = models.ForeignKey(
+        'academics.AcademicYear',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='payment_deadlines',
+        help_text="The academic year this deadline belongs to"
+    )
+
     month = models.IntegerField(choices=MONTH_CHOICES)
     due_date = models.DateField()
     amount = models.DecimalField(max_digits=10, decimal_places=2)
@@ -27,14 +40,16 @@ class PaymentDeadline(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        # ✅ Updated unique_together to use academic_year FK
         unique_together = ['school', 'academic_year', 'month', 'grade']
         ordering = ['academic_year', 'month', 'grade']
 
     def __str__(self):
         month_name = dict(self.MONTH_CHOICES)[self.month]
+        year_name = self.academic_year.name if self.academic_year else 'No Year'
         if self.grade:
-            return f"{self.academic_year} - {month_name} (Grade {self.grade})"
-        return f"{self.academic_year} - {month_name} (All Grades)"
+            return f"{year_name} - {month_name} (Grade {self.grade})"
+        return f"{year_name} - {month_name} (All Grades)"
 
 
 class Payment(models.Model):
@@ -165,16 +180,19 @@ class PaymentSlip(models.Model):
     uploaded_at = models.DateTimeField(auto_now_add=True)
     verified_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
     verified_at = models.DateTimeField(null=True, blank=True)
-    
-    # ✅ AI Extraction Fields (KEPT for reference detection ONLY, not approval)
+
+    # AI Extraction Fields (for reference detection only, not approval)
     ai_confidence = models.IntegerField(default=0)
     ai_extracted_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     ai_message = models.TextField(blank=True)
     ai_reviewed = models.BooleanField(default=False)
-    
+
     # Transaction reference (auto-detected from image)
-    transaction_reference = models.CharField(max_length=100, blank=True, help_text="CBE transaction reference number")
-    
+    transaction_reference = models.CharField(
+        max_length=100, blank=True,
+        help_text="CBE transaction reference number"
+    )
+
     # Verify.ET API Results
     verify_et_status = models.CharField(
         max_length=20,
@@ -190,21 +208,16 @@ class PaymentSlip(models.Model):
         default='pending',
         help_text="Status from Verify.ET API"
     )
-    verify_et_payer_name = models.CharField(max_length=200, blank=True, help_text="Payer name from bank")
-    verify_et_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text="Amount from bank")
-    verify_et_date = models.CharField(max_length=50, blank=True, help_text="Transaction date from bank")
-    verify_et_receiver = models.CharField(max_length=200, blank=True, help_text="Receiver name from bank")
-    verify_et_response_raw = models.JSONField(default=dict, blank=True, help_text="Raw API response")
-    verify_et_checked_at = models.DateTimeField(null=True, blank=True, help_text="When API was last called")
-    verify_et_error = models.TextField(blank=True, help_text="Error message if API failed")
-    
-    # ✅ NEW: Async Background Task Tracking Fields
-    verify_et_task_id = models.CharField(
-        max_length=255, 
-        blank=True, 
-        null=True,
-        help_text="Django-Q task ID for background verification"
-    )
+    verify_et_payer_name = models.CharField(max_length=200, blank=True)
+    verify_et_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    verify_et_date = models.CharField(max_length=50, blank=True)
+    verify_et_receiver = models.CharField(max_length=200, blank=True)
+    verify_et_response_raw = models.JSONField(default=dict, blank=True)
+    verify_et_checked_at = models.DateTimeField(null=True, blank=True)
+    verify_et_error = models.TextField(blank=True)
+
+    # Async Background Task Tracking
+    verify_et_task_id = models.CharField(max_length=255, blank=True, null=True)
     verification_status = models.CharField(
         max_length=20,
         choices=[
@@ -215,15 +228,14 @@ class PaymentSlip(models.Model):
             ('manual_review', 'Needs Manual Review'),
             ('timeout', 'Verification Timed Out'),
         ],
-        default='pending',
-        help_text="Current verification workflow status"
+        default='pending'
     )
-    verified_at_system = models.DateTimeField(null=True, blank=True, help_text="When system verification completed")
-    verification_error = models.TextField(blank=True, help_text="Detailed error from background task")
-    
-    # Legacy CBE fields (keep for backward compatibility)
+    verified_at_system = models.DateTimeField(null=True, blank=True)
+    verification_error = models.TextField(blank=True)
+
+    # Legacy CBE fields (kept for backward compatibility)
     cbe_verification_status = models.CharField(
-        max_length=20, 
+        max_length=20,
         choices=[
             ('pending', 'Pending CBE Check'),
             ('cbe_verified', 'CBE Verified'),
@@ -232,13 +244,24 @@ class PaymentSlip(models.Model):
         ],
         default='pending'
     )
-    cbe_verified_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='cbe_verified_slips')
+    cbe_verified_by = models.ForeignKey(
+        'auth.User', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='cbe_verified_slips'
+    )
     cbe_verified_at = models.DateTimeField(null=True, blank=True)
-    cbe_verification_notes = models.TextField(blank=True, help_text="Admin notes from CBE verification")
-    cbe_check_method = models.CharField(max_length=20, choices=[('ussd', 'USSD *894#'), ('call', 'Phone Call 6294'), ('manual', 'Manual Check'), ('api', 'Verify.ET API')], blank=True)
+    cbe_verification_notes = models.TextField(blank=True)
+    cbe_check_method = models.CharField(
+        max_length=20,
+        choices=[
+            ('ussd', 'USSD *894#'),
+            ('call', 'Phone Call 6294'),
+            ('manual', 'Manual Check'),
+            ('api', 'Verify.ET API')
+        ],
+        blank=True
+    )
 
     def get_cbe_verification_instructions(self):
-        """Returns verification instructions for admin"""
         return {
             'ussd_code': '*894#',
             'ussd_instructions': [
@@ -267,12 +290,10 @@ class PaymentSlip(models.Model):
 
     @property
     def is_api_verified(self):
-        """Check if the slip was verified by Verify.ET API"""
         return self.verify_et_status == 'verified'
 
     @property
     def verification_summary(self):
-        """Return a human-readable verification summary based on NEW async workflow"""
         if self.verification_status == 'verified':
             return f"✅ Verified via API - Payer: {self.verify_et_payer_name}, Amount: {self.verify_et_amount} Birr"
         elif self.verification_status == 'queued':
@@ -280,7 +301,7 @@ class PaymentSlip(models.Model):
         elif self.verification_status == 'failed':
             return f"❌ Verification failed: {self.verification_error or self.verify_et_error}"
         elif self.verification_status == 'manual_review':
-            return "️ Needs manual review - API could not verify automatically"
+            return "⚠️ Needs manual review - API could not verify automatically"
         elif self.verification_status == 'timeout':
             return "⏱️ Verification timed out - please retry or verify manually"
         elif self.verify_et_status == 'invalid':
