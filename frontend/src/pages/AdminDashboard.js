@@ -46,7 +46,12 @@ function AdminDashboard() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [chapaStatus, setChapaStatus] = useState(null);
   const [loadingChapa, setLoadingChapa] = useState(true);
-  
+
+  // ✅ Dismiss state for green banner — persists for the session
+  const [chapaBannerDismissed, setChapaBannerDismissed] = useState(
+    () => sessionStorage.getItem('chapaBannerDismissed') === '1'
+  );
+
   const { selectedYear } = useYear();
   const isFetching = useRef(false);
   const abortController = useRef(null);
@@ -99,7 +104,6 @@ function AdminDashboard() {
     };
   }, []);
 
-  // ✅ MOVED THIS OUTSIDE fetchData
   const checkChapaStatus = useCallback(async () => {
     try {
       const response = await api.get('/schools/chapa-config/');
@@ -210,10 +214,7 @@ function AdminDashboard() {
     fetchData();
     checkChapaStatus();
 
-    const handleRefresh = () => {
-      fetchData();
-    };
-    
+    const handleRefresh = () => { fetchData(); };
     window.addEventListener('refreshData', handleRefresh);
     window.addEventListener('yearChanged', handleRefresh);
     
@@ -230,6 +231,11 @@ function AdminDashboard() {
     pending: dashboardStats.pending_students,
     collection: dashboardStats.collection_rate,
     totalCollected: dashboardStats.total_collected
+  };
+
+  const handleDismissChapaBanner = () => {
+    setChapaBannerDismissed(true);
+    sessionStorage.setItem('chapaBannerDismissed', '1');
   };
 
   const handleExportReport = async () => {
@@ -269,16 +275,13 @@ function AdminDashboard() {
 
   return (
     <div className="space-y-6 md:space-y-8 pb-20 md:pb-0">
-      {/* Header - Responsive */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Dashboard</h1>
           <p className="text-sm text-gray-500 mt-1">
             {new Date().toLocaleDateString('en-US', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric' 
+              weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
             })}
           </p>
           {selectedYear && (
@@ -293,7 +296,6 @@ function AdminDashboard() {
           )}
         </div>
         
-        {/* Actions - Responsive layout */}
         <div className="flex flex-wrap gap-2">
           <select
             value={dateRange}
@@ -324,49 +326,66 @@ function AdminDashboard() {
         </div>
       </div>
 
-      {/* ===== CHAPA STATUS NOTIFICATION ===== */}
-      {!loadingChapa && chapaStatus && !chapaStatus.chapa_enabled && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg shadow-sm"
-        >
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="h-6 w-6 text-red-500 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <h3 className="font-semibold text-red-800 text-sm">⚠️ Online Payments Not Configured</h3>
-              <p className="text-red-700 text-sm mt-1">
-                Parents cannot make online payments until you configure your Chapa payment gateway.
-              </p>
-              <Link
-                to="/admin/chapa-settings"
-                className="mt-2 inline-block bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700 transition-colors"
-              >
-                Configure Chapa Now
-              </Link>
+      {/* ===== CHAPA STATUS NOTIFICATION =====
+          ✅ FIX: Single block with ternary — only ONE banner can show at a time.
+          - Not configured → red warning (no dismiss, needs action)
+          - Configured → green success (dismissable with × button)
+      */}
+      {!loadingChapa && chapaStatus && (
+        chapaStatus.chapa_enabled ? (
+          // ✅ Configured — green banner, dismissable
+          !chapaBannerDismissed && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="bg-green-50 border-l-4 border-green-500 p-4 rounded-lg shadow-sm"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  <div>
+                    <p className="font-semibold text-green-800 text-sm">✅ Online Payments Enabled</p>
+                    <p className="text-green-700 text-sm">Chapa is configured and working. Parents can make online payments.</p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleDismissChapaBanner}
+                  className="ml-4 text-green-500 hover:text-green-800 text-2xl font-bold leading-none flex-shrink-0"
+                  title="Dismiss"
+                >
+                  ×
+                </button>
+              </div>
+            </motion.div>
+          )
+        ) : (
+          // ❌ Not configured — red warning, no dismiss (needs action)
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg shadow-sm"
+          >
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-6 w-6 text-red-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="font-semibold text-red-800 text-sm">⚠️ Online Payments Not Configured</h3>
+                <p className="text-red-700 text-sm mt-1">
+                  Parents cannot make online payments until you configure your Chapa payment gateway.
+                </p>
+                <Link
+                  to="/admin/chapa-settings"
+                  className="mt-2 inline-block bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700 transition-colors"
+                >
+                  Configure Chapa Now
+                </Link>
+              </div>
             </div>
-          </div>
-        </motion.div>
+          </motion.div>
+        )
       )}
 
-      {/* Chapa Configured Successfully */}
-      {!loadingChapa && chapaStatus && chapaStatus.chapa_enabled && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-green-50 border-l-4 border-green-500 p-4 rounded-lg shadow-sm"
-        >
-          <div className="flex items-center gap-3">
-            <CheckCircle className="h-5 w-5 text-green-500" />
-            <div>
-              <p className="font-semibold text-green-800 text-sm">✅ Online Payments Enabled</p>
-              <p className="text-green-700 text-sm">Chapa is configured and working. Parents can make online payments.</p>
-            </div>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Stats Cards - Responsive grid: 1 column on mobile, 2 on tablet, 4 on desktop */}
+      {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         {/* Card 1 - Total Students */}
         <motion.div
@@ -400,7 +419,9 @@ function AdminDashboard() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs md:text-sm font-medium text-gray-500">Total Collected</p>
-              <p className="text-2xl md:text-3xl font-bold text-gray-900 mt-1 md:mt-2">{overall.totalCollected.toLocaleString()} ETB</p>
+              <p className="text-2xl md:text-3xl font-bold text-gray-900 mt-1 md:mt-2">
+                {(overall.totalCollected || 0).toLocaleString()} ETB
+              </p>
               <p className="text-xs md:text-sm text-green-600 mt-1 md:mt-2 flex items-center gap-1">
                 <TrendingUp className="h-3 w-3 md:h-4 md:w-4" />
                 {overall.totalPayments} payments
@@ -462,7 +483,7 @@ function AdminDashboard() {
         </motion.div>
       </div>
 
-      {/* Quick Actions Row - Responsive: 2 columns on mobile, 4 on desktop */}
+      {/* Quick Actions Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         <Link to="/admin/students" className="bg-white rounded-lg md:rounded-xl shadow-sm border border-gray-100 p-3 md:p-5 hover:shadow-md transition-all group">
           <div className="flex items-center gap-2 md:gap-4">
@@ -517,7 +538,7 @@ function AdminDashboard() {
         </Link>
       </div>
 
-      {/* Classes Overview - Responsive grid */}
+      {/* Classes Overview */}
       <div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
           <h2 className="text-lg md:text-xl font-semibold text-gray-900">Classes Overview</h2>
