@@ -1,29 +1,11 @@
-// src/pages/AdminReminders.js
+// src/pages/AdminReminders.js - DEADLINE-AWARE REMINDERS
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Bell,
-  Send,
-  CheckCircle,
-  AlertCircle,
-  Loader,
-  Users,
-  Calendar,
-  Filter,
-  ChevronDown,
-  ChevronUp,
-  Phone,
-  DollarSign,
-  Clock,
-  X,
-  Mail,
-  Search,
-  MessageSquare,
-  Link as LinkIcon,
-  Eye,
-  Smartphone,
-  ToggleLeft,
-  ToggleRight
+  Bell, Send, CheckCircle, AlertCircle, Loader, Users, Calendar, 
+  Filter, ChevronDown, ChevronUp, Phone, DollarSign, Clock, X, 
+  Mail, Search, MessageSquare, Link as LinkIcon, Eye, Smartphone, 
+  ToggleLeft, ToggleRight
 } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -49,6 +31,7 @@ function AdminReminders() {
   const [showPaymentLinks, setShowPaymentLinks] = useState(false);
   const [smsConfigured, setSmsConfigured] = useState(false);
   const [checkingConfig, setCheckingConfig] = useState(true);
+  const [activeTab, setActiveTab] = useState('proactive'); // 'proactive' or 'overdue'
   
   const { getAuthHeader, schoolId } = useAuth();
   const { selectedYear } = useYear();
@@ -61,21 +44,22 @@ function AdminReminders() {
   const isFetching = useRef(false);
   const abortController = useRef(null);
 
-  // ✅ NEW: Check if SMS is configured for this school
-  const checkSMSConfiguration = useCallback(async () => {
-    setCheckingConfig(true);
-    try {
-         const response = await api.get('/sms-config/', {
-           headers: getAuthHeader()
-         });
-      setSmsConfigured(response.data.sms_enabled === true);
-    } catch (err) {
-      console.error('Error checking SMS config:', err);
-      setSmsConfigured(false);
-    } finally {
-      setCheckingConfig(false);
-    }
-  }, [getAuthHeader]);
+// In AdminReminders.js checkSMSConfiguration():
+const checkSMSConfiguration = useCallback(async () => {
+  setCheckingConfig(true);
+  try {
+       const response = await api.get('/sms-config/', {
+         headers: getAuthHeader()
+       });
+    setSmsConfigured(response.data.sms_enabled === true);
+  } catch (err) {
+    // Endpoint doesn't exist yet - assume not configured
+    console.warn('SMS config endpoint not available');
+    setSmsConfigured(false);
+  } finally {
+    setCheckingConfig(false);
+  }
+}, [getAuthHeader]);
 
   // ✅ NEW: Fetch available deadlines for this school
   const fetchDeadlines = useCallback(async () => {
@@ -178,15 +162,19 @@ function AdminReminders() {
     );
   };
 
-  const selectAll = () => {
-    if (!pendingData?.students) return;
-    
-    if (selectedStudents.length === pendingData.students.length) {
-      setSelectedStudents([]);
-    } else {
-      setSelectedStudents(pendingData.students.map(s => s.student_id));
-    }
-  };
+const selectAll = () => {
+  const currentList = activeTab === 'proactive' 
+    ? pendingData?.proactive_reminders 
+    : pendingData?.overdue_accounts;
+  
+  if (!currentList) return;
+  
+  if (selectedStudents.length === currentList.length) {
+    setSelectedStudents([]);
+  } else {
+    setSelectedStudents(currentList.map(s => s.student_id));
+  }
+};
 
   // ✅ UPDATED: Send SMS reminders with payment links
   const sendSMSReminders = async () => {
@@ -394,20 +382,41 @@ function AdminReminders() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">📧 Email & SMS Reminders</h1>
-          {selectedYear && (
-            <p className="text-sm text-primary-600 mt-1 font-medium">
-              📅 Academic Year: {selectedYear.name || selectedYear.year_ec + ' E.C.'}
-            </p>
-          )}
-          <p className="text-sm md:text-base text-gray-600 mt-1">
-            {pendingData?.total_pending || 0} students with pending payments
-            ({pendingData?.total_pending_months || 0} unpaid months)
-          </p>
-        </div>
-      </div>
+<div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+  <div>
+    <h1 className="text-2xl md:text-3xl font-bold text-gray-900">📧 Email & SMS Reminders</h1>
+    {selectedYear && (
+      <p className="text-sm text-primary-600 mt-1 font-medium">
+        📅 Academic Year: {selectedYear.name || selectedYear.year_ec + ' E.C.'}
+      </p>
+    )}
+    <div className="flex gap-4 mt-2 text-sm">
+      <span className="text-blue-600 font-medium">
+        🔔 {pendingData?.total_pending || 0} upcoming reminders
+      </span>
+      <span className="text-red-600 font-medium">
+        ⚠️ {pendingData?.total_overdue || 0} overdue accounts
+        ({pendingData?.total_overdue_amount?.toLocaleString() || 0} Birr + 
+         {pendingData?.total_penalties?.toLocaleString() || 0} Birr penalties)
+      </span>
+    </div>
+  </div>
+  
+  <div className="flex bg-gray-100 rounded-lg p-1">
+    <button onClick={() => setActiveTab('proactive')}
+      className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+        activeTab === 'proactive' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'
+      }`}>
+      🔔 Upcoming Reminders
+    </button>
+    <button onClick={() => setActiveTab('overdue')}
+      className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+        activeTab === 'overdue' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'
+      }`}>
+      ⚠️ Overdue Accounts ({pendingData?.total_overdue || 0})
+    </button>
+  </div>
+</div>
 
       {/* ✅ NEW: SMS Configuration Warning */}
       {reminderType !== 'email' && !smsConfigured && !checkingConfig && (
@@ -618,106 +627,211 @@ function AdminReminders() {
           </div>
         </div>
 
-        {/* Students List */}
+        {/* Students List - FIXED WRAPPING */}
         <div className="divide-y divide-gray-200 max-h-96 overflow-y-auto">
-          {pendingData?.students?.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
-              <p>No students with pending payments found!</p>
-              <p className="text-sm mt-1">Try changing your filters or search term.</p>
-            </div>
-          ) : (
-            pendingData?.students?.map((student) => (
-              <div key={student.student_id} className="p-4 hover:bg-gray-50 transition-colors">
-                <div className="flex items-start gap-3">
-                  <input
-                    type="checkbox"
-                    checked={selectedStudents.includes(student.student_id)}
-                    onChange={() => toggleStudent(student.student_id)}
-                    className="mt-1 rounded text-primary-600"
-                  />
-                  
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <div>
-                        <h3 className="font-semibold text-gray-900">
-                          {student.student_name}
-                        </h3>
-                        <p className="text-sm text-gray-600">
-                          Grade {student.grade} {student.section} • ID: {student.student_id}
-                        </p>
+          {activeTab === 'proactive' ? (
+            // PROACTIVE REMINDERS LIST
+            pendingData?.proactive_reminders?.length === 0 ? (
+              <div className="p-8 text-center text-gray-500">
+                <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
+                <p>No upcoming reminders found!</p>
+              </div>
+            ) : (
+              pendingData?.proactive_reminders?.map((student) => (
+                <div key={student.student_id} className="p-4 hover:bg-gray-50 transition-colors">
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedStudents.includes(student.student_id)}
+                      onChange={() => toggleStudent(student.student_id)}
+                      className="mt-1 rounded text-primary-600"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div>
+                          <h3 className="font-semibold text-gray-900">{student.student_name}</h3>
+                          <p className="text-sm text-gray-600">
+                            Grade {student.grade} {student.section} • ID: {student.student_id}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-medium text-red-600">
+                            {student.pending_months.length} month(s) unpaid
+                          </p>
+                          <p className="text-sm font-bold text-gray-900">
+                            {student.total_due.toLocaleString()} Birr
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-sm font-medium text-red-600">
-                          {student.pending_months.length} month(s) unpaid
-                        </p>
-                        <p className="text-sm font-bold text-gray-900">
-                          {student.total_due.toLocaleString()} Birr
-                        </p>
-                      </div>
-                    </div>
-                    
-                    {/* Pending Months */}
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {student.pending_months.map((month, idx) => (
-                        <span
-                          key={idx}
-                          className="inline-flex items-center gap-1 px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs"
-                        >
-                          <Calendar className="h-3 w-3" />
-                          {month.month_name}
-                          {month.days_overdue > 0 && (
-                            <span className="text-red-600 ml-1">
-                              ({month.days_overdue} days overdue)
+                      
+                      {/* Pending Months with Deadline Status Badges */}
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {student.pending_months.map((month, idx) => (
+                          <span
+                            key={idx}
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border ${
+                              month.status_type === 'overdue' ? 'bg-red-100 text-red-800 border-red-200' :
+                              month.status_type === 'due_today' ? 'bg-orange-100 text-orange-800 border-orange-200' :
+                              month.status_type === 'approaching' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
+                              'bg-blue-50 text-blue-700 border-blue-200'
+                            }`}
+                          >
+                            <Calendar className="h-3 w-3" />
+                            {month.month_name}
+                            <span className={`ml-1 ${
+                              month.status_type === 'overdue' ? 'text-red-600 font-semibold' :
+                              month.status_type === 'due_today' ? 'text-orange-600 font-semibold' :
+                              month.status_type === 'approaching' ? 'text-yellow-700' :
+                              'text-blue-600'
+                            }`}>
+                              {month.status_label}
                             </span>
-                          )}
-                        </span>
-                      ))}
-                    </div>
-                    
-                    {/* Parent Contact */}
-                    <div className="mt-2 flex items-center gap-4 text-sm text-gray-600 flex-wrap">
-                      <span className="flex items-center gap-1">
-                        <Phone className="h-4 w-4" />
-                        {student.parent_phone || 'No phone'}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Users className="h-4 w-4" />
-                        {student.parent_name || 'No parent name'}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Mail className="h-4 w-4" />
-                        {student.parent_email || 'No email'}
-                      </span>
-                    </div>
+                          </span>
+                        ))}
+                      </div>
 
-                    {/* ✅ NEW: Payment Link Preview */}
-                    {selectedDeadline && (
-                      <div className="mt-2">
-                        <button
-                          onClick={() => setShowPaymentLinks(!showPaymentLinks)}
-                          className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
-                        >
-                          <Eye className="h-3 w-3" />
-                          {showPaymentLinks ? 'Hide' : 'Show'} Payment Link Preview
-                        </button>
-                        {showPaymentLinks && (
-                          <div className="mt-2 p-2 bg-gray-100 rounded text-xs break-all">
-                            <LinkIcon className="h-3 w-3 inline mr-1" />
-                            <span className="text-gray-600">
-                              {`${window.location.origin}/parent-pay?student=${student.student_id}&deadline=${selectedDeadline.id}&amount=${student.total_due}`}
-                            </span>
-                          </div>
-                        )}
+                      {/* Urgency Indicator for Student Row */}
+                      {student.most_urgent_status && (
+                        <div className="mt-2">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                            student.most_urgent_status === 'overdue' ? 'bg-red-100 text-red-700' :
+                            student.most_urgent_status === 'due_today' ? 'bg-orange-100 text-orange-700' :
+                            student.most_urgent_status === 'approaching' ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-blue-50 text-blue-600'
+                          }`}>
+                            {student.most_urgent_status === 'overdue' && <AlertCircle className="h-3 w-3" />}
+                            {student.most_urgent_status === 'due_today' && <Clock className="h-3 w-3" />}
+                            {student.most_urgent_status === 'approaching' && <Bell className="h-3 w-3" />}
+                            {student.most_urgent_status === 'upcoming' && <Calendar className="h-3 w-3" />}
+                            {student.most_urgent_status === 'overdue' ? 'Has Overdue Payments' :
+                             student.most_urgent_status === 'due_today' ? 'Payment Due Today!' :
+                             student.most_urgent_status === 'approaching' ? 'Payment Approaching' :
+                             'Upcoming Payments'}
+                          </span>
+                        </div>
+                      )}
+                      
+                      {/* Parent Contact */}
+                      <div className="mt-2 flex items-center gap-4 text-sm text-gray-600 flex-wrap">
+                        <span className="flex items-center gap-1">
+                          <Phone className="h-4 w-4" />
+                          {student.parent_phone || 'No phone'}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Users className="h-4 w-4" />
+                          {student.parent_name || 'No parent name'}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Mail className="h-4 w-4" />
+                          {student.parent_email || 'No email'}
+                        </span>
                       </div>
-                    )}
+
+                      {/* Payment Link Preview */}
+                      {selectedDeadline && (
+                        <div className="mt-2">
+                          <button
+                            onClick={() => setShowPaymentLinks(!showPaymentLinks)}
+                            className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                          >
+                            <Eye className="h-3 w-3" />
+                            {showPaymentLinks ? 'Hide' : 'Show'} Payment Link Preview
+                          </button>
+                          {showPaymentLinks && (
+                            <div className="mt-2 p-2 bg-gray-100 rounded text-xs break-all">
+                              <LinkIcon className="h-3 w-3 inline mr-1" />
+                              <span className="text-gray-600">
+                                {`${window.location.origin}/parent-pay?student=${student.student_id}&deadline=${selectedDeadline.id}&amount=${student.total_due}`}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
+              ))
+            )
+          ) : (
+            // OVERDUE ACCOUNTS LIST
+            pendingData?.overdue_accounts?.length === 0 ? (
+              <div className="p-8 text-center text-gray-500">
+                <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
+                <p>No overdue accounts! All payments are up to date.</p>
               </div>
-            ))
+            ) : (
+              pendingData?.overdue_accounts?.map((student) => (
+                <div key={student.student_id} className="p-4 hover:bg-red-50/30 transition-colors border-l-4 border-red-400">
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedStudents.includes(student.student_id)}
+                      onChange={() => toggleStudent(student.student_id)}
+                      className="mt-1 rounded text-red-600"
+                    />
+                    
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div>
+                          <h3 className="font-semibold text-gray-900">{student.student_name}</h3>
+                          <p className="text-sm text-gray-600">
+                            Grade {student.grade} {student.section} • ID: {student.student_id}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-red-600">
+                            {student.grand_total.toLocaleString()} Birr total
+                          </p>
+                          <p className="text-xs text-orange-600">
+                            +{student.total_penalties.toLocaleString()} Birr penalties
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {/* Overdue Months with Severity Badges */}
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {student.overdue_months.map((month, idx) => (
+                          <span
+                            key={idx}
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border ${
+                              month.severity === 'critical' ? 'bg-red-100 text-red-800 border-red-300' :
+                              month.severity === 'warning' ? 'bg-orange-100 text-orange-800 border-orange-300' :
+                              'bg-yellow-100 text-yellow-800 border-yellow-300'
+                            }`}
+                          >
+                            <Calendar className="h-3 w-3" />
+                            {month.month_name}
+                            <span className="ml-1 font-semibold">
+                              {month.days_overdue} days overdue
+                            </span>
+                            {month.penalty_amount > 0 && (
+                              <span className="ml-1 text-red-600">
+                                (+{month.penalty_amount.toLocaleString()} Birr)
+                              </span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                      
+                      {/* Parent Contact */}
+                      <div className="mt-2 flex items-center gap-4 text-sm text-gray-600 flex-wrap">
+                        <span className="flex items-center gap-1">
+                          <Phone className="h-4 w-4" />
+                          {student.parent_phone || 'No phone'}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Mail className="h-4 w-4" />
+                          {student.parent_email || 'No email'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )
           )}
         </div>
-      </div>
+</div>
 
       {/* Result Message */}
       <AnimatePresence>

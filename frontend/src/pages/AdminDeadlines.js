@@ -71,7 +71,7 @@ function AdminDeadlines() {
       const data = {
         month: monthNumber,
         amount: parseFloat(formData.amount),
-        academic_year: selectedYear?.name,
+        academic_year: selectedYear?.id,
         is_active: formData.is_active,
         due_date: formData.due_date || null,
         school: schoolId,

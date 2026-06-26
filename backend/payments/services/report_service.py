@@ -1,4 +1,4 @@
-# backend/payments/services/report_service.py - UPDATED with School Filtering
+# backend/payments/services/report_service.py - FIXED year resolution
 from students.models import Student
 from payments.models import Payment, PaymentDeadline
 from academics.models import AcademicYear
@@ -7,11 +7,65 @@ from datetime import datetime
 import calendar
 from django.db import models
 
+
 class ReportService:
     """Service to generate financial reports with multi-school support"""
     
     def __init__(self):
         self.results = {}
+    
+    def _resolve_academic_year(self, year, school_id=None):
+        """
+        ✅ NEW: Resolve year parameter to AcademicYear object.
+        Accepts: int (ID), str (name like "2020 E.C."), or AcademicYear object.
+        Returns: AcademicYear object or None.
+        """
+        if year is None:
+            # No year provided → find current
+            qs = AcademicYear.objects.filter(is_current=True)
+            if school_id:
+                qs = qs.filter(school_id=int(school_id))
+            return qs.first()
+        
+        if isinstance(year, AcademicYear):
+            return year
+        
+        if isinstance(year, int):
+            qs = AcademicYear.objects.filter(id=year)
+            if school_id:
+                qs = qs.filter(school_id=int(school_id))
+            return qs.first()
+        
+        if isinstance(year, str):
+            # Try as integer ID first
+            try:
+                qs = AcademicYear.objects.filter(id=int(year))
+                if school_id:
+                    qs = qs.filter(school_id=int(school_id))
+                result = qs.first()
+                if result:
+                    return result
+            except ValueError:
+                pass
+            
+            # Try as name (e.g., "2020 E.C.")
+            qs = AcademicYear.objects.filter(name=year)
+            if school_id:
+                qs = qs.filter(school_id=int(school_id))
+            result = qs.first()
+            if result:
+                return result
+            
+            # Try as year_ec
+            try:
+                qs = AcademicYear.objects.filter(year_ec=int(year))
+                if school_id:
+                    qs = qs.filter(school_id=int(school_id))
+                return qs.first()
+            except ValueError:
+                pass
+        
+        return None
     
     def get_monthly_report(self, year=None, month=None, school_id=None):
         """
@@ -20,19 +74,14 @@ class ReportService:
         """
         print(f"📊 get_monthly_report - school_id: {school_id}")
         
-        # Get academic year
-        if not year:
-            if school_id:
-                current = AcademicYear.objects.filter(
-                    school_id=int(school_id),
-                    is_current=True
-                ).first()
-            else:
-                current = AcademicYear.objects.filter(is_current=True).first()
-            
-            if not current:
-                return {'error': 'No current academic year set'}
-            year = current.name
+        # ✅ FIX: Resolve year to AcademicYear object BEFORE using in queries
+        academic_year_obj = self._resolve_academic_year(year, school_id)
+        
+        if not academic_year_obj:
+            return {'error': 'No current academic year set' if year is None else f'Academic year "{year}" not found'}
+        
+        # Use the resolved object's name for display, object for queries
+        year_display = academic_year_obj.name
         
         # ✅ Get all students for this school
         students = Student.objects.filter(status='active')
@@ -43,9 +92,9 @@ class ReportService:
             except ValueError:
                 pass
         
-        # ✅ Get all payments for this school
+        # ✅ FIX: Use AcademicYear OBJECT instead of string
         payments = Payment.objects.filter(
-            deadline__academic_year=year,
+            deadline__academic_year=academic_year_obj,
             status='verified'
         )
         if school_id:
@@ -57,14 +106,16 @@ class ReportService:
         
         if month:
             payments = payments.filter(deadline__month=month)
+            # ✅ FIX: Use AcademicYear OBJECT
             deadlines = PaymentDeadline.objects.filter(
-                academic_year=year,
+                academic_year=academic_year_obj,
                 month=month,
                 is_active=True
             )
         else:
+            # ✅ FIX: Use AcademicYear OBJECT
             deadlines = PaymentDeadline.objects.filter(
-                academic_year=year,
+                academic_year=academic_year_obj,
                 is_active=True
             )
         
@@ -108,10 +159,6 @@ class ReportService:
         
         # Monthly breakdown
         monthly_data = {}
-        # months = [
-        #     'Meskerem', 'Tikimt', 'Hidar', 'Tahsas', 'Tir', 'Yekatit',
-        #     'Megabit', 'Miazia', 'Ginbot', 'Sene', 'Hamle', 'Nehase', 'Pagume'
-        # ]
         months = ['መስከረም', 'ጥቅምት', 'ህዳር', 'ታህሳስ', 'ጥር', 'የካቲት',
                 'መጋቢት', 'ሚያዝያ', 'ግንቦት', 'ሰኔ', 'ሐምሌ', 'ነሐሴ', 'ጳጉሜ']
         
@@ -124,7 +171,7 @@ class ReportService:
             }
         
         return {
-            'year': year,
+            'year': year_display,
             'month': month,
             'summary': {
                 'total_students': total_students,
@@ -149,18 +196,27 @@ class ReportService:
         except Student.DoesNotExist:
             return {'error': 'Student not found'}
         
+        # ✅ FIX: Resolve student's academic_year string to object
+        student_year_obj = self._resolve_academic_year(student.academic_year, student.school_id)
+        
         # Get all payments for this student
         payments = Payment.objects.filter(
             student=student
         ).order_by('-created_at')
         
         # Get deadlines for this student's specific GRADE only
-        deadlines = PaymentDeadline.objects.filter(
-        school=student.school,
-        academic_year=student.academic_year,
-        is_active=True
-        ).filter(
-         models.Q(grade=student.grade) | models.Q(grade__isnull=True)
+        # ✅ FIX: Use resolved AcademicYear object
+        deadline_filter = {
+            'school': student.school,
+            'is_active': True
+        }
+        if student_year_obj:
+            deadline_filter['academic_year'] = student_year_obj
+        else:
+            deadline_filter['academic_year__name'] = student.academic_year
+        
+        deadlines = PaymentDeadline.objects.filter(**deadline_filter).filter(
+            models.Q(grade=student.grade) | models.Q(grade__isnull=True)
         ).order_by('month')
         
         payment_history = []
@@ -211,24 +267,18 @@ class ReportService:
         """Get annual summary report for a specific school"""
         print(f"📊 get_annual_summary - school_id: {school_id}")
         
-        if not year:
-            if school_id:
-                current = AcademicYear.objects.filter(
-                    school_id=int(school_id),
-                    is_current=True
-                ).first()
-            else:
-                current = AcademicYear.objects.filter(is_current=True).first()
-            
-            if not current:
-                return {'error': 'No current academic year set'}
-            year = current.name
+        # ✅ FIX: Resolve year to object ONCE, then pass object to get_monthly_report
+        academic_year_obj = self._resolve_academic_year(year, school_id)
+        
+        if not academic_year_obj:
+            return {'error': 'No current academic year set' if year is None else f'Academic year "{year}" not found'}
         
         monthly_data = []
         total_year = 0
         
         for month in range(1, 14):
-            report = self.get_monthly_report(year, month, school_id)
+            # ✅ FIX: Pass AcademicYear OBJECT, not string
+            report = self.get_monthly_report(academic_year_obj, month, school_id)
             if 'error' not in report:
                 monthly_data.append({
                     'month': report['monthly_breakdown'][month]['month'],
@@ -238,7 +288,7 @@ class ReportService:
                 total_year += report['monthly_breakdown'][month]['total']
         
         return {
-            'year': year,
+            'year': academic_year_obj.name,
             'total_collected': float(total_year),
             'monthly_data': monthly_data
         }
@@ -256,15 +306,14 @@ class ReportService:
         if not current_year:
             return {'error': 'No current academic year set for this school'}
         
-        # Get monthly report
+        # ✅ FIX: Pass AcademicYear OBJECT to both methods
         monthly = self.get_monthly_report(
-            year=current_year.name,
+            year=current_year,
             school_id=school_id
         )
         
-        # Get annual summary
         annual = self.get_annual_summary(
-            year=current_year.name,
+            year=current_year,
             school_id=school_id
         )
         

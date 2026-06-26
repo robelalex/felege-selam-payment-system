@@ -1,25 +1,15 @@
-// frontend/src/components/Admin/AcademicYearManager.js
+// frontend/src/components/Admin/AcademicYearManager.js - SELECTIVE PROMOTION
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Calendar,
-  Plus,
-  CheckCircle,
-  AlertCircle,
-  Loader,
-  TrendingUp,
-  ArrowRight,
-  Trash2,
-  Archive,
-  RefreshCw,
-  Eye,
-  History,
-  AlertTriangle,
-  XCircle,
-  Database
+  Calendar, Plus, CheckCircle, AlertCircle, Loader, TrendingUp, 
+  ArrowRight, Trash2, Archive, RefreshCw, Eye, History, 
+  AlertTriangle, XCircle, Database, X
 } from 'lucide-react';
 import academicYearService from '../../services/academicYearService';
 import { useYear } from '../../context/YearContext';
+import api from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 
 function AcademicYearManager() {
   const [years, setYears] = useState([]);
@@ -31,7 +21,18 @@ function AcademicYearManager() {
   const [showArchived, setShowArchived] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(null);
+  
+  // ✅ NEW: Selective Promotion State
+  const [showPromoteModal, setShowPromoteModal] = useState(false);
+  const [promoteYearId, setPromoteYearId] = useState(null);
+  const [studentsForPromotion, setStudentsForPromotion] = useState([]);
+  const [selectedForPromotion, setSelectedForPromotion] = useState([]);
+  const [nextYearOptions, setNextYearOptions] = useState([]);
+  const [selectedNextYear, setSelectedNextYear] = useState(null);
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  
   const { refreshYears, switchYear } = useYear();
+  const { getAuthHeader } = useAuth();
 
   useEffect(() => {
     fetchData();
@@ -81,20 +82,101 @@ function AcademicYearManager() {
     }
   };
 
-  const handlePromoteStudents = async (yearId) => {
-    if (!window.confirm('⚠️ WARNING: This will promote ALL students to the next grade. This action cannot be undone. Are you sure?')) {
+  // ✅ REPLACED: Blind promote → Open selective modal
+  const handleOpenPromoteModal = async (yearId) => {
+    setPromoteYearId(yearId);
+    setShowPromoteModal(true);
+    setLoadingStudents(true);
+    setSelectedForPromotion([]);
+    
+    try {
+      // Fetch all active students for this year
+      const response = await api.get(`/students/?academic_year_id=${yearId}`, {
+        headers: getAuthHeader()
+      });
+      setStudentsForPromotion(response.data);
+      
+      // Default: select ALL students for promotion
+      setSelectedForPromotion(response.data.map(s => s.id));
+      
+      // Fetch available next years
+      const yearsResponse = await api.get('/academic-years/', {
+        headers: getAuthHeader()
+      });
+      const allYears = yearsResponse.data.results || yearsResponse.data;
+      const currentYearObj = allYears.find(y => y.id === yearId);
+      
+      // Filter to only years AFTER the current year
+      const nextYears = allYears
+        .filter(y => y.year_ec > currentYearObj?.year_ec && !y.is_archived)
+        .sort((a, b) => a.year_ec - b.year_ec);
+      
+      setNextYearOptions(nextYears);
+      if (nextYears.length > 0) {
+        setSelectedNextYear(nextYears[0].id);
+      }
+    } catch (err) {
+      console.error('Error loading students for promotion:', err);
+      showMessage('error', 'Failed to load students');
+    } finally {
+      setLoadingStudents(false);
+    }
+  };
+
+  // ✅ NEW: Execute selective promotion
+  const handleExecuteSelectivePromote = async () => {
+    if (!selectedNextYear) {
+      showMessage('error', 'Please select the next academic year');
+      return;
+    }
+    
+    const repeaterCount = studentsForPromotion.length - selectedForPromotion.length;
+    if (!window.confirm(
+      `⚠️ CONFIRM SELECTIVE PROMOTION:\n\n` +
+      `✅ ${selectedForPromotion.length} student(s) will be PROMOTED (grade +1)\n` +
+      `🔄 ${repeaterCount} student(s) will REPEAT (same grade)\n` +
+      `📅 All students move to next academic year\n` +
+      `🔒 Student IDs remain unchanged\n\n` +
+      `This action cannot be undone. Continue?`
+    )) {
       return;
     }
 
     setProcessing(true);
     try {
-      const result = await academicYearService.promoteStudents(yearId);
-      showMessage('success', `✅ Successfully promoted ${result.log.students_promoted} students`);
+      const response = await api.post('/students/selective_promote/', {
+        promote_ids: selectedForPromotion,
+        current_year_id: promoteYearId,
+        next_year_id: selectedNextYear
+      }, { headers: getAuthHeader() });
+      
+      const result = response.data;
+      showMessage('success', 
+        `✅ Promoted: ${result.promoted} | 🔄 Repeated: ${result.repeated} | 🎓 Graduated: ${result.graduated}`
+      );
+      
+      setShowPromoteModal(false);
       await fetchData();
     } catch (err) {
       showMessage('error', err.response?.data?.error || 'Failed to promote students');
     } finally {
       setProcessing(false);
+    }
+  };
+
+  const togglePromoteStudent = (studentId) => {
+    setSelectedForPromotion(prev =>
+      prev.includes(studentId)
+        ? prev.filter(id => id !== studentId)
+        : [...prev, studentId]
+    );
+  };
+
+  const selectAllForPromotion = () => {
+    if (selectedForPromotion.length === studentsForPromotion.length) {
+      setSelectedForPromotion([]);
+    } else {
+      setSelectedForPromotion(studentsForPromotion.map(s => s.id));
     }
   };
 
@@ -281,9 +363,10 @@ function AcademicYearManager() {
               </button>
             )}
 
+            {/* ✅ UPDATED: Opens selective modal instead of blind promote */}
             {!isArchived && isCurrent && (
               <button
-                onClick={() => handlePromoteStudents(year.id)}
+                onClick={() => handleOpenPromoteModal(year.id)}
                 disabled={processing}
                 className="w-full bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
               >
@@ -477,8 +560,9 @@ function AcademicYearManager() {
                 </p>
               </div>
             </div>
+            {/* ✅ UPDATED: Opens selective modal */}
             <button
-              onClick={() => handlePromoteStudents(currentYear.id)}
+              onClick={() => handleOpenPromoteModal(currentYear.id)}
               disabled={processing}
               className="bg-white/20 hover:bg-white/30 px-3 md:px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm md:text-base"
             >
@@ -515,6 +599,160 @@ function AcademicYearManager() {
             {archivedYears.map((year) => (
               <YearCard key={year.id} year={year} isArchived={true} />
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ✅ NEW: Selective Promotion Modal */}
+      {showPromoteModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">🎓 Selective Student Promotion</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Choose which students advance and which repeat. Student IDs stay constant.
+                </p>
+              </div>
+              <button onClick={() => setShowPromoteModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                <X className="h-6 w-6 text-gray-400" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Next Year Selector */}
+              <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+                <label className="block text-sm font-semibold text-blue-800 mb-2">
+                  📅 Promote to Academic Year:
+                </label>
+                <select
+                  value={selectedNextYear || ''}
+                  onChange={(e) => setSelectedNextYear(parseInt(e.target.value))}
+                  className="w-full px-4 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select next academic year...</option>
+                  {nextYearOptions.map(y => (
+                    <option key={y.id} value={y.id}>{y.name}</option>
+                  ))}
+                </select>
+                {nextYearOptions.length === 0 && (
+                  <p className="text-xs text-red-600 mt-2">
+                    ⚠️ No future academic years found. Please create the next year first.
+                  </p>
+                )}
+              </div>
+
+              {/* Student Selection */}
+              {loadingStudents ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader className="h-8 w-8 animate-spin text-primary-600" />
+                </div>
+              ) : (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <button
+                      onClick={selectAllForPromotion}
+                      className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+                    >
+                      {selectedForPromotion.length === studentsForPromotion.length
+                        ? 'Deselect All' : 'Select All for Promotion'}
+                    </button>
+                    <span className="text-sm text-gray-600">
+                      ✅ {selectedForPromotion.length} promoted | 🔄 {studentsForPromotion.length - selectedForPromotion.length} repeating
+                    </span>
+                  </div>
+
+                  <div className="border rounded-xl overflow-hidden max-h-96 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="px-4 py-3 text-left">
+                            <input
+                              type="checkbox"
+                              checked={selectedForPromotion.length === studentsForPromotion.length && studentsForPromotion.length > 0}
+                              onChange={selectAllForPromotion}
+                              className="rounded text-primary-600"
+                            />
+                          </th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-600">Student</th>
+                          <th className="px-4 py-3 text-left font-medium text-gray-600">ID</th>
+                          <th className="px-4 py-3 text-center font-medium text-gray-600">Grade</th>
+                          <th className="px-4 py-3 text-center font-medium text-gray-600">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {studentsForPromotion.map((student) => {
+                          const isPromoted = selectedForPromotion.includes(student.id);
+                          return (
+                            <tr
+                              key={student.id}
+                              className={`hover:bg-gray-50 cursor-pointer ${!isPromoted ? 'bg-yellow-50/50' : ''}`}
+                              onClick={() => togglePromoteStudent(student.id)}
+                            >
+                              <td className="px-4 py-3">
+                                <input
+                                  type="checkbox"
+                                  checked={isPromoted}
+                                  onChange={() => togglePromoteStudent(student.id)}
+                                  className="rounded text-primary-600"
+                                />
+                              </td>
+                              <td className="px-4 py-3 font-medium text-gray-900">
+                                {student.first_name} {student.last_name}
+                              </td>
+                              <td className="px-4 py-3 text-gray-500 font-mono text-xs">
+                                {student.student_id}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span className="px-2 py-1 bg-gray-100 rounded text-xs">
+                                  Grade {student.grade}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {isPromoted ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                                    <TrendingUp className="h-3 w-3" /> Promote
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">
+                                    <RefreshCw className="h-3 w-3" /> Repeat
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {studentsForPromotion.length === 0 && (
+                      <div className="p-8 text-center text-gray-500">
+                        No active students found for this academic year.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-gray-200 flex items-center justify-between bg-gray-50 rounded-b-2xl">
+              <button
+                onClick={() => setShowPromoteModal(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleExecuteSelectivePromote}
+                disabled={processing || !selectedNextYear || studentsForPromotion.length === 0}
+                className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {processing ? <Loader className="h-4 w-4 animate-spin" /> : <TrendingUp className="h-4 w-4" />}
+                Confirm Promotion
+              </button>
+            </div>
           </div>
         </div>
       )}

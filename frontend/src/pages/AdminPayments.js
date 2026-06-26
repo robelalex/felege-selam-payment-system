@@ -202,12 +202,28 @@ function AdminPayments() {
     setFilterSource('all');
   };
 
-  const getMonthName = (payment) => {
-    if (payment.deadline_month) return payment.deadline_month;
-    if (payment.month) return payment.month;
-    if (payment.deadline?.month) return months[payment.deadline.month - 1];
-    return 'N/A';
-  };
+// In AdminPayments.js, replace getMonthName with this:
+const getMonthName = (payment) => {
+  // ✅ NEW: Use deadline_month from backend (Amharic name)
+  if (payment.deadline_month) return payment.deadline_month;
+  
+  // Fallback: Convert integer to name
+  if (payment.deadline?.month) {
+    const monthInt = parseInt(payment.deadline.month);
+    if (monthInt >= 1 && monthInt <= 13) {
+      return months[monthInt - 1];
+    }
+  }
+  
+  if (payment.month) {
+    const monthInt = parseInt(payment.month);
+    if (monthInt >= 1 && monthInt <= 13) {
+      return months[monthInt - 1];
+    }
+  }
+  
+  return 'N/A';
+};
 
   const getStudentName = (payment) => {
     if (payment.student_name) return payment.student_name;
