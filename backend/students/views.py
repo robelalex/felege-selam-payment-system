@@ -7,7 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from .models import Student
 from .serializers import StudentSerializer
-from payments.models import Payment, PaymentDeadline, PaymentSlip  # ADDED PaymentSlip
+from payments.models import Payment, PaymentDeadline, PaymentSlip
 import pandas as pd
 from io import BytesIO
 from datetime import datetime
@@ -141,9 +141,20 @@ class StudentViewSet(viewsets.ModelViewSet):
         """Get payment history for a specific student - ONLY for their academic year"""
         student = self.get_object()
         
+        # ✅ FIX: Get the AcademicYear object from the student's academic_year string
+        try:
+            academic_year_obj = AcademicYear.objects.get(
+                name=student.academic_year,
+                school=student.school
+            )
+        except AcademicYear.DoesNotExist:
+            # If no matching AcademicYear found, return empty
+            return Response([])
+        
+        # ✅ CORRECT: Use the AcademicYear object, not the string
         payments = Payment.objects.filter(
             student=student,
-            deadline__academic_year=student.academic_year
+            deadline__academic_year=academic_year_obj
         ).order_by('-created_at')
         
         data = []
@@ -151,7 +162,7 @@ class StudentViewSet(viewsets.ModelViewSet):
             data.append({
                 'id': payment.id,
                 'month': payment.deadline.get_month_display(),
-                'academic_year': payment.deadline.academic_year,
+                'academic_year': payment.deadline.academic_year.name if payment.deadline.academic_year else student.academic_year,
                 'amount': str(payment.amount),
                 'status': payment.status,
                 'payment_date': payment.created_at,
@@ -170,6 +181,16 @@ class StudentViewSet(viewsets.ModelViewSet):
             print(f"📚 Getting pending payments for student ID: {student.id} - {student.student_id}")
             print(f"📚 Student grade: {student.grade}")
             
+            # ✅ FIX: Get the AcademicYear object
+            try:
+                academic_year_obj = AcademicYear.objects.get(
+                    name=student.academic_year,
+                    school=student.school
+                )
+            except AcademicYear.DoesNotExist:
+                print(f"⚠️ AcademicYear '{student.academic_year}' not found for school {student.school_id}")
+                return Response([])
+            
             # Get verified/paid deadlines from regular payments
             paid_deadlines = Payment.objects.filter(
                 student=student,
@@ -178,10 +199,10 @@ class StudentViewSet(viewsets.ModelViewSet):
             
             print(f"📚 Paid deadline IDs: {list(paid_deadlines)}")
             
-            # Get pending deadlines from regular unpaid deadlines
+            # ✅ CORRECT: Use the AcademicYear object, not the string
             pending_deadlines = PaymentDeadline.objects.filter(
                 school=student.school,
-                academic_year=student.academic_year,
+                academic_year=academic_year_obj,
                 is_active=True
             ).exclude(id__in=paid_deadlines)
             
@@ -210,7 +231,7 @@ class StudentViewSet(viewsets.ModelViewSet):
                     'deadline_id': deadline.id,
                     'month_name': deadline.get_month_display(),
                     'month_number': deadline.month,
-                    'academic_year': deadline.academic_year,
+                    'academic_year': deadline.academic_year.name if deadline.academic_year else student.academic_year,
                     'amount': str(deadline.amount),
                     'due_date': deadline.due_date,
                     'description': deadline.description,
@@ -229,7 +250,7 @@ class StudentViewSet(viewsets.ModelViewSet):
                     'deadline_id': payment.deadline.id,
                     'month_name': payment.deadline.get_month_display(),
                     'month_number': payment.deadline.month,
-                    'academic_year': payment.deadline.academic_year,
+                    'academic_year': payment.deadline.academic_year.name if payment.deadline.academic_year else student.academic_year,
                     'amount': str(payment.amount),
                     'due_date': payment.deadline.due_date,
                     'description': f"Bank Slip Upload - Pending Verification",
@@ -460,10 +481,11 @@ class StudentViewSet(viewsets.ModelViewSet):
             student = self.get_object()
             print(f"📋 Getting pending slips for student: {student.student_id}")
             
-            # Get all pending slips for this student
+            # ✅ FIXED: Filter by verification_status instead of legacy status
+            # Async workflow sets verification_status='queued' immediately on upload
             pending_slips = PaymentSlip.objects.filter(
                 student=student,
-                status='pending'
+                verification_status__in=['pending', 'queued', 'failed', 'manual_review', 'timeout']
             ).select_related('deadline')
             
             data = []
@@ -474,11 +496,14 @@ class StudentViewSet(viewsets.ModelViewSet):
                     'amount': float(slip.amount),
                     'month_name': slip.deadline.get_month_display(),
                     'month_number': slip.deadline.month,
-                    'academic_year': slip.deadline.academic_year,
+                    'academic_year': slip.deadline.academic_year.name,
                     'uploaded_at': slip.uploaded_at,
                     'transaction_reference': slip.transaction_reference or '',
                     'status': slip.status,
-                    'slip_image': slip.slip_image.url if slip.slip_image else None
+                    'verification_status': slip.verification_status,  # ✅ NEW: Include async status
+                    'slip_image': slip.slip_image.url if slip.slip_image else None,
+                    'due_date': slip.deadline.due_date.isoformat() if slip.deadline.due_date else None,
+                    'description': slip.deadline.description or f"Bank Slip - {slip.deadline.get_month_display()}"
                 })
             
             print(f"📋 Found {len(data)} pending slips for student {student.student_id}")
@@ -492,3 +517,94 @@ class StudentViewSet(viewsets.ModelViewSet):
                 {'error': str(e)}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+        
+
+    @action(detail=False, methods=['post'], url_path='selective_promote')
+    def selective_promote(self, request):
+        """
+        Selectively promote students. 
+        - Students in 'promote_ids' → grade +1, academic_year updated
+        - Students NOT in 'promote_ids' → grade stays same, academic_year updated (repeaters)
+        - Student IDs NEVER change
+        """
+        from academics.models import AcademicYear
+        
+        school_id = get_school_id_from_request(request)
+        if not school_id:
+            return Response({'error': 'School ID required'}, status=400)
+        
+        promote_ids = request.data.get('promote_ids', [])  # List of student PKs to promote
+        current_year_id = request.data.get('current_year_id')  # Current academic year ID
+        next_year_id = request.data.get('next_year_id')  # Next academic year ID
+        
+        if not current_year_id or not next_year_id:
+            return Response({'error': 'Both current_year_id and next_year_id are required'}, status=400)
+        
+        try:
+            current_year = AcademicYear.objects.get(id=int(current_year_id), school_id=int(school_id))
+            next_year = AcademicYear.objects.get(id=int(next_year_id), school_id=int(school_id))
+        except AcademicYear.DoesNotExist:
+            return Response({'error': 'Academic year not found for this school'}, status=404)
+        
+        # Get all active students in the current year for this school
+        all_students = Student.objects.filter(
+            school_id=int(school_id),
+            academic_year=current_year.name,
+            status='active'
+        )
+        
+        promoted_count = 0
+        repeated_count = 0
+        graduated_count = 0
+        errors = []
+        
+        for student in all_students:
+            try:
+                if student.pk in promote_ids:
+                    # ✅ PROMOTE: Grade +1, move to next year
+                    if student.grade >= 8:
+                        student.status = 'graduated'
+                        graduated_count += 1
+                    else:
+                        student.grade += 1
+                        promoted_count += 1
+                    
+                    # Preserve monthly_fee (don't overwrite custom fees)
+                    if not student.monthly_fee or student.monthly_fee == 0:
+                        new_fee = next_year.get_default_fee_for_grade(student.grade, int(school_id))
+                        if new_fee:
+                            student.monthly_fee = new_fee
+                
+                else:
+                    # ✅ REPEAT: Stay in same grade, move to next year
+                    repeated_count += 1
+                    # Fee stays exactly the same for repeaters
+                
+                # ✅ CRITICAL: Update academic_year for ALL students (promoted AND repeaters)
+                # Student ID remains CONSTANT - never changed
+                student.academic_year = next_year.name
+                student.save(update_fields=['grade', 'academic_year', 'monthly_fee', 'status'])
+                
+            except Exception as e:
+                errors.append(f"Student {student.student_id}: {str(e)}")
+        
+        # Log the promotion
+        from academics.models import YearPromotionLog
+        YearPromotionLog.objects.create(
+            from_year=current_year,
+            to_year=next_year,
+            students_promoted=promoted_count,
+            students_graduated=graduated_count,
+            promoted_by=request.user if request.user.is_authenticated else None
+        )
+        
+        return Response({
+            'success': True,
+            'promoted': promoted_count,
+            'repeated': repeated_count,
+            'graduated': graduated_count,
+            'total_processed': all_students.count(),
+            'from_year': current_year.name,
+            'to_year': next_year.name,
+            'errors': errors
+        })

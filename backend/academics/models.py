@@ -91,11 +91,13 @@ class AcademicYear(models.Model):
         for student in students:
             if student.grade < 8:
                 student.grade += 1
-                # Keep student_id unchanged
-                # Update fee for new grade
-                new_fee = self.get_default_fee_for_grade(student.grade, self.school.id)
-                if new_fee:
-                    student.monthly_fee = new_fee
+                
+                # ✅ FIX: ONLY update fee if student has NO existing monthly_fee
+                if not student.monthly_fee or student.monthly_fee == 0:
+                    new_fee = self.get_default_fee_for_grade(student.grade, self.school.id)
+                    if new_fee:
+                        student.monthly_fee = new_fee
+                
                 student.save()
                 promoted_count += 1
             elif student.grade == 8:

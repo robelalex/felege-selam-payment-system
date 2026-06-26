@@ -447,54 +447,59 @@ function ParentDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {pendingSlips.map((slip) => (
-                    <tr key={`slip-${slip.id}`} className="hover:bg-gray-50 bg-yellow-50/30">
-                      <td className="px-4 py-3 text-sm text-gray-600">
-                        {formatDate(slip.uploaded_at)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-900">
-                        {slip.month_name || slip.deadline?.month_name || 'Tuition Fee'}
-                        <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">
-                          Bank Slip Uploaded
-                        </span>
-                        {slip.transaction_reference && (
-                          <p className="text-xs text-gray-400 mt-0.5 font-mono">
-                            Ref: {slip.transaction_reference.substring(0, 20)}...
-                          </p>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-900 text-right font-medium">
-                        ETB {parseFloat(slip.amount).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {slip.verification_status === 'verified' ? (
-                          <span className="inline-flex items-center gap-1 text-green-600 bg-green-50 px-2 py-1 rounded-full text-xs">
-                            <CheckCircle className="h-3 w-3" /> Verified by System
-                          </span>
-                        ) : slip.verification_status === 'failed' || slip.verification_status === 'manual_review' ? (
-                          <span className="inline-flex items-center gap-1 text-orange-600 bg-orange-50 px-2 py-1 rounded-full text-xs">
-                            <AlertTriangle className="h-3 w-3" /> Needs Attention
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-blue-600 bg-blue-50 px-2 py-1 rounded-full text-xs">
-                            <Loader className="h-3 w-3 animate-spin" /> Verifying...
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => {
-                            setSelectedPayment({ ...slip, is_slip: true });
-                            setShowReceiptModal(true);
-                          }}
-                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="View Slip"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+{pendingSlips.map((slip) => (
+  <tr key={`slip-${slip.id}`} className="hover:bg-gray-50 bg-yellow-50/30">
+    <td className="px-4 py-3 text-sm text-gray-600">
+      {formatDate(slip.uploaded_at)}
+    </td>
+    <td className="px-4 py-3 text-sm text-gray-900">
+      {/* ✅ Use slip.month_name directly instead of slip.deadline?.month_name */}
+      {slip.month_name || 'Tuition Fee'}
+      <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">
+        Bank Slip Uploaded
+      </span>
+      {slip.transaction_reference && (
+        <p className="text-xs text-gray-400 mt-0.5 font-mono">
+          Ref: {slip.transaction_reference.substring(0, 20)}...
+        </p>
+      )}
+    </td>
+    <td className="px-4 py-3 text-sm text-gray-900 text-right font-medium">
+      ETB {parseFloat(slip.amount).toLocaleString()}
+    </td>
+    <td className="px-4 py-3 text-center">
+      {slip.verification_status === 'verified' ? (
+        <span className="inline-flex items-center gap-1 text-green-600 bg-green-50 px-2 py-1 rounded-full text-xs">
+          <CheckCircle className="h-3 w-3" /> Verified by System
+        </span>
+      ) : slip.verification_status === 'failed' || slip.verification_status === 'manual_review' ? (
+        <span className="inline-flex items-center gap-1 text-orange-600 bg-orange-50 px-2 py-1 rounded-full text-xs">
+          <AlertTriangle className="h-3 w-3" /> Needs Attention
+        </span>
+      ) : slip.verification_status === 'rejected' ? (
+        <span className="inline-flex items-center gap-1 text-red-600 bg-red-50 px-2 py-1 rounded-full text-xs">
+          <XCircle className="h-3 w-3" /> Rejected
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1 text-blue-600 bg-blue-50 px-2 py-1 rounded-full text-xs">
+          <Loader className="h-3 w-3 animate-spin" /> Verifying...
+        </span>
+      )}
+    </td>
+    <td className="px-4 py-3 text-center">
+      <button
+        onClick={() => {
+          setSelectedPayment({ ...slip, is_slip: true });
+          setShowReceiptModal(true);
+        }}
+        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+        title="View Slip"
+      >
+        <Eye className="h-4 w-4" />
+      </button>
+    </td>
+  </tr>
+))}
                   
                   {payments.map((payment) => (
                     <tr key={payment.id} className="hover:bg-gray-50">
