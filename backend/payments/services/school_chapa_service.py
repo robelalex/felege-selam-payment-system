@@ -77,13 +77,13 @@ class SchoolChapaService:
             "callback_url": callback_url,
             "return_url": return_url,
             "customization": {
-                "title": f"{self.school.name} - Payment",
-                "description": f"School Fee Payment - {self.school.name}"
+                "title": "School Fee",
+                "description": f"Fee Payment - {self.school.name[:50]}"
             },
             "meta": {
                 "school_id": str(self.school.id),
                 "school_name": self.school.name,
-                "school_code": self.school.code
+                "school_code": self.school.code or ""
             }
         }
         
@@ -110,10 +110,11 @@ class SchoolChapaService:
                         'error': result.get('message', 'Payment initialization failed')
                     }
             else:
+                logger.error(f"❌ Chapa 400 response body: {response.text}")
+                logger.error(f"❌ Chapa request data was: amount={data.get('amount')}, email={data.get('email')}, first_name={data.get('first_name')}, last_name={data.get('last_name')}, tx_ref={data.get('tx_ref')}")
                 return {
                     'success': False,
-                    'error': f'Chapa API error: {response.status_code}',
-                    'details': response.text
+                    'error': f'Chapa API error: {response.status_code} - {response.text}',
                 }
                 
         except requests.exceptions.Timeout:
