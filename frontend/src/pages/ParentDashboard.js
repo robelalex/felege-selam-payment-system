@@ -124,67 +124,87 @@ function ParentDashboard() {
     return null;
   };
 
-  const handleMakePayment = async (deadlineId, amount) => {
-    // Prevent if already paid, has pending slip, or Chapa not configured
-    if (isPayNowDisabled(deadlineId)) {
-      const reason = getDisabledReason(deadlineId);
-      alert(`❌ Cannot process payment: ${reason}`);
+const handleMakePayment = async (deadlineId, amount) => {
+  if (isPayNowDisabled(deadlineId)) {
+    const reason = getDisabledReason(deadlineId);
+    alert(`❌ Cannot process payment: ${reason}`);
+    return;
+  }
+
+  setProcessingPaymentId(deadlineId);
+  setError('');
+
+  try {
+    const payment = pendingPayments.find(p => p.id === deadlineId);
+
+    if (!payment) {
+      setError('Payment information not found');
+      setProcessingPaymentId(null);
       return;
     }
-    
-    setProcessingPaymentId(deadlineId);
-    setError('');
-    
-    try {
-      const payment = pendingPayments.find(p => p.id === deadlineId);
-      
-      if (!payment) {
-        setError('Payment information not found');
-        setProcessingPaymentId(null);
-        return;
-      }
-      
-      console.log('💰 Paying for specific month:', payment.month_name);
-      
-      const pendingPaymentInfo = {
+
+    console.log('💰 Paying for specific month:', payment.month_name);
+
+    const pendingPaymentInfo = {
+      deadline_id: deadlineId,
+      amount: parseFloat(amount),
+      month_name: payment.month_name,
+      academic_year: payment.academic_year,
+      student_id: student.student_id,
+      student_name: student.full_name,
+      grade: student.grade,
+      section: student.section,
+      school_name: student.school_name || 'School Name',
+    };
+    sessionStorage.setItem('pendingPayment', JSON.stringify(pendingPaymentInfo));
+
+    // ✅ Parse first/last name properly
+    const fullName = student.parent_full_name || student.full_name || 'Parent User';
+    const nameParts = fullName.trim().split(' ');
+    const firstName = nameParts[0] || 'Parent';
+    const lastName = nameParts.slice(1).join(' ') || 'User';
+
+    // ✅ Get school ID for the header
+    const schoolId = student.school_id || student.school;
+
+    const response = await api.post(
+      '/chapa/test-payment/',
+      {
+        student_id: student.student_id,
         deadline_id: deadlineId,
         amount: parseFloat(amount),
-        month_name: payment.month_name,
-        academic_year: payment.academic_year,
-        student_id: student.student_id,
-        student_name: student.full_name,
-        grade: student.grade,
-        section: student.section,
-        school_name: student.school_name || 'School Name',
-      };
-      sessionStorage.setItem('pendingPayment', JSON.stringify(pendingPaymentInfo));
-      
-      const response = await api.post('/chapa/test-payment/', {
-        student_id: student.student_id,
-        deadline_id: deadlineId,
-        amount: parseFloat(amount),
-        month: payment.month_name,
-        paid_by: student.parent_full_name || student.full_name || 'Parent',
-        paid_by_phone: student.parent_phone || '0912345678'
-      });
-      
-      if (response.data.checkout_url) {
-        window.location.href = response.data.checkout_url;
-      } else if (response.data.success) {
-        alert('Payment initiated successfully!');
-        fetchStudentData();
-        fetchPendingSlips();
-      } else {
-        setError(response.data.error || 'Payment initiation failed');
+        // ✅ These 3 are required by Chapa
+        email: student.parent_email || `${student.student_id}@school.com`,
+        first_name: firstName,
+        last_name: lastName,
+        platform: 'web',
+      },
+      {
+        // ✅ School ID header required by backend
+        headers: {
+          'X-School-ID': schoolId,
+        }
       }
-      
-    } catch (err) {
-      console.error('Payment error:', err);
-      setError(err.response?.data?.error || 'Payment initiation failed. Please try again.');
-    } finally {
-      setProcessingPaymentId(null);
+    );
+
+    if (response.data.checkout_url) {
+      window.location.href = response.data.checkout_url;
+    } else if (response.data.success) {
+      alert('Payment initiated successfully!');
+      fetchStudentData();
+      fetchPendingSlips();
+    } else {
+      setError(response.data.error || 'Payment initiation failed');
     }
-  };
+
+  } catch (err) {
+    console.error('Payment error:', err);
+    const errorMsg = err.response?.data?.error || err.response?.data?.message || 'Payment initiation failed. Please try again.';
+    setError(errorMsg);
+  } finally {
+    setProcessingPaymentId(null);
+  }
+};
 
   const handleBankTransfer = (payment) => {
     const schoolName = student?.school_name || 'School Name';
