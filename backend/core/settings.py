@@ -280,20 +280,22 @@ LOGIN_URL          = '/admin/login/'
 LOGIN_REDIRECT_URL = '/admin-dashboard/'
 
 # ===== DJANGO-Q TASK QUEUE =====
-# Uses PostgreSQL as broker (no Redis needed) — perfect for Render free tier
+# core/settings.py - UPDATE Q_CLUSTER CONFIGURATION
 Q_CLUSTER = {
     'name': 'felege_selam',
-    'workers': 2,  # Conservative for Render free tier (512MB RAM)
-    'timeout': 90,  # Max seconds a task can run (Verify.ET polling needs time)
-    'retry': 120,  # Retry failed tasks after 120s
-    'max_attempts': 3,  # Max retries per task
-    'queue_limit': 50,  # Prevent memory overflow
-    'bulk': 10,  # Process 10 tasks per batch
-    'orm': 'default',  # Use default PostgreSQL database as broker
-    'catch_up': True,  # Process queued tasks when worker restarts
-    'save_limit': 100,  # Keep last 100 task results in DB
+    'workers': 4,  # ✅ INCREASED: Handle 4x concurrent verifications (safe for 512MB RAM)
+    'timeout': 60,  # ✅ REDUCED: Fail fast if API hangs (was 90s)
+    'retry': 300,   # Retry after 5 minutes instead of 2
+    'max_attempts': 2,  # Only retry once to prevent queue flooding
+    'queue_limit': 100, # Allow larger burst during peak upload times
+    'bulk': 10,
+    'orm': 'default',
+    'catch_up': True,
+    'save_limit': 50,  # Reduce DB overhead
     'label': 'Felege Selam Tasks',
-    'redis': None,  # Explicitly disable Redis — using PostgreSQL only
+    'redis': None,
+    # ✅ NEW: Prevent memory leaks in long-running workers
+    'recycle': 50,  # Restart worker after processing 50 tasks
 }
 
 
