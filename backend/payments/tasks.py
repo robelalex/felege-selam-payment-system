@@ -240,11 +240,17 @@ def _process_verify_et_result(slip: PaymentSlip, data: dict, clean_ref: str):
     """
     Process successful Verify.ET response: update slip + create Payment record.
     Called when API returns verified status (immediate or after polling).
+    Includes enhanced debugging and fallback field detection for amount.
     """
     try:
         verification = data.get('verification', {})
         # Handle multiple possible response structures from Verify.ET
         tx_data = verification.get('data', {}) or verification.get('transaction', {}) or {}
+        
+        # ✅ ADD DEBUG LOGGING TO SEE ACTUAL RESPONSE STRUCTURE
+        print(f"[Q-DEBUG] Full API response for slip #{slip.id}: {data}")
+        print(f"[Q-DEBUG] tx_data keys: {list(tx_data.keys())}")
+        print(f"[Q-DEBUG] verification keys: {list(verification.keys())}")
         
         # Try multiple field names for payer name
         payer_name = (
@@ -256,12 +262,19 @@ def _process_verify_et_result(slip: PaymentSlip, data: dict, clean_ref: str):
             ''
         )
         
-        # Try multiple field names for amount
+        # ✅ EXPANDED: Try MULTIPLE possible amount field names
         bank_amount = (
             tx_data.get('amount') or 
             tx_data.get('value') or
             tx_data.get('totalAmount') or
-            verification.get('amount')
+            tx_data.get('transactionAmount') or      # ✅ NEW
+            tx_data.get('settledAmount') or           # ✅ NEW  
+            tx_data.get('debitAmount') or             # ✅ NEW
+            tx_data.get('creditAmount') or            # ✅ NEW
+            tx_data.get('transferAmount') or          # ✅ NEW
+            verification.get('amount') or
+            verification.get('transactionAmount') or  # ✅ NEW
+            data.get('amount')                        # ✅ NEW: Check root level
         )
         
         # Try multiple field names for date
@@ -280,6 +293,26 @@ def _process_verify_et_result(slip: PaymentSlip, data: dict, clean_ref: str):
             verification.get('receiverName') or
             ''
         )
+        
+        # ✅ HANDLE MISSING AMOUNT GRACEFULLY
+        if bank_amount is None:
+            print(f"[Q-WARN] ⚠️ Could not find amount field in API response!")
+            print(f"[Q-WARN] Available tx_data fields: {tx_data}")
+            
+            slip.verify_et_status = 'verified'
+            slip.verify_et_payer_name = payer_name
+            slip.verify_et_amount = None
+            slip.verify_et_date = tx_date
+            slip.verify_et_receiver = receiver
+            slip.verify_et_response_raw = data
+            slip.verify_et_checked_at = timezone.now()
+            
+            # Set to manual review with specific error
+            slip.verification_status = 'manual_review'
+            slip.verification_error = 'Amount field not found in Verify.ET response - needs manual check'
+            slip.save()
+            print(f"[Q] ⚠️ Slip #{slip.id} marked for manual review (missing amount)")
+            return
         
         # Check amount match (within 1 Birr tolerance)
         amount_matches = False
