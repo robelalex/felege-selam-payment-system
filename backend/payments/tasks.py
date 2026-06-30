@@ -174,13 +174,13 @@ def poll_verify_et_status(slip_id: int, school_id: int, status_url: str,
                 print(f"[Q-POLL] ❌ Failed on attempt {attempt}")
                 return
             elif status == 'pending':
-                # ✅ SCHEDULE NEXT POLL instead of sleeping!
+                # ✅ FIX: Use schedule() instead of async_task(schedule=...)
                 if attempt < max_attempts:
                     delays = [5, 10, 20, 30, 30]
                     next_delay = delays[min(attempt, len(delays)-1)]
                     
-                    from django_q.tasks import async_task
-                    async_task(
+                    from django_q.tasks import schedule
+                    schedule(
                         'payments.tasks.poll_verify_et_status',
                         slip_id,
                         school_id,
@@ -189,7 +189,7 @@ def poll_verify_et_status(slip_id: int, school_id: int, status_url: str,
                         clean_ref,
                         attempt=attempt + 1,
                         max_attempts=max_attempts,
-                        schedule={'next_run': timezone.now() + timedelta(seconds=next_delay)}
+                        next_run=timezone.now() + timedelta(seconds=next_delay)
                     )
                     print(f"[Q-POLL] ⏳ Scheduled next poll in {next_delay}s")
                 else:
@@ -210,8 +210,8 @@ def poll_verify_et_status(slip_id: int, school_id: int, status_url: str,
                 delays = [5, 10, 20, 30, 30]
                 next_delay = delays[min(attempt, len(delays)-1)]
                 
-                from django_q.tasks import async_task
-                async_task(
+                from django_q.tasks import schedule
+                schedule(
                     'payments.tasks.poll_verify_et_status',
                     slip_id,
                     school_id,
@@ -220,13 +220,12 @@ def poll_verify_et_status(slip_id: int, school_id: int, status_url: str,
                     clean_ref,
                     attempt=attempt + 1,
                     max_attempts=max_attempts,
-                    schedule={'next_run': timezone.now() + timedelta(seconds=next_delay)}
+                    next_run=timezone.now() + timedelta(seconds=next_delay)
                 )
             return
             
     except Exception as e:
         print(f"[Q-POLL] ⚠️ Poll error for slip #{slip_id}: {e}")
-        # Don't fail permanently on network errors - just stop polling
         try:
             slip = PaymentSlip.objects.get(id=slip_id)
             if slip.verification_status == 'queued':
