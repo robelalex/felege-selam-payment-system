@@ -5,6 +5,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import TemplateView
 from rest_framework.routers import DefaultRouter
+from common.views import health_check
 from students.views import StudentViewSet
 from academics.views import AcademicYearViewSet
 from payments.views import PaymentViewSet, PaymentDeadlineViewSet, payments_filtered_by_year
@@ -25,6 +26,7 @@ router.register(r'students', StudentViewSet, basename='student')
 router.register(r'academic-years', AcademicYearViewSet, basename='academic-year')
 
 urlpatterns = [
+    path('health/', health_check, name='health_check'),
     # ✅ CUSTOM ACADEMIC YEAR ACTIONS - Must come BEFORE the router
     path('api/academic-years/current/', AcademicYearViewSet.as_view({'get': 'current'}), name='academic-year-current'),
     path('api/academic-years/archived/', AcademicYearViewSet.as_view({'get': 'get_archived'}), name='academic-year-archived'),
