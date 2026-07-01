@@ -75,7 +75,7 @@ def verify_slip_async(slip_id: int, school_id: int):
 
         print(f"[Q] \u2705 Task started for slip #{slip_id} | School: {school.name}")
 
-        if slip.verification_status in ('verified', 'rejected'):
+        if slip.verification_status in ('verified', 'rejected', 'queued', 'processing'):
             print(f"[Q] \u23ed\ufe0f Slip #{slip_id} already {slip.verification_status}, skipping")
             return
 
@@ -97,9 +97,10 @@ def verify_slip_async(slip_id: int, school_id: int):
 
         # waitMs is passed as a query param per the docs, not in the JSON body.
         api_url = "https://verify.et/api/verify?waitMs=5000"
-        # Stable idempotency key per slip+ref so a re-POST after polling
-        # completes returns the cached/completed result instead of re-queuing.
-        idempotency_key = f"slip-{slip.id}-{clean_ref}"
+        # Fresh idempotency key on every initial submit so a previous cached
+        # FAILED result is never returned. A stable key is only used when
+        # re-POSTing after a SUCCESSFUL poll to retrieve the full payload.
+        idempotency_key = f"slip-{slip.id}-{clean_ref}-{uuid.uuid4().hex[:8]}"
         headers = {
             "Content-Type": "application/json",
             "x-api-key": school.verify_et_api_key,
@@ -114,6 +115,23 @@ def verify_slip_async(slip_id: int, school_id: int):
         # \u2500\u2500 IMMEDIATE COMPLETION \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
         if response.status_code == 200:
             data = response.json()
+            # Verify.ET can return HTTP 200 with success:False when CBE is
+            # synchronously unavailable. This is NOT a verified result.
+            if not data.get("success", True):
+                error_block = data.get("error") or {}
+                error_code = error_block.get("code", "unknown")
+                retryable = error_block.get("retryable", False)
+                error_msg = data.get("message") or error_block.get("message") or "Upstream error"
+                print(f"[Q] ⚠️ 200 but success=False for slip #{slip_id}: {error_code} | {error_msg}")
+                slip.verification_status = "manual_review" if retryable else "failed"
+                slip.verify_et_status = "failed"
+                slip.verification_error = f"Bank unavailable ({error_code}): {error_msg}"
+                slip.verify_et_checked_at = timezone.now()
+                slip.save(update_fields=[
+                    "verification_status", "verify_et_status",
+                    "verification_error", "verify_et_checked_at"
+                ])
+                return
             _process_verify_et_result(slip, data, clean_ref)
             return
 
@@ -222,14 +240,14 @@ def poll_verify_et_status(slip_id: int, school_id: int, status_url: str,
                 f"status={outcome_status} verified={verified_flag} | raw={poll_data}"
             )
 
-            if processing_status != 'completed':
-                # Still running/queued -> schedule next poll.
+            # BOTH "completed" and "failed" are terminal values for
+            # processingStatus. Only "queued"/"running" mean "still going".
+            if processing_status not in ('completed', 'failed'):
                 _schedule_next_poll(slip_id, school_id, status_url, api_key,
                                      clean_ref, idempotency_key, attempt, max_attempts)
                 return
 
-            # processingStatus == "completed" from here on.
-            if outcome_status == 'success' and verified_flag:
+            if processing_status == 'completed' and outcome_status == 'success' and verified_flag:
                 full_data = _fetch_full_result_via_idempotent_repost(
                     clean_ref, school_id, api_key, idempotency_key
                 )
@@ -247,29 +265,43 @@ def poll_verify_et_status(slip_id: int, school_id: int, status_url: str,
                     ])
                 return
 
-            elif outcome_status == 'failed':
-                slip.verification_status = 'failed'
-                slip.verify_et_status = 'failed'
-                slip.verification_error = 'Transaction not found in CBE system'
-                slip.verify_et_checked_at = timezone.now()
-                slip.save(update_fields=[
-                    'verification_status', 'verify_et_status',
-                    'verification_error', 'verify_et_checked_at'
-                ])
-                print(f"[Q-POLL] \u274c Failed on attempt {attempt}")
+            # processing_status == "failed" -> this requestId is permanently
+            # dead. Never poll it again; either resubmit fresh, or give up.
+            error_block = status_block.get('error') or {}
+            error_code = error_block.get('code', '')
+            retryable = error_block.get('retryable', False)
+            error_message = status_block.get('errorMessage') or error_code or 'Verification failed'
+
+            if retryable and attempt < max_attempts:
+                print(f"[Q-POLL] \u26a0\ufe0f Retryable upstream failure ({error_code}) on slip "
+                      f"#{slip_id}: {error_message}. Re-submitting fresh request.")
+                delays = [5, 10, 20, 30, 30, 30, 30, 30]
+                next_delay = delays[min(attempt, len(delays) - 1)]
+
+                from django_q.tasks import schedule
+                schedule(
+                    'payments.tasks.resubmit_verify_et_request',
+                    slip_id,
+                    school_id,
+                    clean_ref,
+                    attempt=attempt + 1,
+                    max_attempts=max_attempts,
+                    next_run=timezone.now() + timedelta(seconds=next_delay)
+                )
+                slip.verification_error = f'Retrying after upstream issue: {error_message}'
+                slip.save(update_fields=['verification_error'])
                 return
 
-            else:
-                # completed but neither clearly success nor failed -> manual review
-                slip.verification_status = 'manual_review'
-                slip.verification_error = (
-                    f'Unexpected terminal state: status={outcome_status}, verified={verified_flag}'
-                )
-                slip.verify_et_checked_at = timezone.now()
-                slip.save(update_fields=[
-                    'verification_status', 'verification_error', 'verify_et_checked_at'
-                ])
-                return
+            slip.verification_status = 'manual_review' if retryable else 'failed'
+            slip.verify_et_status = 'failed'
+            slip.verification_error = error_message
+            slip.verify_et_checked_at = timezone.now()
+            slip.save(update_fields=[
+                'verification_status', 'verify_et_status',
+                'verification_error', 'verify_et_checked_at'
+            ])
+            print(f"[Q-POLL] \u274c Terminal failure on attempt {attempt}: {error_message}")
+            return
 
         elif poll_response.status_code == 404:
             _schedule_next_poll(slip_id, school_id, status_url, api_key,
@@ -290,6 +322,81 @@ def poll_verify_et_status(slip_id: int, school_id: int, status_url: str,
                 slip.verification_status = 'manual_review'
                 slip.verification_error = f'Polling failed: {str(e)[:200]}'
                 slip.save(update_fields=['verification_status', 'verification_error'])
+        except Exception:
+            pass
+
+
+def resubmit_verify_et_request(slip_id: int, school_id: int, clean_ref: str,
+                                attempt: int, max_attempts: int):
+    """
+    Called when a previous Verify.ET request died with a retryable upstream
+    error (e.g. CBE timeout). A dead requestId can never become "completed" -
+    polling it forever is pointless. This submits a brand-new POST /api/verify
+    with a fresh Idempotency-Key and starts a new poll chain for it.
+    """
+    try:
+        slip = PaymentSlip.objects.get(id=slip_id)
+        school = School.objects.get(id=school_id)
+
+        if slip.verification_status in ('verified', 'rejected', 'failed', 'manual_review'):
+            print(f"[Q-RESUBMIT] \u23ed\ufe0f Slip #{slip_id} already resolved, skipping resubmit")
+            return
+
+        idempotency_key = f"slip-{slip.id}-{clean_ref}-retry{attempt}-{uuid.uuid4().hex[:8]}"
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": school.verify_et_api_key,
+            "Idempotency-Key": idempotency_key,
+        }
+        payload = _build_verify_payload(clean_ref, school)
+
+        print(f"[Q-RESUBMIT] \U0001F4E1 Re-submitting ref={clean_ref} for slip #{slip_id} (attempt {attempt})")
+        response = requests.post(
+            "https://verify.et/api/verify?waitMs=5000",
+            json=payload, headers=headers, timeout=10
+        )
+
+        if response.status_code == 200:
+            _process_verify_et_result(slip, response.json(), clean_ref)
+            return
+
+        elif response.status_code == 202:
+            data = response.json()
+            status_url = data.get('links', {}).get('statusUrl') or data.get('statusUrl')
+            if not status_url:
+                slip.verification_status = 'manual_review'
+                slip.verification_error = 'Resubmit returned 202 but no status URL'
+                slip.save(update_fields=['verification_status', 'verification_error'])
+                return
+            full_url = f"https://verify.et{status_url}" if status_url.startswith('/') else status_url
+
+            from django_q.tasks import async_task
+            async_task(
+                'payments.tasks.poll_verify_et_status',
+                slip.id, school_id, full_url, school.verify_et_api_key,
+                clean_ref, idempotency_key,
+                attempt=attempt, max_attempts=max_attempts,
+            )
+            return
+
+        else:
+            slip.verification_status = 'failed'
+            slip.verify_et_status = 'error'
+            slip.verification_error = f'Resubmit API returned HTTP {response.status_code}'
+            slip.verify_et_checked_at = timezone.now()
+            slip.save(update_fields=[
+                'verification_status', 'verify_et_status',
+                'verification_error', 'verify_et_checked_at'
+            ])
+            return
+
+    except Exception as e:
+        print(f"[Q-RESUBMIT] \U0001F4A5 Error resubmitting slip #{slip_id}: {e}")
+        try:
+            slip = PaymentSlip.objects.get(id=slip_id)
+            slip.verification_status = 'manual_review'
+            slip.verification_error = f'Resubmit failed: {str(e)[:200]}'
+            slip.save(update_fields=['verification_status', 'verification_error'])
         except Exception:
             pass
 
