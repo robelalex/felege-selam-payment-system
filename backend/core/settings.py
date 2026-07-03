@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'common',
     'admin_dashboard',
     'django_q',
+    'anymail',
 ]
 
 MIDDLEWARE = [
@@ -255,18 +256,26 @@ if not DEBUG:
 CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY', '')
 
 
-# ===== EMAIL =====
-# No SMTP — Render blocks outbound SMTP ports
-# OTP uses fixed code "123456" for demo
-# EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-# Email Configuration for Gmail
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'robelalex95@gmail.com'
-EMAIL_HOST_PASSWORD = 'wfxwafigjyvnpzbs'
-DEFAULT_FROM_EMAIL = 'robelalex95@gmail.com'
+# ===== EMAIL CONFIGURATION =====
+
+# Conditional backend based on environment
+if os.environ.get("ENVIRONMENT") == "production":
+    # PRODUCTION: Use Resend (requires verified domain for best deliverability)
+    EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
+    ANYMAIL = {
+        "RESEND_API_KEY": os.environ.get("RESEND_API_KEY", ""),
+    }
+    DEFAULT_FROM_EMAIL = "Felege Selam <noreply@felege-selam.com>"
+else:
+    # LOCAL / DEV / TESTING: Use Brevo (Free tier, no domain needed, unlimited recipients)
+    EMAIL_BACKEND = "anymail.backends.brevo.EmailBackend"
+    ANYMAIL = {
+        "BREVO_API_KEY": os.environ.get("BREVO_API_KEY", ""),
+    }
+    # Use your verified Brevo sender address here
+    DEFAULT_FROM_EMAIL = "Felege Selam <robelalex95@gmail.com>" 
+
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 # ===== URLS =====
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')

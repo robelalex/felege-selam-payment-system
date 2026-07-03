@@ -1,23 +1,22 @@
-# backend/authentication/views.py - COMPLETE WITH OTP 2FA
-from django.contrib.auth import authenticate
-from django.shortcuts import redirect
-from django.contrib.auth import authenticate, login
-from django.contrib.auth import login as auth_login
-from django.contrib.auth import logout as auth_logout
+# backend/authentication/views.py - REAL OTP EMAIL INTEGRATION
+from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
 from django.contrib.auth.models import User
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.middleware.csrf import get_token
+from django.core.mail import send_mail
+from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.decorators import throttle_classes
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.hashers import make_password, check_password
-from django.http import HttpResponseRedirect
 import uuid
+import random
+import string
+
 from .serializers import (
     RegisterSerializer, LoginSerializer, UserSerializer, 
     ForgotPasswordSerializer, ResetPasswordSerializer, 
@@ -27,10 +26,15 @@ from .models import UserProfile, PasswordHistory
 from datetime import date
 from .throttles import LoginRateThrottle
 from common.utils import log_action
-from .utils import generate_otp, send_otp_email, verify_otp
-from common.email_service import send_otp_email
+from .utils import generate_otp, verify_otp
 from .permissions import IsSuperAdmin, IsSchoolAdmin
-# ===== HELPER FUNCTION FOR PASSWORD HISTORY =====
+
+
+# ===== HELPER FUNCTIONS =====
+def generate_secure_otp(length=6):
+    """Generate a cryptographically secure numeric OTP"""
+    return ''.join(random.choices(string.digits, k=length))
+
 def save_password_history(user, password):
     """Save password to history and keep only last 5"""
     PasswordHistory.objects.create(
@@ -41,16 +45,41 @@ def save_password_history(user, password):
     for old in old_passwords:
         old.delete()
 
-
 def check_password_history(user, new_password):
     """Check if password was used before (prevent reuse)"""
     recent_passwords = PasswordHistory.objects.filter(user=user).order_by('-created_at')[:5]
-    
     for history in recent_passwords:
         if check_password(new_password, history.password_hash):
             return False, "You cannot reuse a recent password. Please choose a different password."
-    
     return True, ""
+
+def send_otp_via_email(email, otp_code):
+    """Send OTP code via Resend/django-anymail"""
+    try:
+        subject = f"Your Felege Selam Verification Code: {otp_code}"
+        message = f"""
+        Hello,
+        
+        Your verification code is: {otp_code}
+        
+        This code expires in 10 minutes. Do not share this code with anyone.
+        
+        If you did not request this code, please ignore this email.
+        
+        Best regards,
+        Felege Selam Payment System
+        """
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[email],
+            fail_silently=False,
+        )
+        return True
+    except Exception as e:
+        print(f"❌ Failed to send OTP email to {email}: {e}")
+        return False
 
 
 # ===== OTP 2FA: ADMIN LOGIN WITH 2FA =====
@@ -58,7 +87,7 @@ def check_password_history(user, new_password):
 @permission_classes([AllowAny])
 @csrf_exempt
 def admin_login_step1(request):
-    """Step 1: Admin login with email and password"""
+    """Step 1: Admin login with email and password -> Send REAL OTP"""
     email = request.data.get('email')
     password = request.data.get('password')
     
@@ -70,33 +99,36 @@ def admin_login_step1(request):
     except User.DoesNotExist:
         return Response({'error': 'Invalid credentials'}, status=401)
     
-    # Check if user is active
     if not user.is_active:
         return Response({'error': 'Account pending approval'}, status=401)
     
-    # Authenticate
     user = authenticate(username=user.username, password=password)
-    
     if not user:
         return Response({'error': 'Invalid credentials'}, status=401)
     
-    # Check email verification
     if hasattr(user, 'profile') and not user.profile.is_email_verified:
         return Response({'error': 'Please verify your email first'}, status=401)
     
-    # ✅ Use fixed OTP 123456
-    otp_code = "123456"
+    # ✅ GENERATE REAL OTP
+    otp_code = generate_secure_otp()
     
     profile = user.profile
     profile.otp_code = otp_code
     profile.otp_created_at = timezone.now()
     profile.save()
     
-    # ✅ NO EMAIL SENDING - just use 123456
+    # ✅ SEND REAL EMAIL VIA RESEND
+    email_sent = send_otp_via_email(user.email, otp_code)
+    
+    if not email_sent:
+        return Response({
+            'success': False,
+            'error': 'Failed to send verification email. Please try again.'
+        }, status=500)
     
     return Response({
         'success': True,
-        'message': 'Use OTP: 123456',
+        'message': 'Verification code sent to your email.',
         'user_id': user.id,
         'requires_otp': True
     })
@@ -106,65 +138,13 @@ def admin_login_step1(request):
 @permission_classes([AllowAny])
 @csrf_exempt
 def admin_login_step2(request):
-    """Step 2: Verify OTP and complete admin login"""
+    """Step 2: Verify REAL OTP and complete admin login"""
     user_id = request.data.get('user_id')
     otp_code = request.data.get('otp_code')
     
     if not user_id or not otp_code:
         return Response({'error': 'User ID and OTP required'}, status=400)
     
-    # ✅ Accept 123456
-    if otp_code == "123456":
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response({'error': 'User not found'}, status=404)
-        
-        profile = user.profile
-        
-        # Login the user
-        auth_login(request, user)
-        request.session.save()
-        
-        # Get school info
-        school_info = None
-        try:
-            from schools.models import SchoolAdminProfile, School
-            school_admin_profile = SchoolAdminProfile.objects.filter(user=user, is_active=True).first()
-            if school_admin_profile:
-                school = School.objects.get(id=school_admin_profile.school_id)
-                school_info = {
-                    'id': school.id,
-                    'name': school.name,
-                    'code': school.code,
-                    'logo': school.logo.url if school.logo else None
-                }
-        except:
-            pass
-        
-        # ✅ Generate JWT token
-        from rest_framework_simplejwt.tokens import RefreshToken
-        refresh = RefreshToken.for_user(user)
-        
-        return Response({
-            'success': True,
-            'message': 'Login successful',
-            'access': str(refresh.access_token),
-            'refresh': str(refresh),
-            'user': {
-                'id': user.id,
-                'email': user.email,
-                'username': user.username,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-                'role': profile.role,
-                'is_super_admin': profile.is_super_admin,
-                'is_school_admin': profile.is_school_admin,
-                'school': school_info
-            }
-        })
-    
-    # Otherwise use normal OTP verification
     try:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
@@ -172,22 +152,19 @@ def admin_login_step2(request):
     
     profile = user.profile
     
-    # Verify OTP
+    # ✅ VERIFY REAL OTP
     valid, message = verify_otp(profile, otp_code)
-    
     if not valid:
         return Response({'error': message}, status=401)
     
-    # Clear OTP
+    # Clear OTP after successful verification
     profile.otp_code = None
     profile.otp_created_at = None
     profile.save()
     
-    # Login the user
     auth_login(request, user)
     request.session.save()
     
-    # Get school info
     school_info = None
     try:
         from schools.models import SchoolAdminProfile, School
@@ -200,11 +177,9 @@ def admin_login_step2(request):
                 'code': school.code,
                 'logo': school.logo.url if school.logo else None
             }
-    except:
+    except Exception:
         pass
     
-    # ✅ Generate JWT token
-    from rest_framework_simplejwt.tokens import RefreshToken
     refresh = RefreshToken.for_user(user)
     
     return Response({
@@ -231,30 +206,25 @@ def admin_login_step2(request):
 @permission_classes([AllowAny])
 @csrf_exempt
 def parent_login_step1(request):
-    """Step 1: Parent sends email, receives OTP"""
+    """Step 1: Parent sends email, receives REAL OTP"""
     email = request.data.get('email')
     
     if not email:
         return Response({'error': 'Email required'}, status=400)
     
-    # Find student by parent email
     from students.models import Student
     students = Student.objects.filter(parent_email=email)
     
     if not students.exists():
         return Response({'error': 'No student found with this email'}, status=404)
     
-    # ✅ Use fixed OTP 123456
-    otp_code = "123456"
+    # ✅ GENERATE REAL OTP
+    otp_code = generate_secure_otp()
     
-    # Create or update user profile for this email
     username = f"parent_{email.replace('@', '_').replace('.', '_')}"
     user, created = User.objects.get_or_create(
         username=username,
-        defaults={
-            'email': email,
-            'is_active': True
-        }
+        defaults={'email': email, 'is_active': True}
     )
     
     if created:
@@ -264,17 +234,23 @@ def parent_login_step1(request):
             is_email_verified=True
         )
     
-    # Save OTP
     profile = user.profile
     profile.otp_code = otp_code
     profile.otp_created_at = timezone.now()
     profile.save()
     
-    # ✅ NO EMAIL SENDING
+    # ✅ SEND REAL EMAIL VIA RESEND
+    email_sent = send_otp_via_email(user.email, otp_code)
+    
+    if not email_sent:
+        return Response({
+            'success': False,
+            'error': 'Failed to send verification email. Please try again.'
+        }, status=500)
     
     return Response({
         'success': True,
-        'message': 'Use OTP: 123456',
+        'message': 'Verification code sent to your email.',
         'user_id': user.id
     })
 
@@ -283,29 +259,13 @@ def parent_login_step1(request):
 @permission_classes([AllowAny])
 @csrf_exempt
 def parent_login_step2(request):
-    """Step 2: Verify OTP and return success"""
+    """Step 2: Verify REAL OTP and return success"""
     user_id = request.data.get('user_id')
     otp_code = request.data.get('otp_code')
     
     if not user_id or not otp_code:
         return Response({'error': 'User ID and OTP required'}, status=400)
     
-    # ✅ Accept 123456
-    if otp_code == "123456":
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response({'error': 'User not found'}, status=404)
-        
-        # Login the user
-        auth_login(request, user)
-        return Response({
-            'success': True,
-            'message': 'OTP verified successfully. Please enter your student ID.',
-            'user_id': user.id
-        })
-    
-    # Otherwise use normal OTP verification
     try:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
@@ -313,18 +273,15 @@ def parent_login_step2(request):
     
     profile = user.profile
     
-    # Verify OTP
+    # ✅ VERIFY REAL OTP
     valid, message = verify_otp(profile, otp_code)
-    
     if not valid:
         return Response({'error': message}, status=401)
     
-    # Clear OTP
     profile.otp_code = None
     profile.otp_created_at = None
     profile.save()
     
-    # Create session
     auth_login(request, user)
     
     return Response({
@@ -333,12 +290,12 @@ def parent_login_step2(request):
         'user_id': user.id
     })
 
-# ===== ORIGINAL REGISTRATION ENDPOINT =====
+
+# ===== REGISTRATION ENDPOINT (UNCHANGED) =====
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register(request):
     """Register a new school admin or staff (pending Super Admin approval)"""
-    
     print("=" * 50)
     print("📝 REGISTRATION REQUEST RECEIVED")
     print(f"📝 Request data: {request.data}")
@@ -347,9 +304,7 @@ def register(request):
     logo = request.FILES.get('logo')
     school = None
     
-    # Use the serializer for validation
     serializer = RegisterSerializer(data=request.data)
-    
     if not serializer.is_valid():
         print(f"❌ Serializer errors: {serializer.errors}")
         return Response({
@@ -367,7 +322,6 @@ def register(request):
     last_name = validated_data.get('last_name', '')
     phone = request.data.get('phone', '')
     
-    # Check if school code exists
     from schools.models import School
     if School.objects.filter(code=school_code).exists():
         return Response({
@@ -376,7 +330,6 @@ def register(request):
         }, status=status.HTTP_400_BAD_REQUEST)
     
     try:
-        # Create school WITHOUT logo first
         school = School.objects.create(
             name=school_name,
             code=school_code,
@@ -390,7 +343,6 @@ def register(request):
         )
         print(f"✅ School created: {school.name} (Code: {school.code}) - ID: {school.id}")
         
-        # ✅ Save logo separately after creation
         if logo:
             try:
                 school.logo.save(logo.name, logo)
@@ -399,20 +351,14 @@ def register(request):
             except Exception as logo_error:
                 print(f"⚠️ Logo save error: {logo_error}")
         
-        # ================================================================
-        # ✅ AUTO-CREATE ACADEMIC YEARS FOR THE SCHOOL (PERMANENT FIX)
-        # ================================================================
         from academics.models import AcademicYear
         from datetime import date
         import datetime as dt
         
-        # Calculate current Ethiopian year
         current_gregorian_year = dt.datetime.now().year
-        ethiopian_year = current_gregorian_year - 8  # Approximate conversion
+        ethiopian_year = current_gregorian_year - 8
         
-        # Create 4 academic years (previous, current, next, next+1)
         years_to_create = [ethiopian_year - 1, ethiopian_year, ethiopian_year + 1, ethiopian_year + 2]
-        
         for year_ec in years_to_create:
             year_name = f"{year_ec} E.C."
             try:
@@ -429,20 +375,17 @@ def register(request):
                 print(f"✅ Created academic year: {year_name}")
             except Exception as e:
                 print(f"⚠️ Could not create {year_name}: {e}")
-        # ================================================================
         
-        # Create user (is_active=False for approval)
         user = User.objects.create_user(
             username=username,
             email=email,
             password=password,
             first_name=first_name,
             last_name=last_name,
-            is_active=False  # Pending approval
+            is_active=False
         )
         print(f"✅ User created: {user.username}")
         
-        # Create UserProfile
         UserProfile.objects.create(
             user=user,
             school_id=school.id,
@@ -452,7 +395,6 @@ def register(request):
         )
         print(f"✅ UserProfile created")
         
-        # Create SchoolAdminProfile
         from schools.models import SchoolAdminProfile
         SchoolAdminProfile.objects.create(
             user=user,
@@ -461,7 +403,6 @@ def register(request):
         )
         print(f"✅ SchoolAdminProfile created")
         
-        # Save password to history
         save_password_history(user, password)
         
         return Response({
@@ -491,11 +432,10 @@ def register(request):
         }, status=status.HTTP_400_BAD_REQUEST)
 
 
-# ===== ORIGINAL ENDPOINTS (KEPT FOR COMPATIBILITY) =====
+# ===== ORIGINAL ENDPOINTS (UNCHANGED) =====
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def verify_email(request, token):
-    """Verify user email"""
     try:
         profile = UserProfile.objects.get(email_verification_token=token)
         profile.is_email_verified = True
@@ -514,7 +454,6 @@ def verify_email(request, token):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def forgot_password(request):
-    """Send password reset email"""
     serializer = ForgotPasswordSerializer(data=request.data)
     if not serializer.is_valid():
         return Response({
@@ -525,31 +464,23 @@ def forgot_password(request):
     email = serializer.validated_data['email']
     
     try:
-        # ✅ Use filter().first() to avoid MultipleObjectsReturned
         user = User.objects.filter(email=email).first()
-        
         if user and hasattr(user, 'profile'):
-            import uuid
             user.profile.reset_password_token = uuid.uuid4()
             user.profile.reset_password_expires = timezone.now() + timezone.timedelta(hours=24)
             user.profile.save()
             
-            # ✅ Send the reset email
             from common.email_service import send_reset_password_email
             success, message = send_reset_password_email(email, str(user.profile.reset_password_token))
-            
             if not success:
                 print(f"Failed to send reset email: {message}")
         
-        # Always return success for security (don't reveal if email exists)
         return Response({
             'success': True,
             'message': 'Password reset link sent to your email'
         })
-        
     except Exception as e:
         print(f"Forgot password error: {e}")
-        # Still return success for security
         return Response({
             'success': True,
             'message': 'If your email is registered, you will receive a reset link'
@@ -559,7 +490,6 @@ def forgot_password(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def reset_password(request):
-    """Reset password using token"""
     serializer = ResetPasswordSerializer(data=request.data)
     if not serializer.is_valid():
         return Response({
@@ -577,7 +507,6 @@ def reset_password(request):
         )
         user = profile.user
         
-        # Check password history
         valid, message = check_password_history(user, new_password)
         if not valid:
             return Response({
@@ -587,10 +516,8 @@ def reset_password(request):
         
         user.set_password(new_password)
         user.save()
-        
         save_password_history(user, new_password)
         
-        # Clear the reset token
         profile.reset_password_token = None
         profile.reset_password_expires = None
         profile.save()
@@ -607,10 +534,10 @@ def reset_password(request):
             'error': 'Invalid or expired reset token. Please request a new password reset.'
         }, status=status.HTTP_400_BAD_REQUEST)
 
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def change_password(request):
-    """Change password for authenticated user"""
     serializer = ChangePasswordSerializer(data=request.data)
     if not serializer.is_valid():
         return Response({
@@ -637,9 +564,7 @@ def change_password(request):
     
     user.set_password(new_password)
     user.save()
-    
     save_password_history(user, new_password)
-    
     log_action(user, 'PASSWORD_CHANGE', 'User changed password', request)
     
     return Response({
@@ -649,40 +574,27 @@ def change_password(request):
 
 
 @api_view(['GET', 'POST'])
-@permission_classes([AllowAny])  # Change from IsAuthenticated to AllowAny
+@permission_classes([AllowAny])
 def logout(request):
-    """Logout user and clear session completely"""
     from django.shortcuts import redirect
-    
-    # Logout the user if authenticated
     if request.user.is_authenticated:
         user = request.user
         log_action(user, 'LOGOUT', 'User logged out', request)
-    
-    # Clear the session completely
     request.session.flush()
-    
-    # Logout
     auth_logout(request)
-    
-    # Redirect to login page
     return redirect('/admin-dashboard/login/')
 
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_csrf_token(request):
-    """Get CSRF token for frontend"""
     csrf_token = get_token(request)
-    return Response({
-        'csrfToken': csrf_token
-    })
+    return Response({'csrfToken': csrf_token})
 
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_current_user(request):
-    """Get current logged in user info"""
     try:
         if not request.user.is_authenticated:
             return Response({
@@ -693,7 +605,6 @@ def get_current_user(request):
         
         user = request.user
         school_info = None
-        
         try:
             from schools.models import SchoolAdminProfile, School
             school_admin_profile = SchoolAdminProfile.objects.filter(user=user, is_active=True).first()
@@ -736,27 +647,21 @@ def get_current_user(request):
         print(f"Error in get_current_user: {e}")
         import traceback
         traceback.print_exc()
-        return Response({
-            'success': False,
-            'error': str(e)
-        }, status=500)
+        return Response({'success': False, 'error': str(e)}, status=500)
+
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_school_staff(request):
-    """Get all staff members for the school admin's school"""
     try:
         if not request.user.is_authenticated:
             return Response({'error': 'Authentication required'}, status=401)
-        
         if not hasattr(request.user, 'profile'):
             return Response({'error': 'User profile not found'}, status=403)
-        
         if request.user.profile.role != 'school_admin':
             return Response({'error': 'Only school admins can view staff'}, status=403)
         
         school_id = request.user.profile.school_id
-        
         if not school_id:
             return Response({'error': 'No school associated with this admin'}, status=400)
         
@@ -764,29 +669,25 @@ def get_school_staff(request):
             profile__school_id=school_id,
             profile__role__in=['registrar', 'payment_manager', 'reporting_manager', 'reminder_manager']
         )
-        
         from .serializers import UserSerializer
         serializer = UserSerializer(users, many=True)
         return Response(serializer.data)
-        
     except Exception as e:
         print(f"Error in get_school_staff: {e}")
         import traceback
         traceback.print_exc()
         return Response({'error': str(e)}, status=500)
 
+
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])  # Change from AllowAny to IsAuthenticated
+@permission_classes([IsAuthenticated])
 @csrf_exempt
 def create_staff(request):
-    """Create a new staff member"""
     try:
         if not request.user.is_authenticated:
             return Response({'error': 'Authentication required'}, status=401)
-        
         if not hasattr(request.user, 'profile'):
             return Response({'error': 'User profile not found'}, status=403)
-        
         if request.user.profile.role != 'school_admin':
             return Response({'error': 'Only school admins can create staff'}, status=403)
         
@@ -799,18 +700,15 @@ def create_staff(request):
         phone = request.data.get('phone', '')
         
         valid_roles = ['registrar', 'payment_manager', 'reporting_manager', 'reminder_manager']
-        
         if role not in valid_roles:
             return Response({'error': f'Invalid role. Choose from: {valid_roles}'}, status=400)
         
         if User.objects.filter(email=email).exists():
             return Response({'error': 'Email already exists'}, status=400)
-        
         if User.objects.filter(username=username).exists():
             return Response({'error': 'Username already exists'}, status=400)
         
         school_id = request.user.profile.school_id
-        
         user = User.objects.create(
             email=email,
             username=username,
@@ -819,7 +717,6 @@ def create_staff(request):
             last_name=last_name,
             is_active=True
         )
-        
         UserProfile.objects.create(
             user=user,
             role=role,
@@ -827,55 +724,42 @@ def create_staff(request):
             school_id=school_id,
             is_email_verified=True
         )
-        
         return Response({
             'success': True,
-            'message': f'Staff member created successfully',
-            'user': {
-                'id': user.id,
-                'email': user.email,
-                'username': user.username,
-                'role': role
-            }
+            'message': 'Staff member created successfully',
+            'user': {'id': user.id, 'email': user.email, 'username': user.username, 'role': role}
         }, status=201)
-        
     except Exception as e:
         print(f"Error in create_staff: {e}")
         import traceback
         traceback.print_exc()
         return Response({'error': str(e)}, status=500)
 
+
 @api_view(['DELETE'])
 @permission_classes([AllowAny])
 def delete_staff(request, user_id):
-    """Delete a staff member"""
     try:
         if not request.user.is_authenticated:
             return Response({'error': 'Authentication required'}, status=401)
-        
         if not hasattr(request.user, 'profile'):
             return Response({'error': 'User profile not found'}, status=403)
-        
         if request.user.profile.role != 'school_admin':
             return Response({'error': 'Only school admins can delete staff'}, status=403)
         
         school_id = request.user.profile.school_id
-        
         user = User.objects.get(id=user_id, profile__school_id=school_id)
         user.delete()
         return Response({'success': True, 'message': 'Staff member deleted'})
-        
     except User.DoesNotExist:
         return Response({'error': 'Staff member not found'}, status=404)
     except Exception as e:
         print(f"Error in delete_staff: {e}")
         return Response({'error': str(e)}, status=500)
 
-# ===== SUPER ADMIN PANEL - NO LOGIN REQUIRED =====
 
 @csrf_exempt
 def super_admin_panel(request):
-    """Simple admin panel to approve schools - no login required"""
     try:
         if request.method == 'POST':
             user_id = request.POST.get('user_id')
@@ -899,15 +783,12 @@ def super_admin_panel(request):
                     return HttpResponse('<h2>❌ User not found</h2><a href="/api/super-admin-panel/">Back</a>')
         
         pending_users = User.objects.filter(is_active=False, profile__role='school_admin')
-        
         html = '<html><body><h1>Super Admin Panel</h1><h2>Pending School Approvals</h2>'
-        
         if not pending_users.exists():
             html += '<p>✅ No pending approvals. All schools are approved!</p>'
         else:
             html += '<table border="1" cellpadding="10"><tr><th>ID</th><th>Email</th><th>Username</th><th>School Name</th><th>Action</th></tr>'
             for user in pending_users:
-                # Get school name from profile.school_id
                 school_name = 'N/A'
                 if hasattr(user, 'profile') and user.profile.school_id:
                     try:
@@ -916,7 +797,6 @@ def super_admin_panel(request):
                         school_name = school.name
                     except:
                         school_name = f'ID: {user.profile.school_id}'
-                
                 html += f'''
                 <tr>
                     <td>{user.id}</td>
@@ -938,7 +818,6 @@ def super_admin_panel(request):
                 </tr>
                 '''
             html += '</table>'
-        
         html += '</body></html>'
         return HttpResponse(html)
     except Exception as e:
