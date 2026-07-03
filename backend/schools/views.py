@@ -500,3 +500,101 @@ class SchoolChapaTestView(APIView):
                 'success': False,
                 'message': f'❌ Connection error: {str(e)}'
             }, status=400)
+
+
+# ========== EMAIL CONFIGURATION VIEWS (BREVO) ==========
+
+class SchoolEmailConfigView(APIView):
+    """View for schools to update their Brevo email credentials"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get current email configuration for the school"""
+        try:
+            school = get_school_for_user(request)
+        except ObjectDoesNotExist as e:
+            return Response(
+                {'error': 'School association not found.', 'detail': str(e)},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        return Response({
+            'brevo_api_key': '********' if school.brevo_api_key else '',
+            'brevo_sender_email': school.brevo_sender_email or '',
+            'brevo_sender_name': school.brevo_sender_name or '',
+            'email_enabled': school.email_enabled,
+            'email_test_status': school.email_test_status or '',
+            'email_last_test': school.email_last_test,
+            'email_monthly_limit': school.email_monthly_limit or 0,
+            'email_current_month_count': school.email_current_month_count or 0,
+        })
+    
+    def post(self, request):
+        """Save email credentials"""
+        try:
+            school = get_school_for_user(request)
+        except ObjectDoesNotExist as e:
+            return Response(
+                {'error': 'School association not found.', 'detail': str(e)},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if 'brevo_api_key' in request.data and request.data['brevo_api_key'] != '********':
+            school.brevo_api_key = request.data['brevo_api_key']
+        if 'brevo_sender_email' in request.data:
+            school.brevo_sender_email = request.data['brevo_sender_email']
+        if 'brevo_sender_name' in request.data:
+            school.brevo_sender_name = request.data['brevo_sender_name']
+        if 'email_monthly_limit' in request.data:
+            school.email_monthly_limit = request.data['email_monthly_limit']
+        
+        school.email_enabled = False
+        school.email_test_status = 'pending'
+        school.save()
+        
+        return Response({
+            'message': 'Email credentials saved. Please test them.',
+            'email_enabled': school.email_enabled,
+        })
+
+
+class SchoolEmailTestView(APIView):
+    """Test school's Brevo email credentials"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        from django.utils import timezone
+        
+        try:
+            school = get_school_for_user(request)
+        except ObjectDoesNotExist as e:
+            return Response(
+                {'error': 'School association not found.', 'detail': str(e)},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if not school.brevo_api_key or not school.brevo_sender_email:
+            return Response({'error': 'Please save your Brevo credentials first'}, status=400)
+        
+        if not school.email:
+            return Response({'error': 'School email address is not set. Please update school details first.'}, status=400)
+        
+        try:
+            from common.email_service import SchoolEmailService
+            email_service = SchoolEmailService(school.id)
+            result = email_service.test_credentials()
+            
+            school.email_enabled = True
+            school.email_test_status = 'success'
+            school.email_last_test = timezone.now()
+            school.save(update_fields=['email_enabled', 'email_test_status', 'email_last_test'])
+            
+            return Response(result)
+            
+        except Exception as e:
+            error_msg = str(e)
+            school.email_enabled = False
+            school.email_test_status = f"Failed: {error_msg[:100]}"
+            school.save(update_fields=['email_enabled', 'email_test_status'])
+            
+            return Response({'error': error_msg}, status=400)

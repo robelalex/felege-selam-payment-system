@@ -136,7 +136,59 @@ class School(models.Model):
         blank=True,
         help_text="Last 8 digits of CBE account (e.g., 13726790)"
     )
+
+
+    # ========== NEW: School Email Configuration (Layer 2 - Brevo) ==========
+    # Each school can configure their own Brevo account for receipts/reminders
+    brevo_api_key = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        help_text="Brevo v3 API key for this school's transactional emails"
+    )
+    brevo_sender_email = models.EmailField(
+        blank=True,
+        null=True,
+        help_text="Verified sender email in Brevo (e.g., finance@school.edu.et)"
+    )
+    brevo_sender_name = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Sender name displayed in emails (e.g., Greenfield Academy)"
+    )
+    email_enabled = models.BooleanField(
+        default=False,
+        help_text="Is school email configured and working?"
+    )
+    email_last_test = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="Last time email credentials were tested"
+    )
+    email_test_status = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text="Status of last test (success/failed/pending)"
+    )
     
+    # Optional: Email quota tracking to control costs
+    email_monthly_limit = models.IntegerField(
+        default=0,
+        help_text="Monthly email limit (0 = unlimited)"
+    )
+    email_current_month_count = models.IntegerField(
+        default=0,
+        help_text="Emails sent this month"
+    )
+    email_last_reset = models.DateField(
+        blank=True,
+        null=True,
+        help_text="Last time monthly counter was reset"
+    )
+
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -157,6 +209,15 @@ class School(models.Model):
     def has_verify_et_credentials(self):
         """Check if Verify.ET is properly configured"""
         return bool(self.verify_et_api_key and self.verify_et_enabled and self.cbe_account_suffix)
+    
+    @property
+    def has_email_credentials(self):
+        """Check if school email is properly configured"""
+        return bool(
+            self.brevo_api_key and 
+            self.brevo_sender_email and 
+            self.email_enabled
+        )
     
     class Meta:
         ordering = ['name']

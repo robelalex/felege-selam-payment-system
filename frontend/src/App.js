@@ -43,7 +43,6 @@ import StaffManagement from './pages/StaffManagement';
 import RegistrarDashboard from './pages/RegistrarDashboard';
 import PaymentManagerDashboard from './pages/PaymentManagerDashboard';
 import ReportingDashboard from './pages/ReportingDashboard';
-import ReminderDashboard from './pages/ReminderDashboard';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import AdminPaymentHistory from './pages/AdminPaymentHistory';
 import SchoolSettings from './pages/SchoolSettings';
@@ -312,19 +311,6 @@ function App() {
                 } 
               />
 
-              {/* Reminder Dashboard */}
-              <Route 
-                path="/reminder/dashboard" 
-                element={
-                  <ProtectedRoute>
-                    <ChapaWarningProvider>
-                      <AdminLayout>
-                        <ReminderDashboard />
-                      </AdminLayout>
-                    </ChapaWarningProvider>
-                  </ProtectedRoute>
-                } 
-              />
 
               {/* School Settings - SMS Configuration */}
               <Route 

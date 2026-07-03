@@ -107,12 +107,10 @@ class ReminderViewSet(viewsets.ViewSet):
             'results': results
         })
     
-    # ✅ FIXED: Email reminders endpoint
     @action(detail=False, methods=['post'])
     def send_email_reminders(self, request):
-        """Send EMAIL reminders to selected students"""
+        """Send EMAIL reminders using SCHOOL'S OWN BREVO ACCOUNT"""
         
-        # ✅ Get school from header
         school_id = request.headers.get('X-School-ID')
         student_ids = request.data.get('student_ids', [])
         month = request.data.get('month')
@@ -125,20 +123,18 @@ class ReminderViewSet(viewsets.ViewSet):
         if not student_ids:
             return Response({'error': 'No students selected'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # ✅ Import all required modules
-        from common.email_service import send_payment_reminder_email, PaymentLinkService
-        from schools.models import School
+        try:
+            from schools.models import School
+            school = School.objects.get(id=int(school_id))
+        except School.DoesNotExist:
+            return Response({'error': 'School not found'}, status=404)
         
-        # ✅ Get school object
-        school = School.objects.get(id=int(school_id))
-        
-        # ✅ Verify all students belong to this school
+        # Verify all students belong to this school
         students = Student.objects.filter(student_id__in=student_ids, school_id=int(school_id))
         
         results = []
         
         for student in students:
-            # Get parent email
             parent_email = getattr(student, 'parent_email', None)
             
             if not parent_email:
@@ -147,48 +143,41 @@ class ReminderViewSet(viewsets.ViewSet):
                     'student_name': student.full_name,
                     'email': None,
                     'success': False,
-                    'message': 'No email address found for this student'
+                    'message': 'No email address found'
                 })
                 continue
             
-            # Get pending months for this student
+            # Get pending months
             pending_months_list = []
             total_due = 0
             pending_deadlines = []
             
-            # Get deadlines for the academic year
             year_name = academic_year
             if not year_name:
-                # Get current academic year for this school
                 current_year = AcademicYear.objects.filter(school_id=int(school_id), is_current=True).first()
                 year_name = current_year.name if current_year else None
             
-            # Get deadlines
             deadlines = PaymentDeadline.objects.filter(
                 academic_year=year_name,
                 is_active=True,
                 school_id=int(school_id)
             )
             
-            # Filter by month if specified
             if month and month != 'all' and month != 'None':
                 try:
                     deadlines = deadlines.filter(month=int(month))
                 except (ValueError, TypeError):
                     pass
             
-            # Only get deadlines that apply to this student's grade
             student_deadlines = deadlines.filter(
                 models.Q(grade__isnull=True) | models.Q(grade=student.grade)
             )
             
-            # Get paid deadline IDs
             paid_deadline_ids = Payment.objects.filter(
                 student=student,
                 status='verified'
             ).values_list('deadline_id', flat=True)
             
-            # Find unpaid deadlines
             for deadline in student_deadlines:
                 if deadline.id not in paid_deadline_ids:
                     month_name = self.get_month_name(deadline.month)
@@ -202,13 +191,13 @@ class ReminderViewSet(viewsets.ViewSet):
                     'student_name': student.full_name,
                     'email': parent_email,
                     'success': False,
-                    'message': 'No pending payments found for this student'
+                    'message': 'No pending payments found'
                 })
                 continue
             
             pending_months_text = ', '.join(pending_months_list)
             
-            # Generate payment link for first pending deadline
+            # Generate payment link
             payment_link = None
             if pending_deadlines:
                 first_deadline = pending_deadlines[0]
@@ -219,32 +208,58 @@ class ReminderViewSet(viewsets.ViewSet):
                     student_name=student.full_name
                 )
             
-            # Send email - CORRECT ORDER with all parameters
-            email_result = send_payment_reminder_email(
-                recipient_email=parent_email,
-                student_name=student.full_name,
-                pending_months=pending_months_text,
-                total_due=total_due,
-                custom_message=custom_message if custom_message else None,
-                school=school,
-                payment_link=payment_link
-            )
-            
-            # Handle result
-            if isinstance(email_result, tuple):
-                success = email_result[0]
-                message = email_result[1] if len(email_result) > 1 else ('Sent' if success else 'Failed')
-            else:
-                success = email_result.get('success', False) if isinstance(email_result, dict) else False
-                message = email_result.get('message', '') if isinstance(email_result, dict) else ('Sent' if success else 'Failed')
-            
-            results.append({
-                'student_id': student.student_id,
-                'student_name': student.full_name,
-                'email': parent_email,
-                'success': success,
-                'message': message
-            })
+            # ✅ NEW: Use SchoolEmailService instead of global send_mail
+            try:
+                from common.email_service import SchoolEmailService
+                
+                # Build HTML content matching your existing template
+                html_content = f"""
+                <!DOCTYPE html>
+                <html>
+                <body style="font-family: Arial, sans-serif; padding: 20px;">
+                    <h2 style="color: #F59E0B;">Payment Reminder</h2>
+                    <p>Dear Parent,</p>
+                    <p>This is a friendly reminder that your child <strong>{student.full_name}</strong> has pending payment(s).</p>
+                    
+                    <div style="background: #FEF3C7; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #F59E0B;">
+                        <p style="margin: 0;"><strong>Pending Months:</strong> {pending_months_text}</p>
+                        <p style="margin: 10px 0 0 0; font-size: 20px; font-weight: bold; color: #D97706;">Total Due: {total_due:,.2f} Birr</p>
+                    </div>
+                    
+                    {f'<a href="{payment_link}" style="display: inline-block; background: #10B981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; margin-top: 15px;">Pay Now</a>' if payment_link else ''}
+                    
+                    <hr style="margin: 20px 0; border: none; border-top: 1px solid #E5E7EB;">
+                    <p style="color: #6B7280; font-size: 12px;">This is an automated message from {school.name}. Please do not reply.</p>
+                </body>
+                </html>
+                """
+                
+                text_content = f"Payment Reminder\n\nStudent: {student.full_name}\nPending: {pending_months_text}\nTotal Due: {total_due:,.2f} Birr\n\n{payment_link or ''}\n\n---\nAutomated message from {school.name}"
+                
+                email_service = SchoolEmailService(int(school_id))
+                result = email_service.send_email(
+                    recipient_email=parent_email,
+                    subject=f"Payment Reminder - {student.full_name}",
+                    html_content=html_content,
+                    text_content=text_content
+                )
+                
+                results.append({
+                    'student_id': student.student_id,
+                    'student_name': student.full_name,
+                    'email': parent_email,
+                    'success': True,
+                    'message': 'Sent successfully'
+                })
+                
+            except Exception as e:
+                results.append({
+                    'student_id': student.student_id,
+                    'student_name': student.full_name,
+                    'email': parent_email,
+                    'success': False,
+                    'message': f'Failed: {str(e)[:100]}'
+                })
         
         return Response({
             'success': True,

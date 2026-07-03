@@ -1,12 +1,213 @@
 # common/email_service.py
 import logging
+import requests
 from django.core.mail import send_mail
 from django.conf import settings
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from urllib.parse import urlencode
+from schools.models import School
 
 logger = logging.getLogger(__name__)
+
+
+class SchoolEmailService:
+    """
+    Dynamic email service that loads Brevo credentials per-school.
+    Uses Brevo REST API over HTTPS (port 443) - works on Render Free Tier.
+    """
+    
+    BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
+    
+    def __init__(self, school_id):
+        """Initialize with a specific school ID"""
+        try:
+            self.school = School.objects.get(id=school_id)
+        except School.DoesNotExist:
+            raise Exception(f"School with ID {school_id} not found")
+        
+        if not self.school.has_email_credentials:
+            raise Exception(
+                f"Email not configured for school: {self.school.name}. "
+                "Please add Brevo credentials in School Settings."
+            )
+        
+        self.api_key = self.school.brevo_api_key
+        self.sender_email = self.school.brevo_sender_email
+        self.sender_name = self.school.brevo_sender_name or self.school.name
+    
+    def _get_headers(self):
+        """Get headers for Brevo API requests"""
+        return {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "api-key": self.api_key
+        }
+    
+    def send_email(self, recipient_email, subject, html_content, text_content=None, 
+                   reply_to=None, cc=None, bcc=None):
+        """
+        Send email using this school's Brevo account
+        
+        Args:
+            recipient_email: Recipient's email address
+            subject: Email subject
+            html_content: HTML body content
+            text_content: Plain text fallback (optional)
+            reply_to: Reply-to email (optional)
+            cc: CC recipients list (optional)
+            bcc: BCC recipients list (optional)
+        
+        Returns:
+            dict: {'success': bool, 'message': str, 'message_id': str}
+        """
+        if not recipient_email:
+            raise Exception("No recipient email provided")
+        
+        # Check quota before sending
+        self._check_quota()
+        
+        payload = {
+            "sender": {
+                "email": self.sender_email,
+                "name": self.sender_name
+            },
+            "to": [{"email": recipient_email}],
+            "subject": subject,
+            "htmlContent": html_content
+        }
+        
+        if text_content:
+            payload["textContent"] = text_content
+        
+        if reply_to:
+            payload["replyTo"] = {"email": reply_to}
+        
+        if cc:
+            payload["cc"] = [{"email": c} for c in cc]
+        
+        if bcc:
+            payload["bcc"] = [{"email": b} for b in bcc]
+        
+        try:
+            logger.info(f"📤 Sending email for school {self.school.name} to: {recipient_email}")
+            
+            response = requests.post(
+                self.BREVO_API_URL,
+                json=payload,
+                headers=self._get_headers(),
+                timeout=30
+            )
+            
+            if response.status_code == 201:
+                result = response.json()
+                message_id = result.get('messageId', '')
+                
+                # Update quota count on success
+                self._update_quota_count()
+                
+                logger.info(f"✅ Email sent successfully. Message ID: {message_id}")
+                return {
+                    'success': True,
+                    'message': 'Email sent successfully',
+                    'message_id': message_id,
+                    'school': self.school.name
+                }
+            else:
+                error_detail = response.text[:200]
+                logger.error(f"❌ Brevo API error: {response.status_code} - {error_detail}")
+                raise Exception(f"Brevo API error: {response.status_code} - {error_detail}")
+                
+        except requests.exceptions.Timeout:
+            raise Exception("Connection timeout. Please try again.")
+        except requests.exceptions.ConnectionError:
+            raise Exception("Cannot connect to Brevo API. Please check internet connection.")
+        except Exception as e:
+            logger.error(f"❌ Email send error for school {self.school.name}: {e}")
+            raise Exception(f"Email failed for {self.school.name}: {str(e)}")
+    
+    def _check_quota(self):
+        """Check if school has email quota available"""
+        if self.school.email_monthly_limit == 0:
+            return True  # Unlimited
+        
+        from datetime import date
+        today = date.today()
+        
+        # Reset counter if new month
+        if self.school.email_last_reset:
+            if self.school.email_last_reset.month != today.month:
+                self.school.email_current_month_count = 0
+                self.school.email_last_reset = today
+                self.school.save(update_fields=['email_current_month_count', 'email_last_reset'])
+        else:
+            self.school.email_last_reset = today
+            self.school.save(update_fields=['email_last_reset'])
+        
+        if self.school.email_current_month_count >= self.school.email_monthly_limit:
+            raise Exception(
+                f"Email quota exceeded for {self.school.name}. "
+                f"Limit: {self.school.email_monthly_limit}"
+            )
+        return True
+    
+    def _update_quota_count(self):
+        """Increment email count for this school"""
+        if self.school.email_monthly_limit > 0:
+            self.school.email_current_month_count += 1
+            self.school.save(update_fields=['email_current_month_count'])
+    
+    def test_credentials(self):
+        """
+        Test if school's Brevo credentials work
+        Sends a test email to the school's own email address
+        """
+        if not self.school.email:
+            raise Exception("School email address is not set. Please add school email first.")
+        
+        try:
+            test_subject = f"✅ Test Email from {self.school.name}"
+            test_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <body style="font-family: Arial, sans-serif; padding: 20px;">
+                <h2 style="color: #10B981;">Test Successful!</h2>
+                <p>Your Brevo credentials for <strong>{self.school.name}</strong> are working correctly.</p>
+                <p>Sent at: {__import__('django.utils.timezone').now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            </body>
+            </html>
+            """
+            
+            result = self.send_email(
+                recipient_email=self.school.email,
+                subject=test_subject,
+                html_content=test_html,
+                text_content=f"Test email from {self.school.name}. Credentials working!"
+            )
+            
+            # Update school with success
+            from django.utils import timezone
+            self.school.email_enabled = True
+            self.school.email_last_test = timezone.now()
+            self.school.email_test_status = "success"
+            self.school.save(update_fields=['email_enabled', 'email_last_test', 'email_test_status'])
+            
+            logger.info(f"✅ Test email successful for school {self.school.name}")
+            return {
+                'success': True,
+                'message': f'Test email sent successfully to {self.school.email}',
+                'school': self.school.name
+            }
+            
+        except Exception as e:
+            # Update school with failure
+            from django.utils import timezone
+            self.school.email_enabled = False
+            self.school.email_test_status = f"Failed: {str(e)[:100]}"
+            self.school.save(update_fields=['email_enabled', 'email_test_status'])
+            
+            logger.error(f"❌ Test email failed for school {self.school.name}: {e}")
+            raise Exception(f"Test failed: {str(e)}")
 
 # Payment link generator (moved here to avoid circular imports)
 class PaymentLinkService:

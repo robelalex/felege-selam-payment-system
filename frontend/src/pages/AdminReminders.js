@@ -31,6 +31,8 @@ function AdminReminders() {
   const [showPaymentLinks, setShowPaymentLinks] = useState(false);
   const [smsConfigured, setSmsConfigured] = useState(false);
   const [checkingConfig, setCheckingConfig] = useState(true);
+  const [emailConfigured, setEmailConfigured] = useState(false);
+  const [checkingEmailConfig, setCheckingEmailConfig] = useState(true);
   const [activeTab, setActiveTab] = useState('proactive'); // 'proactive' or 'overdue'
   
   const { getAuthHeader, schoolId } = useAuth();
@@ -44,20 +46,36 @@ function AdminReminders() {
   const isFetching = useRef(false);
   const abortController = useRef(null);
 
-// In AdminReminders.js checkSMSConfiguration():
+// In AdminReminders.js - CORRECTED ENDPOINT PATH
 const checkSMSConfiguration = useCallback(async () => {
   setCheckingConfig(true);
   try {
-       const response = await api.get('/sms-config/', {
-         headers: getAuthHeader()
-       });
+    // ✅ FIXED: Added /schools/ prefix to match backend urls.py
+    const response = await api.get('/schools/sms-config/', {
+      headers: getAuthHeader()
+    });
     setSmsConfigured(response.data.sms_enabled === true);
   } catch (err) {
-    // Endpoint doesn't exist yet - assume not configured
     console.warn('SMS config endpoint not available');
     setSmsConfigured(false);
   } finally {
     setCheckingConfig(false);
+  }
+}, [getAuthHeader]);
+
+
+const checkEmailConfiguration = useCallback(async () => {
+  setCheckingEmailConfig(true);
+  try {
+    const response = await api.get('/schools/email-config/', {
+      headers: getAuthHeader()
+    });
+    setEmailConfigured(response.data.email_enabled === true);
+  } catch (err) {
+    console.warn('Email config endpoint not available');
+    setEmailConfigured(false);
+  } finally {
+    setCheckingEmailConfig(false);
   }
 }, [getAuthHeader]);
 
@@ -151,8 +169,9 @@ const checkSMSConfiguration = useCallback(async () => {
   // Fetch deadlines and check SMS config
   useEffect(() => {
     checkSMSConfiguration();
+    checkEmailConfiguration(); 
     fetchDeadlines();
-  }, [checkSMSConfiguration, fetchDeadlines]);
+  }, [checkSMSConfiguration,checkEmailConfiguration, fetchDeadlines]);
 
   const toggleStudent = (studentId) => {
     setSelectedStudents(prev =>
@@ -243,6 +262,7 @@ const selectAll = () => {
         message: message,
         academic_year: pendingData?.academic_year,
         deadline_id: selectedDeadline?.id
+        
       }, { headers: getAuthHeader() });
 
       setResult({
@@ -430,6 +450,19 @@ const selectAll = () => {
           </div>
         </div>
       )}
+
+      {/* ✅ NEW: Email Configuration Warning */}
+{reminderType !== 'sms' && !emailConfigured && !checkingEmailConfig && (
+  <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-lg">
+    <div className="flex items-center gap-2">
+      <AlertCircle className="h-5 w-5 text-blue-600" />
+      <p className="text-blue-700">
+        Email is not configured for your school. 
+        <a href="/school-settings" className="ml-2 text-blue-800 font-semibold underline">Go to School Settings</a> to set up Brevo credentials.
+      </p>
+    </div>
+  </div>
+)}
 
       {/* ✅ NEW: Deadline Selector for SMS */}
       {(reminderType === 'sms' || reminderType === 'both') && smsConfigured && (

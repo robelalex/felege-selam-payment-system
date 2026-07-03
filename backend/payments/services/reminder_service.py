@@ -382,10 +382,23 @@ class ReminderService:
     
     def send_reminders(self, student_ids, month=None, message=None,
                        academic_year=None, school_id=None):
-        """Send SMS reminders to selected students"""
+        """
+        Send DUAL-CHANNEL reminders (SMS + Email) to selected students.
+        Uses per-school credentials from database.
+        
+        Args:
+            student_ids: List of student IDs to notify
+            month: Month number for context (optional)
+            message: Custom message override (optional)
+            academic_year: Academic year ID/name/object
+            school_id: School ID for credential lookup
+            
+        Returns:
+            list: Results for each student attempt
+        """
         print(f"📱 ReminderService.send_reminders - school_id: {school_id}")
         
-        # ✅ Resolve year for validation
+        # Resolve year for validation
         academic_year_obj = self._resolve_academic_year(academic_year, school_id)
         year_name = academic_year_obj.name if academic_year_obj else None
         
@@ -395,40 +408,155 @@ class ReminderService:
             try:
                 student = Student.objects.get(student_id=student_id)
                 
+                # Validate school ownership
                 if school_id and str(student.school_id) != str(school_id):
                     results.append({
                         'student_id': student.student_id,
                         'student_name': f"{student.first_name} {student.last_name}",
                         'phone': student.parent_phone,
+                        'email': getattr(student, 'parent_email', ''),
                         'success': False,
                         'message': "Student does not belong to this school"
                     })
                     continue
                 
+                # Validate academic year
                 if year_name and student.academic_year != year_name:
                     results.append({
                         'student_id': student.student_id,
                         'student_name': f"{student.first_name} {student.last_name}",
                         'phone': student.parent_phone,
+                        'email': getattr(student, 'parent_email', ''),
                         'success': False,
                         'message': f"Student is not in academic year ({year_name})"
                     })
                     continue
                 
-                print(f"📱 Sending SMS to {student.parent_phone}: {message or 'Payment reminder'}")
+                # Prepare default reminder message if none provided
+                if not message:
+                    month_display = self.get_month_name(month) if month else "Upcoming"
+                    amount_str = ""
+                    
+                    # Try to find pending deadlines for this student
+                    from payments.models import PaymentDeadline, Payment
+                    unpaid_deadlines = PaymentDeadline.objects.filter(
+                        academic_year=academic_year_obj,
+                        grade__in=[None, student.grade],
+                        is_active=True
+                    ).exclude(
+                        id__in=Payment.objects.filter(
+                            student=student, 
+                            status='verified'
+                        ).values_list('deadline_id', flat=True)
+                    )
+                    
+                    if unpaid_deadlines.exists():
+                        total_due = sum(float(d.amount) for d in unpaid_deadlines)
+                        amount_str = f"Amount Due: {total_due:,.2f} ETB. "
+                    
+                    message = (
+                        f"Payment Reminder - {month_display}\n"
+                        f"Student: {student.full_name}\n"
+                        f"{amount_str}"
+                        f"Please pay via our portal or bank transfer.\n"
+                        f"For questions call: {student.school.phone if student.school else ''}"
+                    )
+                
+                sms_sent = False
+                email_sent = False
+                errors = []
+                
+                # === SEND SMS VIA SCHOOL'S AFRICA'S TALKING ACCOUNT ===
+                if student.parent_phone:
+                    try:
+                        from payments.services.multi_school_sms_service import MultiSchoolSMSService
+                        sms_service = MultiSchoolSMSService(int(school_id))
+                        sms_result = sms_service.send_sms(
+                            phone_number=student.parent_phone,
+                            message=message,
+                            related_to=f"reminder_{student.student_id}_{month}"
+                        )
+                        sms_sent = True
+                        print(f"[REMINDER] ✅ SMS sent to {student.parent_phone}")
+                    except Exception as e:
+                        error_msg = f"SMS failed: {str(e)[:100]}"
+                        errors.append(error_msg)
+                        print(f"[REMINDER] ⚠️ {error_msg}")
+                else:
+                    errors.append("No parent phone number")
+                
+                # === SEND EMAIL VIA SCHOOL'S BREVO ACCOUNT ===
+                parent_email = getattr(student, 'parent_email', '')
+                if parent_email:
+                    try:
+                        from common.email_service import SchoolEmailService
+                        
+                        # Build HTML email content
+                        html_content = f"""
+                        <!DOCTYPE html>
+                        <html>
+                        <body style="font-family: Arial, sans-serif; padding: 20px;">
+                            <h2 style="color: #F59E0B;">Payment Reminder</h2>
+                            <p>Dear Parent,</p>
+                            <p>This is a friendly reminder that your child <strong>{student.full_name}</strong> has pending payment(s).</p>
+                            
+                            <div style="background: #FEF3C7; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #F59E0B;">
+                                <pre style="margin: 0; white-space: pre-wrap; font-family: inherit;">{message}</pre>
+                            </div>
+                            
+                            <p>Please complete your payment at your earliest convenience.</p>
+                            
+                            <hr style="margin: 20px 0; border: none; border-top: 1px solid #E5E7EB;">
+                            <p style="color: #6B7280; font-size: 12px;">This is an automated message from {student.school.name if student.school else 'the school'}. Please do not reply.</p>
+                        </body>
+                        </html>
+                        """
+                        
+                        text_content = f"Payment Reminder\n\n{message}\n\n---\nAutomated message from {student.school.name if student.school else 'the school'}"
+                        
+                        email_service = SchoolEmailService(int(school_id))
+                        email_service.send_email(
+                            recipient_email=parent_email,
+                            subject=f"Payment Reminder - {student.full_name}",
+                            html_content=html_content,
+                            text_content=text_content
+                        )
+                        email_sent = True
+                        print(f"[REMINDER] ✅ Email sent to {parent_email}")
+                    except Exception as e:
+                        error_msg = f"Email failed: {str(e)[:100]}"
+                        errors.append(error_msg)
+                        print(f"[REMINDER] ⚠️ {error_msg}")
+                else:
+                    errors.append("No parent email")
+                
+                # Determine overall success
+                overall_success = sms_sent or email_sent
+                status_message = "Sent successfully" if overall_success else "; ".join(errors)
                 
                 results.append({
                     'student_id': student.student_id,
                     'student_name': f"{student.first_name} {student.last_name}",
                     'phone': student.parent_phone,
-                    'success': True,
-                    'message': f"Reminder sent to {student.parent_phone}"
+                    'email': parent_email,
+                    'success': overall_success,
+                    'sms_sent': sms_sent,
+                    'email_sent': email_sent,
+                    'message': status_message
                 })
+                
             except Student.DoesNotExist:
                 results.append({
                     'student_id': student_id,
                     'success': False,
                     'message': f"Student {student_id} not found"
+                })
+            except Exception as e:
+                print(f"[REMINDER] 💥 Unexpected error for student {student_id}: {e}")
+                results.append({
+                    'student_id': student_id,
+                    'success': False,
+                    'message': f"Unexpected error: {str(e)[:100]}"
                 })
         
         return results

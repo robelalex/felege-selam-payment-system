@@ -5,6 +5,8 @@ from . import views
 from .views import (
     SchoolSMSConfigView, 
     SchoolSMSTestView, 
+    SchoolEmailConfigView,   # ✅ NEW
+    SchoolEmailTestView,     # ✅ NEW
     fix_missing_profiles, 
     sms_config_preflight,
     verify_et_settings,           
@@ -37,6 +39,11 @@ urlpatterns = [
     # ✅ Chapa endpoints
     path('schools/chapa-config/', SchoolChapaConfigView.as_view(), name='school-chapa-config'),
     path('schools/chapa-test/', SchoolChapaTestView.as_view(), name='school-chapa-test'),
+
+    # ✅ NEW: Email config paths (MUST come before router.urls)
+    path('schools/email-config/', SchoolEmailConfigView.as_view(), name='school-email-config'),
+    path('schools/email-test/', SchoolEmailTestView.as_view(), name='school-email-test'),
+
 
     # ✅ Router LAST — so it never intercepts the custom paths above
     path('', include(router.urls)),

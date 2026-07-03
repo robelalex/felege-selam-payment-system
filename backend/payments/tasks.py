@@ -475,17 +475,7 @@ def _fetch_full_result_via_idempotent_repost(clean_ref: str, school_id: int,
 def _process_verify_et_result(slip: PaymentSlip, data: dict, clean_ref: str):
     """
     Process a completed Verify.ET response and create a Payment record.
-
-    The real shape (per docs) is:
-      {
-        "data": [ { "bank", "status", "verified", "amount", "currency",
-                    "senderName", "receiverName", "referenceNumber", ... } ],
-        "verification": { "requestId", "processingStatus", "status", "verified" }
-      }
-
-    `data["data"]` is a LIST — take the first item. The previous version looked
-    inside `verification.get('data')` / `verification.get('transaction')`, which
-    don't exist in the real response, hence amount/payer were always None.
+    Automatically sends dual-channel notifications (Email + SMS) upon success.
     """
     try:
         print(f"[Q-DEBUG] Full API response for slip #{slip.id}: {data}")
@@ -494,20 +484,16 @@ def _process_verify_et_result(slip: PaymentSlip, data: dict, clean_ref: str):
         tx_data = results[0] if isinstance(results, list) and results else {}
         verification = data.get('verification', {}) or {}
 
-        print(f"[Q-DEBUG] tx_data keys: {list(tx_data.keys())}")
-        print(f"[Q-DEBUG] verification keys: {list(verification.keys())}")
-
         payer_name = tx_data.get('senderName') or ''
         receiver = tx_data.get('receiverName') or ''
         bank_amount = tx_data.get('amount')
         tx_date = tx_data.get('timestamp') or ''
         is_verified_flag = tx_data.get('verified', verification.get('verified', False))
-        tx_status = tx_data.get('status') or verification.get('status')  # "success" | "failed" | "pending"
+        tx_status = tx_data.get('status') or verification.get('status')
 
+        # Handle incomplete/unverified results
         if bank_amount is None or not is_verified_flag or tx_status != 'success':
-            print(f"[Q-WARN] \u26a0\ufe0f Incomplete/unverified result for slip #{slip.id}: "
-                  f"amount={bank_amount} verified={is_verified_flag} status={tx_status}")
-
+            print(f"[Q-WARN] ⚠️ Incomplete result for slip #{slip.id}")
             slip.verify_et_status = tx_status or 'unknown'
             slip.verify_et_payer_name = payer_name
             slip.verify_et_amount = bank_amount
@@ -516,11 +502,8 @@ def _process_verify_et_result(slip: PaymentSlip, data: dict, clean_ref: str):
             slip.verify_et_response_raw = data
             slip.verify_et_checked_at = timezone.now()
             slip.verification_status = 'manual_review'
-            slip.verification_error = (
-                'Verify.ET returned an incomplete or unverified result - needs manual check'
-            )
+            slip.verification_error = 'Verify.ET returned an incomplete or unverified result'
             slip.save()
-            print(f"[Q] \u26a0\ufe0f Slip #{slip.id} marked for manual review (incomplete result)")
             return
 
         # Check amount match (within 1 Birr tolerance)
@@ -531,6 +514,7 @@ def _process_verify_et_result(slip: PaymentSlip, data: dict, clean_ref: str):
         except (ValueError, TypeError):
             pass
 
+        # Update slip with verified data
         slip.verify_et_status = 'verified'
         slip.verify_et_payer_name = payer_name
         slip.verify_et_amount = bank_amount
@@ -541,21 +525,19 @@ def _process_verify_et_result(slip: PaymentSlip, data: dict, clean_ref: str):
 
         if amount_matches:
             slip.verification_status = 'verified'
-            slip.status = 'verified'  # legacy field, kept in sync for dashboard
+            slip.status = 'verified'
             slip.verified_at_system = timezone.now()
             slip.cbe_verification_status = 'cbe_verified'
             slip.cbe_check_method = 'api'
             slip.cbe_verified_at = timezone.now()
         else:
             slip.verification_status = 'manual_review'
-            slip.verification_error = (
-                f'Amount mismatch: declared={slip.amount}, bank={bank_amount}'
-            )
+            slip.verification_error = f'Amount mismatch: declared={slip.amount}, bank={bank_amount}'
 
         slip.save()
+        print(f"[Q] ✅ Verified slip #{slip.id} | Payer: {payer_name} | Amount: {bank_amount}")
 
-        print(f"[Q] \u2705 Verified slip #{slip.id} | Payer: {payer_name} | Amount: {bank_amount}")
-
+        # Create payment record if verified
         if slip.verification_status == 'verified':
             existing = Payment.objects.filter(
                 student=slip.student,
@@ -578,13 +560,194 @@ def _process_verify_et_result(slip: PaymentSlip, data: dict, clean_ref: str):
                     slip=slip,
                     verified_at=timezone.now(),
                 )
-                print(f"[Q] \U0001F4B0 Payment record created for slip #{slip.id}")
+                print(f"[Q] 💰 Payment record created for slip #{slip.id}")
 
-            # TODO: Trigger SMS notification here when service is ready
-            # _send_verification_sms(slip)
+                # ✅ NEW: Trigger dual-channel notification immediately
+                try:
+                    from common.email_service import SchoolEmailService
+                    from payments.services.multi_school_sms_service import MultiSchoolSMSService
+                    
+                    school = slip.student.school
+                    student = slip.student
+                    month_display = slip.deadline.get_month_display() if slip.deadline else "Unknown"
+                    academic_year = slip.deadline.academic_year.name if slip.deadline and slip.deadline.academic_year else ""
+                    amount_val = float(bank_amount)
+                    
+                    # Prepare content
+                    email_subject = f"✅ Payment Verified - {student.full_name} - {month_display} {academic_year}"
+                    html_content = f"""
+                    <!DOCTYPE html>
+                    <html>
+                    <body style="font-family: Arial, sans-serif; padding: 20px;">
+                        <h2 style="color: #10B981;">Payment Successfully Verified!</h2>
+                        <p>Dear Parent,</p>
+                        <p>Your payment for <strong>{student.full_name}</strong> has been successfully verified via CBE.</p>
+                        <div style="background: #F0FDF4; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #10B981;">
+                            <p style="margin: 0;"><strong>Student:</strong> {student.full_name}</p>
+                            <p style="margin: 5px 0 0 0;"><strong>Month:</strong> {month_display} {academic_year}</p>
+                            <p style="margin: 5px 0 0 0;"><strong>Amount Paid:</strong> {amount_val:,.2f} ETB</p>
+                            <p style="margin: 5px 0 0 0;"><strong>Payer Name:</strong> {payer_name}</p>
+                        </div>
+                        <p>No further action is required. Thank you for your timely payment!</p>
+                        <hr style="margin: 20px 0; border: none; border-top: 1px solid #E5E7EB;">
+                        <p style="color: #6B7280; font-size: 12px;">This is an automated message from {school.name}. Please do not reply.</p>
+                    </body>
+                    </html>
+                    """
+                    text_content = f"Payment Verified! {student.full_name} - {month_display} {academic_year}. Amount: {amount_val:,.2f} ETB. Payer: {payer_name}. No further action needed. - {school.name}"
+                    sms_message = f"✅ Payment Verified! {student.full_name} - {month_display} {academic_year}. Amount: {amount_val:,.2f} ETB. Payer: {payer_name}. No further action needed. - {school.name}"
+
+                    # Send Email (Layer 2 - School's Brevo Account)
+                    if hasattr(student, 'parent_email') and student.parent_email:
+                        try:
+                            email_service = SchoolEmailService(school.id)
+                            email_service.send_email(
+                                recipient_email=student.parent_email,
+                                subject=email_subject,
+                                html_content=html_content,
+                                text_content=text_content
+                            )
+                            print(f"[Q-NOTIFY] ✅ Email sent to {student.parent_email} for slip #{slip.id}")
+                        except Exception as e:
+                            print(f"[Q-NOTIFY] ⚠️ Email failed for slip #{slip.id}: {e}")
+
+                    # Send SMS (Africa's Talking)
+                    if hasattr(student, 'parent_phone') and student.parent_phone:
+                        try:
+                            sms_service = MultiSchoolSMSService(school.id)
+                            sms_service.send_sms(
+                                phone_number=student.parent_phone,
+                                message=sms_message,
+                                related_to=f"verification_slip_{slip.id}"
+                            )
+                            print(f"[Q-NOTIFY] ✅ SMS sent to {student.parent_phone} for slip #{slip.id}")
+                        except Exception as e:
+                            print(f"[Q-NOTIFY] ⚠️ SMS failed for slip #{slip.id}: {e}")
+
+                except Exception as notify_err:
+                    # NEVER let notification errors break the verification task
+                    print(f"[Q-NOTIFY] 💥 Critical notification error for slip #{slip.id}: {notify_err}")
 
     except Exception as e:
-        print(f"[Q] \U0001F4A5 Error processing result for slip #{slip.id}: {e}")
-        slip.verification_status = 'manual_review'
-        slip.verification_error = f'Result processing error: {str(e)[:200]}'
-        slip.save(update_fields=['verification_status', 'verification_error'])
+        print(f"[Q] 💥 Error processing result for slip #{slip.id}: {e}")
+        try:
+            slip.verification_status = 'manual_review'
+            slip.verification_error = f'Result processing error: {str(e)[:200]}'
+            slip.save(update_fields=['verification_status', 'verification_error'])
+        except Exception:
+            pass
+
+
+def _send_verification_notification(slip: PaymentSlip):
+    """
+    Send dual-channel notification (Email + SMS) to parent after successful verification.
+    Uses school-specific credentials from database.
+    Gracefully handles failures without breaking the background task.
+    """
+    try:
+        student = slip.student
+        school = student.school
+        
+        # Prepare notification content
+        payer_name = slip.verify_et_payer_name or "Parent"
+        amount = float(slip.verify_et_amount or slip.amount)
+        month_display = slip.deadline.get_month_display() if slip.deadline else "Unknown Month"
+        academic_year = slip.deadline.academic_year.name if slip.deadline and slip.deadline.academic_year else ""
+        
+        email_subject = f"✅ Payment Verified - {student.full_name} - {month_display} {academic_year}"
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <body style="font-family: Arial, sans-serif; padding: 20px;">
+            <h2 style="color: #10B981;">Payment Successfully Verified!</h2>
+            <p>Dear Parent,</p>
+            <p>Your payment for <strong>{student.full_name}</strong> has been successfully verified via CBE.</p>
+            
+            <div style="background: #F0FDF4; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #10B981;">
+                <p style="margin: 0;"><strong>Student:</strong> {student.full_name}</p>
+                <p style="margin: 5px 0 0 0;"><strong>Month:</strong> {month_display} {academic_year}</p>
+                <p style="margin: 5px 0 0 0;"><strong>Amount Paid:</strong> {amount:,.2f} ETB</p>
+                <p style="margin: 5px 0 0 0;"><strong>Payer Name:</strong> {payer_name}</p>
+                <p style="margin: 5px 0 0 0;"><strong>Verified At:</strong> {timezone.now().strftime('%Y-%m-%d %H:%M')}</p>
+            </div>
+            
+            <p>No further action is required. Thank you for your timely payment!</p>
+            
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid #E5E7EB;">
+            <p style="color: #6B7280; font-size: 12px;">This is an automated message from {school.name}. Please do not reply.</p>
+        </body>
+        </html>
+        """
+        
+        text_content = f"""
+        Payment Successfully Verified!
+        
+        Dear Parent,
+        Your payment for {student.full_name} has been successfully verified via CBE.
+        
+        Student: {student.full_name}
+        Month: {month_display} {academic_year}
+        Amount Paid: {amount:,.2f} ETB
+        Payer Name: {payer_name}
+        Verified At: {timezone.now().strftime('%Y-%m-%d %H:%M')}
+        
+        No further action is required. Thank you for your timely payment!
+        
+        ---
+        Automated message from {school.name}
+        """
+        
+        sms_message = (
+            f"✅ Payment Verified! {student.full_name} - {month_display} {academic_year}. "
+            f"Amount: {amount:,.2f} ETB. Payer: {payer_name}. "
+            f"No further action needed. - {school.name}"
+        )
+        
+        # === SEND EMAIL VIA SCHOOL'S BREVO ACCOUNT ===
+        email_sent = False
+        if hasattr(student, 'parent_email') and student.parent_email:
+            try:
+                from common.email_service import SchoolEmailService
+                email_service = SchoolEmailService(school.id)
+                result = email_service.send_email(
+                    recipient_email=student.parent_email,
+                    subject=email_subject,
+                    html_content=html_content,
+                    text_content=text_content
+                )
+                email_sent = True
+                print(f"[Q-NOTIFY] ✅ Email sent to {student.parent_email} for slip #{slip.id}")
+            except Exception as e:
+                print(f"[Q-NOTIFY] ⚠️ Email failed for slip #{slip.id}: {e}")
+        else:
+            print(f"[Q-NOTIFY] ⚠️ No parent email for student {student.student_id}, skipping email")
+        
+        # === SEND SMS VIA SCHOOL'S AFRICA'S TALKING ACCOUNT ===
+        sms_sent = False
+        if hasattr(student, 'parent_phone') and student.parent_phone:
+            try:
+                from payments.services.multi_school_sms_service import MultiSchoolSMSService
+                sms_service = MultiSchoolSMSService(school.id)
+                result = sms_service.send_sms(
+                    phone_number=student.parent_phone,
+                    message=sms_message,
+                    related_to=f"verification_slip_{slip.id}"
+                )
+                sms_sent = True
+                print(f"[Q-NOTIFY] ✅ SMS sent to {student.parent_phone} for slip #{slip.id}")
+            except Exception as e:
+                print(f"[Q-NOTIFY] ⚠️ SMS failed for slip #{slip.id}: {e}")
+        else:
+            print(f"[Q-NOTIFY] ⚠️ No parent phone for student {student.student_id}, skipping SMS")
+        
+        # Log success/failure summary
+        if email_sent or sms_sent:
+            print(f"[Q-NOTIFY] 🎉 Notification complete for slip #{slip.id}: "
+                  f"Email={'✅' if email_sent else '❌'} SMS={'✅' if sms_sent else '❌'}")
+        else:
+            print(f"[Q-NOTIFY] ❌ Both email and SMS failed for slip #{slip.id}")
+            
+    except Exception as e:
+        # NEVER let notification errors break the verification task
+        print(f"[Q-NOTIFY] 💥 Critical notification error for slip #{slip.id}: {e}")
