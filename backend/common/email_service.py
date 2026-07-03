@@ -162,10 +162,14 @@ class SchoolEmailService:
         Test if school's Brevo credentials work
         Sends a test email to the school's own email address
         """
+        from django.utils import timezone  # ✅ Import at top
+        
         if not self.school.email:
             raise Exception("School email address is not set. Please add school email first.")
         
         try:
+            timestamp = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+            
             test_subject = f"✅ Test Email from {self.school.name}"
             test_html = f"""
             <!DOCTYPE html>
@@ -173,7 +177,7 @@ class SchoolEmailService:
             <body style="font-family: Arial, sans-serif; padding: 20px;">
                 <h2 style="color: #10B981;">Test Successful!</h2>
                 <p>Your Brevo credentials for <strong>{self.school.name}</strong> are working correctly.</p>
-                <p>Sent at: {__import__('django.utils.timezone').now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+                <p>Sent at: {timestamp}</p>
             </body>
             </html>
             """
@@ -186,7 +190,6 @@ class SchoolEmailService:
             )
             
             # Update school with success
-            from django.utils import timezone
             self.school.email_enabled = True
             self.school.email_last_test = timezone.now()
             self.school.email_test_status = "success"
@@ -201,13 +204,13 @@ class SchoolEmailService:
             
         except Exception as e:
             # Update school with failure
-            from django.utils import timezone
+            error_msg = str(e)[:200]  # ✅ Truncate to prevent DB overflow
             self.school.email_enabled = False
-            self.school.email_test_status = f"Failed: {str(e)[:100]}"
+            self.school.email_test_status = f"Failed: {error_msg}"
             self.school.save(update_fields=['email_enabled', 'email_test_status'])
             
             logger.error(f"❌ Test email failed for school {self.school.name}: {e}")
-            raise Exception(f"Test failed: {str(e)}")
+            raise Exception(f"Test failed: {error_msg}")
 
 # Payment link generator (moved here to avoid circular imports)
 class PaymentLinkService:

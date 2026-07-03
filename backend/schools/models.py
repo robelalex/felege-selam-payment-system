@@ -51,7 +51,7 @@ class School(models.Model):
         help_text="Last time SMS credentials were tested"
     )
     sms_test_status = models.CharField(
-        max_length=50, 
+        max_length=255, 
         blank=True, 
         null=True, 
         help_text="Status of last test (success/failed/pending)"
@@ -120,7 +120,7 @@ class School(models.Model):
         help_text="Last time Verify.ET API credentials were tested"
     )
     verify_et_test_status = models.CharField(
-        max_length=50,
+        max_length=255,
         blank=True,
         help_text="Status of last API test (success/failed/pending)"
     )
@@ -167,7 +167,7 @@ class School(models.Model):
         help_text="Last time email credentials were tested"
     )
     email_test_status = models.CharField(
-        max_length=50,
+        max_length=255,
         blank=True,
         null=True,
         help_text="Status of last test (success/failed/pending)"
@@ -212,11 +212,10 @@ class School(models.Model):
     
     @property
     def has_email_credentials(self):
-        """Check if school email is properly configured"""
+        """Check if school email credentials exist (regardless of test status)"""
         return bool(
             self.brevo_api_key and 
-            self.brevo_sender_email and 
-            self.email_enabled
+            self.brevo_sender_email
         )
     
     class Meta:

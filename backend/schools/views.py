@@ -592,7 +592,7 @@ class SchoolEmailTestView(APIView):
             return Response(result)
             
         except Exception as e:
-            error_msg = str(e)
+            error_msg = str(e)[:200]
             school.email_enabled = False
             school.email_test_status = f"Failed: {error_msg[:100]}"
             school.save(update_fields=['email_enabled', 'email_test_status'])

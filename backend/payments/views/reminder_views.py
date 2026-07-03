@@ -6,6 +6,7 @@ from rest_framework.permissions import AllowAny
 from ..services.reminder_service import ReminderService
 from academics.models import AcademicYear
 from students.models import Student
+from common.email_service import PaymentLinkService
 from ..models import Payment, PaymentDeadline
 from django.db import models
 from schools.models import SchoolAdminProfile
@@ -115,7 +116,7 @@ class ReminderViewSet(viewsets.ViewSet):
         student_ids = request.data.get('student_ids', [])
         month = request.data.get('month')
         custom_message = request.data.get('message', '')
-        academic_year = request.data.get('academic_year')
+        academic_year_param = request.data.get('academic_year')
         
         if not school_id:
             return Response({'error': 'School ID required'}, status=400)
@@ -129,6 +130,40 @@ class ReminderViewSet(viewsets.ViewSet):
         except School.DoesNotExist:
             return Response({'error': 'School not found'}, status=404)
         
+        # ✅ FIX 1: Resolve academic year PARAMETER to an OBJECT before filtering
+        academic_year_obj = None
+        if academic_year_param:
+            try:
+                # Try to fetch by name first (e.g., "2018 E.C.")
+                academic_year_obj = AcademicYear.objects.get(
+                    name=str(academic_year_param), 
+                    school_id=int(school_id)
+                )
+            except AcademicYear.DoesNotExist:
+                try:
+                    # Fallback: try to parse as integer ID
+                    academic_year_obj = AcademicYear.objects.get(
+                        id=int(academic_year_param), 
+                        school_id=int(school_id)
+                    )
+                except (ValueError, AcademicYear.DoesNotExist):
+                    pass
+        
+        # If no param provided or lookup failed, use current year
+        if not academic_year_obj:
+            academic_year_obj = AcademicYear.objects.filter(
+                school_id=int(school_id), 
+                is_current=True
+            ).first()
+            
+        if not academic_year_obj:
+            return Response({
+                'success': False,
+                'sent': 0,
+                'failed': len(student_ids),
+                'results': [{'student_id': sid, 'success': False, 'message': 'Academic year not found'} for sid in student_ids]
+            })
+
         # Verify all students belong to this school
         students = Student.objects.filter(student_id__in=student_ids, school_id=int(school_id))
         
@@ -152,13 +187,9 @@ class ReminderViewSet(viewsets.ViewSet):
             total_due = 0
             pending_deadlines = []
             
-            year_name = academic_year
-            if not year_name:
-                current_year = AcademicYear.objects.filter(school_id=int(school_id), is_current=True).first()
-                year_name = current_year.name if current_year else None
-            
+            # ✅ FIX 2: Use the ACADEMIC YEAR OBJECT here, not the string name
             deadlines = PaymentDeadline.objects.filter(
-                academic_year=year_name,
+                academic_year=academic_year_obj,  # <-- Changed from year_name
                 is_active=True,
                 school_id=int(school_id)
             )
