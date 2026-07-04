@@ -158,29 +158,16 @@ const SchoolSettings = () => {
             {/* ==================== SMS CONFIGURATION SECTION ==================== */}
             <div className="bg-white shadow rounded-lg overflow-hidden">
                 <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
-                    <p className="text-yellow-800">
-                        ⚠️ Each school needs its own <strong>Africa's Talking</strong> account. 
-                        Enter your credentials below to enable SMS for this school.
-                    </p>
+<p className="text-yellow-800">
+    ⚠️ Each school needs its own <strong>Afro Message</strong> API Key. 
+    Enter your credentials below to enable SMS for this school.
+</p>
                 </div>
 
                 <form onSubmit={handleSmsSubmit} className="p-6 space-y-6">
-                    <h2 className="text-xl font-semibold">Africa's Talking Credentials</h2>
+                    <h2 className="text-xl font-semibold">Afro Message Credentials</h2>
                     
                     <div className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Username</label>
-                            <input
-                                type="text"
-                                name="at_username"
-                                value={smsConfig.at_username || ''}
-                                onChange={handleSmsChange}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                                placeholder="e.g., sandbox or your username"
-                                required
-                            />
-                            <p className="text-xs text-gray-500 mt-1">For testing, use "sandbox". For production, use your AT username.</p>
-                        </div>
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">API Key</label>
@@ -190,8 +177,8 @@ const SchoolSettings = () => {
                                 value={smsConfig.at_api_key === '********' ? '' : smsConfig.at_api_key || ''}
                                 onChange={handleSmsChange}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                                placeholder="Enter your Africa's Talking API key"
-                                required={!smsConfig.sms_enabled}
+                                placeholder="Enter your Afro Message API Key"
+                                required
                             />
                         </div>
 
@@ -206,7 +193,7 @@ const SchoolSettings = () => {
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                                 placeholder="e.g., SCHOOLNAME (max 11 chars)"
                             />
-                            <p className="text-xs text-gray-500 mt-1">Must be approved by Africa's Talking. Leave empty to use default.</p>
+                            <p className="text-xs text-gray-500 mt-1">Must be approved by Afro Message. Leave empty to use system default.</p>
                         </div>
 
                         <div>
@@ -247,7 +234,7 @@ const SchoolSettings = () => {
                         <button
                             type="button"
                             onClick={handleSmsTest}
-                            disabled={testing.sms || !smsConfig.at_username || !smsConfig.at_api_key}
+                            disabled={testing.sms || !smsConfig.at_api_key}
                             className="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
                         >
                             {testing.sms ? 'Testing...' : 'Test SMS Credentials'}
@@ -359,15 +346,16 @@ const SchoolSettings = () => {
 
             {/* ==================== INSTRUCTIONS ==================== */}
             <div className="mt-8 grid md:grid-cols-2 gap-6">
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <h3 className="font-semibold text-blue-900 mb-2">How to Get Africa's Talking Credentials:</h3>
-                    <ol className="list-decimal list-inside text-sm text-blue-800 space-y-1">
-                        <li>Sign up at <a href="https://account.africastalking.com" target="_blank" rel="noopener noreferrer" className="underline">Africa's Talking</a></li>
-                        <li>Go to "Settings" → "API Key" to get your API key</li>
-                        <li>Your username is usually "sandbox" for testing or your account username</li>
-                        <li>Fund your account to send real SMS</li>
-                    </ol>
-                </div>
+<div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+    <h3 className="font-semibold text-blue-900 mb-2">How to Get Afro Message Credentials:</h3>
+    <ol className="list-decimal list-inside text-sm text-blue-800 space-y-1">
+        <li>Sign up at <a href="https://afromessage.com" target="_blank" rel="noopener noreferrer" className="underline">afromessage.com</a></li>
+        <li>Go to your dashboard → API section → generate/copy your API Key</li>
+        <li>Under Sender Names, request approval for your school's sender name (max 11 chars)</li>
+        <li>Top up credit before testing — a zero balance will cause sends to fail</li>
+        <li>Paste the API Key and Sender Name above, then click "Test SMS Credentials"</li>
+    </ol>
+</div>
 
                 <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
                     <h3 className="font-semibold text-indigo-900 mb-2">How to Get Brevo Credentials:</h3>

@@ -22,24 +22,26 @@ class School(models.Model):
     # Telebirr details
     telebirr_merchant_id = models.CharField(max_length=100, blank=True)
     
-    # ========== Africa's Talking SMS Configuration ==========
+    # ========== SMSEthiopia SMS Configuration ==========
+    # Note: 'at_username' DB column kept for backward compatibility, 
+    # but now stores SMSEthiopia API Key or Campaign Name if needed
     at_username = models.CharField(
         max_length=100, 
         blank=True, 
         null=True, 
-        help_text="Africa's Talking username (e.g., sandbox or your username)"
+        help_text="SMSEthiopia Campaign Name or Username (Optional)"
     )
     at_api_key = models.CharField(
-        max_length=200, 
+        max_length=512, 
         blank=True, 
         null=True, 
-        help_text="Africa's Talking API key"
+        help_text="SMSEthiopia API Key"
     )
     sms_sender_id = models.CharField(
         max_length=11, 
         blank=True, 
         null=True, 
-        help_text="SMS sender ID (max 11 chars) - must be approved by Africa's Talking"
+        help_text="SMS Sender ID (max 11 chars) - e.g., SCHOOLPAY"
     )
     sms_enabled = models.BooleanField(
         default=False, 
@@ -73,7 +75,6 @@ class School(models.Model):
     )
     
     # ========== NEW: Chapa Payment Configuration ==========
-    # Each school has their OWN Chapa account
     chapa_api_key = models.CharField(
         max_length=200, 
         blank=True, 
@@ -99,20 +100,19 @@ class School(models.Model):
         max_length=50, 
         blank=True, 
         null=True, 
-        help_text="Status of last Chapa test (success/failed/pending)"
+        help_text="Status of Chapa test (success/failed/pending)"
     )
     
     # ========== NEW: Verify.ET API Configuration ==========
-    # Each school registers their OWN Verify.ET account
     verify_et_api_key = models.CharField(
         max_length=200,
         blank=True,
         null=True,
-        help_text="Verify.ET API key for this school (from https://verify.et)"
+        help_text="Verify.ET API key for this school"
     )
     verify_et_enabled = models.BooleanField(
         default=False,
-        help_text="Is Verify.ET API configured and working for this school?"
+        help_text="Is Verify.ET API configured and working?"
     )
     verify_et_last_test = models.DateTimeField(
         blank=True,
@@ -129,33 +129,31 @@ class School(models.Model):
     cbe_account_number = models.CharField(
         max_length=50,
         blank=True,
-        help_text="School's CBE account number (e.g., 1000137267900)"
+        help_text="School's CBE account number"
     )
     cbe_account_suffix = models.CharField(
         max_length=8,
         blank=True,
-        help_text="Last 8 digits of CBE account (e.g., 13726790)"
+        help_text="Last 8 digits of CBE account"
     )
 
-
     # ========== NEW: School Email Configuration (Layer 2 - Brevo) ==========
-    # Each school can configure their own Brevo account for receipts/reminders
     brevo_api_key = models.CharField(
         max_length=200,
         blank=True,
         null=True,
-        help_text="Brevo v3 API key for this school's transactional emails"
+        help_text="Brevo v3 API key for transactional emails"
     )
     brevo_sender_email = models.EmailField(
         blank=True,
         null=True,
-        help_text="Verified sender email in Brevo (e.g., finance@school.edu.et)"
+        help_text="Verified sender email in Brevo"
     )
     brevo_sender_name = models.CharField(
         max_length=100,
         blank=True,
         null=True,
-        help_text="Sender name displayed in emails (e.g., Greenfield Academy)"
+        help_text="Sender display name (e.g., Greenfield Academy)"
     )
     email_enabled = models.BooleanField(
         default=False,
@@ -170,10 +168,10 @@ class School(models.Model):
         max_length=255,
         blank=True,
         null=True,
-        help_text="Status of last test (success/failed/pending)"
+        help_text="Status of last email test (success/failed/pending)"
     )
     
-    # Optional: Email quota tracking to control costs
+    # Optional: Email quota tracking
     email_monthly_limit = models.IntegerField(
         default=0,
         help_text="Monthly email limit (0 = unlimited)"
@@ -188,7 +186,6 @@ class School(models.Model):
         help_text="Last time monthly counter was reset"
     )
 
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -202,8 +199,9 @@ class School(models.Model):
     
     @property
     def has_sms_credentials(self):
-        """Check if SMS is properly configured"""
-        return bool(self.at_username and self.at_api_key and self.sms_enabled)
+        """Check if SMS is properly configured for SMSEthiopia"""
+        # Only requires API key + enabled status (username/campaign is optional)
+        return bool(self.at_api_key and self.sms_enabled)
     
     @property
     def has_verify_et_credentials(self):
@@ -212,11 +210,8 @@ class School(models.Model):
     
     @property
     def has_email_credentials(self):
-        """Check if school email credentials exist (regardless of test status)"""
-        return bool(
-            self.brevo_api_key and 
-            self.brevo_sender_email
-        )
+        """Check if school email credentials exist"""
+        return bool(self.brevo_api_key and self.brevo_sender_email)
     
     class Meta:
         ordering = ['name']
@@ -224,7 +219,7 @@ class School(models.Model):
 
 # ========== SchoolAdminProfile Model ==========
 class SchoolAdminProfile(models.Model):
-    """Link between Django User and School - each school admin belongs to one school"""
+    """Link between Django User and School"""
     user = models.OneToOneField('auth.User', on_delete=models.CASCADE, related_name='school_profile')
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='admins')
     is_active = models.BooleanField(default=True)

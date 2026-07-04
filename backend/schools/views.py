@@ -100,7 +100,7 @@ def fix_missing_profiles(request):
 # ========== SMS CONFIGURATION VIEWS ==========
 
 class SchoolSMSConfigView(APIView):
-    """View for schools to update their SMS credentials"""
+    """View for schools to update their SMSEthiopia credentials"""
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
@@ -119,7 +119,7 @@ class SchoolSMSConfigView(APIView):
         
         # Return SMS config (hide sensitive data partially)
         return Response({
-            'at_username': school.at_username or '',
+            'at_username': school.at_username or '',  # Kept for backward compatibility/campaign name
             'at_api_key': '********' if school.at_api_key else '',
             'sms_sender_id': school.sms_sender_id or '',
             'sms_enabled': school.sms_enabled,
@@ -162,12 +162,12 @@ class SchoolSMSConfigView(APIView):
 
 
 class SchoolSMSTestView(APIView):
-    """Test school's Africa's Talking credentials"""
+    """Test school's Afro Message credentials"""
     permission_classes = [IsAuthenticated]
-    
+
     def post(self, request):
         from django.utils import timezone
-        
+
         try:
             school = get_school_for_user(request)
         except ObjectDoesNotExist as e:
@@ -175,38 +175,30 @@ class SchoolSMSTestView(APIView):
                 {'error': 'School association not found.', 'detail': str(e)},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
-        # Check if credentials exist
-        if not school.at_username or not school.at_api_key:
-            return Response({'error': 'Please save your Africa\'s Talking credentials first'}, status=400)
-        
-        # Check if school has a phone number
+
+        if not school.at_api_key:
+            return Response({'error': 'Please save your Afro Message API Key first'}, status=400)
+
         if not school.phone:
             return Response({'error': 'School phone number is not set. Please update school phone number first.'}, status=400)
-        
-        # Send test SMS
+
         try:
             sms_service = MultiSchoolSMSService(school.id)
             result = sms_service.test_credentials()
-            
-            # ✅ Success - update status
+
             school.sms_enabled = True
             school.sms_test_status = 'success'
             school.sms_last_test = timezone.now()
             school.save(update_fields=['sms_enabled', 'sms_test_status', 'sms_last_test'])
-            
+
             return Response(result)
-            
+
         except Exception as e:
-            # ✅ Failure - update status with error
             error_msg = str(e)
-            
-            # Update school status with the error
             school.sms_enabled = False
             school.sms_test_status = f"Failed: {error_msg[:100]}"
             school.save(update_fields=['sms_enabled', 'sms_test_status'])
-            
-            # Return error response
+
             return Response({'error': error_msg}, status=400)
 
 

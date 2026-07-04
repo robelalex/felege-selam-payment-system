@@ -266,7 +266,7 @@ function SMSDashboard() {
       console.error('Error sending SMS:', err);
       setResult({
         success: false,
-        message: '❌ Error sending SMS. Please check your Africa\'s Talking credentials in School Settings.'
+        message: '❌ Error sending SMS. Please check your Afro Message API Key in School Settings.'
       });
     } finally {
       setSending(false);
@@ -381,14 +381,14 @@ function SMSDashboard() {
             <h2 className="text-xl font-bold text-yellow-800">SMS Not Configured</h2>
           </div>
           <p className="text-yellow-700 mb-4">
-            Your school hasn't configured Africa's Talking SMS credentials yet. 
+            Your school hasn't configured Afro Message SMS credentials yet. 
             Please set up your SMS settings to send messages to parents.
           </p>
           <div className="bg-white p-4 rounded-lg mb-4">
             <p className="font-semibold text-gray-800 mb-2">To configure SMS:</p>
             <ol className="list-decimal list-inside text-gray-600 space-y-1">
               <li>Go to <strong>School Settings</strong> page</li>
-              <li>Enter your Africa's Talking username and API key</li>
+              <li>Enter your Afro Message API Key</li>
               <li>Set your preferred Sender ID (optional)</li>
               <li>Click "Test Credentials" to verify</li>
               <li>Once successful, return here to send SMS</li>
@@ -450,7 +450,7 @@ function SMSDashboard() {
               ) : 'N/A'}
             </p>
             <p className="text-primary-200 text-sm mt-2">
-              {balance?.success ? 'Using school\'s own Africa\'s Talking account' : 'Configure SMS in School Settings'}
+              {balance?.success ? 'Using school\'s own Afro Message account' : 'Configure SMS in School Settings'}
             </p>
           </div>
           <DollarSign className="h-12 w-12 text-white/30" />

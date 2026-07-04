@@ -208,7 +208,7 @@ const selectAll = () => {
     }
 
     if (!smsConfigured) {
-      alert('SMS is not configured for your school. Please go to School Settings to set up Africa\'s Talking credentials.');
+      alert('SMS is not configured for your school. Please go to School Settings to set up Your SMSEthiopia credentials.');
       return;
     }
 
@@ -238,7 +238,7 @@ const selectAll = () => {
       setResult({
         success: false,
         type: 'sms',
-        message: err.response?.data?.error || '❌ Failed to send SMS reminders. Please check your SMS configuration.'
+        message: err.response?.data?.error || '❌ Failed to send SMS reminders. Please check your Afro Message credentials.'
       });
     } finally {
       setSending(false);
@@ -445,7 +445,7 @@ const selectAll = () => {
             <AlertCircle className="h-5 w-5 text-yellow-600" />
             <p className="text-yellow-700">
               SMS is not configured for your school. 
-              <a href="/school-settings" className="ml-2 text-yellow-800 font-semibold underline">Go to School Settings</a> to set up Africa's Talking credentials.
+              <a href="/school-settings" className="ml-2 text-yellow-800 font-semibold underline">Go to School Settings</a> to set up Your Afro Message credentials.
             </p>
           </div>
         </div>
@@ -626,7 +626,7 @@ const selectAll = () => {
         />
         <p className="text-xs text-gray-500 mt-2">
           💡 Default message will include student name, payment amount, and a secure payment link.
-          {reminderType === 'sms' && ' SMS will be sent using your school\'s Africa\'s Talking account.'}
+          {reminderType === 'sms' && ' SMS will be sent using your school\'s Afro Message account.'}
           {reminderType === 'email' && ' Email will include school branding and bank details.'}
         </p>
       </div>
