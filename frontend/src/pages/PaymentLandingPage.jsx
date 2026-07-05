@@ -1,5 +1,5 @@
-// frontend/src/pages/PaymentLandingPage.jsx
 import { useCallback, useEffect, useState } from "react";
+import { useParams } from "react-router-dom"; // ✅ ADD THIS IMPORT
 
 const STATUS_MESSAGES = {
   expired: "This payment link has expired. Please contact the school office for a new one.",
@@ -13,8 +13,8 @@ const STATUS_MESSAGES = {
 // Helper to convert relative Django media paths to absolute URLs
 const getFullUrl = (path) => {
   if (!path) return null;
+  if (typeof path !== 'string') return null; // ✅ SAFETY CHECK
   if (path.startsWith("http")) return path;
-  // Replace with your ACTUAL backend domain
   return `https://felege-selam-payment-system.onrender.com${path}`;
 };
 
@@ -34,7 +34,8 @@ const InitialsAvatar = ({ name, size = "w-14 h-14", textSize = "text-lg" }) => {
   );
 };
 
-export default function PaymentLandingPage({ token }) {
+export default function PaymentLandingPage() {
+  const { token } = useParams(); // ✅ EXTRACT TOKEN FROM URL
   const [state, setState] = useState({ phase: "loading" });
   const [otp, setOtp] = useState("");
   const [secondsLeft, setSecondsLeft] = useState(null);
@@ -77,18 +78,26 @@ export default function PaymentLandingPage({ token }) {
     return () => clearInterval(id);
   }, [state]);
 
-  const submitOtp = async () => {
-    const res = await fetch(`/api/pay/${token}/verify-otp/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: otp }),
+const submitOtp = async () => {
+  const res = await fetch(`/api/pay/${token}/verify-otp/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: otp }),
+  });
+  const data = await res.json();
+  if (data.status === "ok") {
+    setState({ 
+      phase: "ready", 
+      data: {
+        ...data,
+        school_seal_url: getFullUrl(data.school_seal_url),
+        student_photo_url: data.student_photo_url ? getFullUrl(data.student_photo_url) : null,
+      }
     });
-    const data = await res.json();
-    if (data.status === "ok") setState({ phase: "ready", data });
-    else if (data.status === "otp_invalid") {
-      setState((s) => ({ ...s, otpError: "Incorrect code. Check your SMS." }));
-    } else setState({ phase: "error", code: data.status });
-  };
+  } else if (data.status === "otp_invalid") {
+    setState((s) => ({ ...s, otpError: "Incorrect code. Check your SMS." }));
+  } else setState({ phase: "error", code: data.status });
+};
 
   const pay = async () => {
     setState((s) => ({ ...s, paying: true }));

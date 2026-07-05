@@ -8,7 +8,8 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from ..services.multi_school_sms_service import MultiSchoolSMSService
-from ..services.payment_link_service import PaymentLinkService
+from payments.tokens import generate_payment_token
+from payments.models import Payment as PaymentModel
 from ..models import SMSHistory, PaymentDeadline
 from students.models import Student
 from schools.models import School
@@ -111,13 +112,20 @@ class MultiSchoolSendPaymentReminderView(APIView):
             if Payment.objects.filter(student=student, deadline=deadline, status='verified').exists():
                 return Response({'error': 'Student already paid for this deadline'}, status=400)
             
-            # Generate payment link
-            payment_link = PaymentLinkService.generate_payment_link(
-                student_id=student.student_id,
-                deadline_id=deadline.id,
-                amount=float(deadline.amount),
-                student_name=student.full_name
+
+            payment_obj, created = PaymentModel.objects.get_or_create(
+                student=student,
+                deadline=deadline,
+                defaults={
+                    'amount': deadline.amount,
+                    'payment_method': 'chapa',
+                    'paid_by': student.full_name,
+                    'paid_by_phone': student.parent_phone,
+                    'status': 'pending'
+                }
             )
+            token, record = generate_payment_token(payment_obj, student.parent_phone)
+            payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
             
             # Create bilingual message with payment link
             message = f"""የትምህርት ክፍያ ማስታወሻ - {deadline.get_month_display()} {deadline.academic_year}
@@ -129,7 +137,7 @@ class MultiSchoolSendPaymentReminderView(APIView):
 እባክዎ በመስመር ላይ ለመክፈል ይህን አገናኝ ይጫኑ:
 {payment_link}
 
-በማንኛውም ጥያቄ ወደ ትምህርት ቤቱ ይደውሉ: {school.phone}
+ለማንኛውም ጥያቄ ወደ ትምህርት ቤቱ ይደውሉ: {school.phone}
 
 ---
 Payment Reminder - {deadline.academic_year} {deadline.get_month_display()}

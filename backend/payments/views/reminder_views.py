@@ -232,12 +232,24 @@ class ReminderViewSet(viewsets.ViewSet):
             payment_link = None
             if pending_deadlines:
                 first_deadline = pending_deadlines[0]
-                payment_link = PaymentLinkService.generate_payment_link(
-                    student_id=student.student_id,
-                    deadline_id=first_deadline.id,
-                    amount=float(first_deadline.amount),
-                    student_name=student.full_name
+
+                from payments.tokens import generate_payment_token
+                from payments.models import Payment as PaymentModel
+
+                payment_obj, created = PaymentModel.objects.get_or_create(
+                    student=student,
+                    deadline=first_deadline,
+                    defaults={
+                        'amount': first_deadline.amount,
+                        'payment_method': 'chapa',
+                        'paid_by': student.full_name,
+                        'paid_by_phone': student.parent_phone,
+                        'status': 'pending'
+                        }
                 )
+
+                token, record = generate_payment_token(payment_obj, student.parent_phone)
+                payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
             
             # ✅ NEW: Use SchoolEmailService instead of global send_mail
             try:

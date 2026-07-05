@@ -18,16 +18,31 @@ OTP_RESEND_COOLDOWN_SECONDS = 60
 MAX_OTP_FAILURES = 5
 
 
-def _build_page_payload(record):
+def _build_page_payload(record, request=None):
     """Builds the response payload for the React landing page after OTP success."""
     payment = record.payment
+    student = payment.student
+    school = student.school
+
+    def safe_media_url(field):
+        """Safely extract URL from ImageField or return None."""
+        if not field:
+            return None
+        try:
+            url = field.url  # Get the actual URL string
+            if request:
+                return request.build_absolute_uri(url)  # Make absolute
+            return url
+        except (ValueError, AttributeError):
+            return None
+
     return {
         "status": "ok",
         "transaction_id": str(record.id)[:8].upper(),
-        "student_name": payment.student.full_name,
-        "student_photo_url": getattr(payment.student, 'photo', None),
-        "school_name": payment.student.school.name,
-        "school_seal_url": getattr(payment.student.school, 'logo', None),
+        "student_name": student.full_name,
+        "student_photo_url": safe_media_url(getattr(student, 'photo', None)),
+        "school_name": school.name,
+        "school_seal_url": safe_media_url(getattr(school, 'logo', None)),
         "amount": str(payment.amount),
         "currency": "ETB",
         "expires_at": record.expires_at.isoformat(),
@@ -70,7 +85,7 @@ class PaymentLandingView(APIView):
             })
 
         # If OTP already verified, show payment details
-        return Response(_build_page_payload(record))
+        return Response(_build_page_payload(record, request))
 
 
 class OtpVerifyView(APIView):
@@ -98,7 +113,7 @@ class OtpVerifyView(APIView):
         cache.delete(f"otp_code_{record.id}")
         
         # Return payment details after successful OTP
-        return Response(_build_page_payload(record))
+        return Response(_build_page_payload(record, request))
 
 
 class PaymentInitiateView(APIView):
