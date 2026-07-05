@@ -204,3 +204,62 @@ class MultiSchoolSMSService:
             'error': 'Balance check not implemented for Afro Message — check balance in the Afro Message dashboard directly.',
             'school': self.school.name
         }
+    
+    # ---------- ANTI-SPOOFING PAYMENT REMINDER (SIMPLIFIED) ----------
+
+    def send_anti_spoof_reminder(self, payment):
+        """
+        Sends a simplified, spoof-proof payment reminder for a specific Payment object.
+        
+        This method:
+        1. Generates a signed magic link token (no pre-sent code).
+        2. Sends ONE SMS message via Afro Message containing the link and a security warning.
+        3. Does NOT include amount, student name, or deadline in SMS text.
+        
+        Args:
+            payment: A payments.Payment instance
+            
+        Returns:
+            dict: {'success': bool, 'message': str, 'token': str}
+        """
+        from payments.tokens import generate_payment_token
+        
+        if not payment.student.parent_phone:
+            raise Exception("Parent phone number is not set for this student.")
+            
+        try:
+            # Generate signed token + DB record. 
+            # Note: verification_code is now generated dynamically in the View, not here.
+            token, record = generate_payment_token(payment, payment.student.parent_phone)
+            
+            formatted_phone = self.format_phone_number(payment.student.parent_phone)
+            school_name = self.school.name
+            
+            # ✅ SINGLE MESSAGE: Link + Security Warning
+            # No pre-sent code. The parent gets the code ONLY when they click the link.
+            message = (
+                f"{school_name}: Payment due. Click to pay securely:\n"
+                f"https://felege-selam-payment-system.vercel.app/pay/{token}\n\n"
+                f"⚠️ For your safety: A code will be sent to your phone when you click. "
+                f"Never share this code with anyone calling you. Valid 6 hours."
+            )
+            
+            # Send the single reminder message (counts against normal quota)
+            result = self.send_sms(
+                formatted_phone, 
+                message, 
+                related_to=f"link_{record.id}"
+            )
+            
+            logger.info(f"✅ Simplified anti-spoof reminder sent for payment {payment.id}")
+            
+            return {
+                'success': True,
+                'message': 'Reminder sent successfully',
+                'token': token,
+                'school': self.school.name
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Anti-spoof reminder failed for payment {payment.id}: {e}")
+            raise Exception(f"Failed to send anti-spoof reminder: {str(e)}")

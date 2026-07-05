@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views.views import PaymentViewSet, PaymentDeadlineViewSet
 from .views import ReminderViewSet, send_reminders, send_payment_confirmation
 from .views.report_views import monthly_report, student_report, annual_summary, monthly_detailed_report
+from .views import PaymentLandingView, OtpVerifyView, PaymentInitiateView
 from .views.slip_views import (
     upload_slip, pending_slips, verify_slip, ai_stats, slip_status,
     delete_slip, bulk_delete_slips,
@@ -115,4 +116,11 @@ urlpatterns += [
 # Filtered reminders endpoint (used by SMSDashboard)
 urlpatterns += [
     path('reminders-filtered/', pending_reminders_filtered, name='reminders-filtered'),
+]
+
+# Anti-Spoofing Payment Link URLs (Public endpoints protected by signed tokens)
+urlpatterns += [
+    path('pay/<str:token>/', PaymentLandingView.as_view(), name='payment-landing'),
+    path('pay/<str:token>/verify-otp/', OtpVerifyView.as_view(), name='payment-verify-otp'),
+    path('pay/<str:token>/initiate/', PaymentInitiateView.as_view(), name='payment-initiate'),
 ]

@@ -559,11 +559,8 @@ def send_deadline_reminder_email(recipient_email, student, deadline, school, pay
     """
     
     if not payment_link:
-        payment_link = PaymentLinkService.generate_payment_link(
-            student_id=student.student_id,
-            deadline_id=deadline.id,
-            amount=float(deadline.amount),
-            student_name=student.full_name
+        raise Exception(
+            "Secure payment link required. Generate via generate_payment_token() first."
         )
     
     # Format due date

@@ -16,6 +16,7 @@ from .chapa_views import (
     initiate_chapa_payment, chapa_webhook, 
     verify_chapa_payment, get_chapa_banks
 )
+from .anti_spoofing_views import PaymentLandingView, OtpVerifyView, PaymentInitiateView
 
 __all__ = [
     'PaymentViewSet',
@@ -41,4 +42,8 @@ __all__ = [
     'chapa_webhook',
     'verify_chapa_payment',
     'get_chapa_banks',
+
+    'PaymentLandingView',
+    'OtpVerifyView',
+    'PaymentInitiateView',
 ]

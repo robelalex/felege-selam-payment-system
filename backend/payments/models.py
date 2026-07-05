@@ -326,3 +326,57 @@ class PaymentSlip(models.Model):
 
     def __str__(self):
         return f"Slip for {self.student.full_name} - {self.amount} Birr"
+
+
+import uuid
+from django.utils import timezone
+
+
+class PaymentLinkToken(models.Model):
+    """
+    One row per payment reminder sent (SMS or Email).
+    The signed token embeds only `jti` — everything else (expiry, consumption,
+    device binding) is authoritative in the DB, so a cryptographically valid 
+    but stale or already-used token is still rejected.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # ✅ Links directly to your existing Payment model (replaces Claude's billing.Invoice)
+    payment = models.ForeignKey(
+        "payments.Payment",
+        on_delete=models.CASCADE,
+        related_name="link_tokens"
+    )
+
+    parent_phone = models.CharField(max_length=20)  # E.164 format from DB — never from request
+    jti = models.CharField(max_length=64, unique=True, db_index=True)
+    verification_code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    first_device_fingerprint = models.CharField(max_length=64, null=True, blank=True)
+    first_seen_ip_prefix = models.CharField(max_length=45, null=True, blank=True)
+    otp_required = models.BooleanField(default=False)
+    otp_verified_at = models.DateTimeField(null=True, blank=True)
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        indexes = [models.Index(fields=["jti"])]
+        verbose_name = "Payment Link Token"
+        verbose_name_plural = "Payment Link Tokens"
+
+    def is_expired(self) -> bool:
+        return timezone.now() > self.expires_at
+
+    def is_consumed(self) -> bool:
+        return self.consumed_at is not None
+
+    def requires_otp(self, high_value_threshold) -> bool:
+        return (
+            self.otp_required
+            or self.payment.amount >= high_value_threshold
+            or self.first_device_fingerprint is None
+        )
+
+    def __str__(self):
+        return f"Token for {self.payment.student.full_name} - {self.payment.amount} ETB"
