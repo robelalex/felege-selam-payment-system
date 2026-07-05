@@ -251,13 +251,20 @@ class MultiSchoolSendBulkRemindersView(APIView):
                     })
                     continue
                 
-                # Generate payment link
-                payment_link = PaymentLinkService.generate_payment_link(
-                    student_id=student.student_id,
-                    deadline_id=deadline.id,
-                    amount=float(deadline.amount),
-                    student_name=student.full_name
+                # Generate secure payment link
+                payment_obj, created = PaymentModel.objects.get_or_create(
+                    student=student,
+                    deadline=deadline,
+                    defaults={
+                        'amount': deadline.amount,
+                        'payment_method': 'chapa',
+                        'paid_by': student.full_name,
+                        'paid_by_phone': student.parent_phone,
+                        'status': 'pending'
+                    }
                 )
+                token, record = generate_payment_token(payment_obj, student.parent_phone)
+                payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
                 
                 # Build message
                 if custom_message:
@@ -271,7 +278,7 @@ class MultiSchoolSendBulkRemindersView(APIView):
 
 እባክዎ በመስመር ላይ ይክፈሉ: {payment_link}
 
-በማንኛውም ጥያቄ ወደ ትምህርት ቤቱ ይደውሉ: {school.phone}"""
+ለማንኛውም ጥያቄ ወደ ትምህርት ቤቱ ይደውሉ: {school.phone}"""
                 
                 # Send SMS
                 result = sms_service.send_sms(
