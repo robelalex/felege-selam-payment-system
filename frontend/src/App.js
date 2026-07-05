@@ -49,6 +49,7 @@ import SchoolSettings from './pages/SchoolSettings';
 import BankSlips from './pages/BankSlips';
 import VerifyETSettings from './pages/VerifyETSettings';
 import SchoolChapaSettings from './pages/SchoolChapaSettings';
+import PaymentLandingPage from './pages/PaymentLandingPage';
 
 // Styles
 import './index.css';
@@ -338,6 +339,11 @@ function App() {
                     </ChapaWarningProvider>
                   </ProtectedRoute>
                 } 
+              />
+
+              <Route 
+                path="/pay/:token" 
+                element={<PaymentLandingPage />} 
               />
 
               {/* Test Routes */}

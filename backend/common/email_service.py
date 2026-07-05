@@ -212,6 +212,7 @@ class SchoolEmailService:
             logger.error(f"❌ Test email failed for school {self.school.name}: {e}")
             raise Exception(f"Test failed: {error_msg}")
 
+
 # Payment link generator (moved here to avoid circular imports)
 class PaymentLinkService:
     """Generate payment links for parent portal"""
@@ -545,23 +546,40 @@ Thank you for your cooperation.
 # ✅ NEW: Send detailed payment reminder with deadline-specific link
 def send_deadline_reminder_email(recipient_email, student, deadline, school, payment_link=None):
     """
-    Send email reminder for a specific deadline with payment link
+    Send email reminder for a specific deadline with SECURE tokenized payment link.
     
     Args:
         recipient_email: Parent's email address
         student: Student object
         deadline: PaymentDeadline object
         school: School object
-        payment_link: Optional pre-generated payment link
+        payment_link: Optional pre-generated secure payment link
     
     Returns:
         tuple: (success: bool, message: str)
     """
     
+    # ✅ ENFORCE SECURE TOKEN GENERATION - No legacy fallback allowed
     if not payment_link:
-        raise Exception(
-            "Secure payment link required. Generate via generate_payment_token() first."
+        from payments.tokens import generate_payment_token
+        from payments.models import Payment
+        
+        # Create or get payment record for this deadline
+        payment, created = Payment.objects.get_or_create(
+            student=student,
+            deadline=deadline,
+            defaults={
+                'amount': deadline.amount,
+                'payment_method': 'chapa',
+                'paid_by': student.full_name,
+                'paid_by_phone': student.parent_phone,
+                'status': 'pending'
+            }
         )
+        
+        # Generate secure anti-spoofing token (same function used by SMS)
+        token, record = generate_payment_token(payment, student.parent_phone)
+        payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
     
     # Format due date
     due_date_str = deadline.due_date.strftime('%B %d, %Y') if deadline.due_date else "as soon as possible"
