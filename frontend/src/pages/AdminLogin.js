@@ -154,9 +154,9 @@ function AdminLogin() {
               Enter the 6-digit code sent to <strong>{email}</strong>
             </p>
             {/* ✅ Show hint for demo/testing */}
-            <p className="text-sm text-blue-600 mt-1 font-medium">
+            {/* <p className="text-sm text-blue-600 mt-1 font-medium">
               Use code: <strong>123456</strong>
-            </p>
+            </p> */}
           </div>
 
           <div className="bg-white rounded-2xl shadow-xl p-8">
@@ -170,7 +170,7 @@ function AdminLogin() {
                   value={otpCode}
                   onChange={(e) => setOtpCode(e.target.value)}
                   className="input-field text-center text-2xl tracking-widest"
-                  placeholder="123456"
+                  placeholder="000000"
                   maxLength={6}
                   required
                   autoFocus

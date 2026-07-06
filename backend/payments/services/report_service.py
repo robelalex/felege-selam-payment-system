@@ -132,7 +132,7 @@ class ReportService:
         total_paid = 0
         total_collected = 0
         
-        for grade in range(1, 9):
+        for grade in range(1, 13):
             grade_students = students.filter(grade=grade)
             grade_count = grade_students.count()
             total_students += grade_count

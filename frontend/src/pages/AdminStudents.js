@@ -177,7 +177,7 @@ function AdminStudents() {
           <p className="text-gray-500 text-xs">Grade</p>
           <p className="font-medium flex items-center gap-1">
             <GraduationCap className="h-3 w-3 text-gray-400" />
-            Grade {student.grade}
+            Grade {student.grade}{student.section ? ` - ${student.section}` : ''}
           </p>
         </div>
         <div>
@@ -292,9 +292,16 @@ function AdminStudents() {
               className="input-field text-sm"
             >
               <option value="all">All Grades</option>
-              {[1,2,3,4,5,6,7,8].map(grade => (
-                <option key={grade} value={grade}>Grade {grade}</option>
-              ))}
+              <optgroup label="🏫 Elementary">
+                {[1,2,3,4,5,6,7,8].map(grade => (
+                  <option key={grade} value={grade}>Grade {grade}</option>
+                ))}
+              </optgroup>
+              <optgroup label="🎓 High School">
+                {[9,10,11,12].map(grade => (
+                  <option key={grade} value={grade}>Grade {grade}</option>
+                ))}
+              </optgroup>
             </select>
             
             <button 
@@ -377,7 +384,9 @@ function AdminStudents() {
                             </div>
                           </td>
                           <td className="table-cell font-mono text-sm">{student.student_id}</td>
-                          <td className="table-cell">Grade {student.grade}</td>
+                          <td className="table-cell">
+                            Grade {student.grade}{student.section ? ` - ${student.section}` : ''}
+                          </td>
                           <td className="table-cell">{student.father_name || student.parent_full_name || 'N/A'}</td>
                           <td className="table-cell">{student.parent_phone}</td>
                           <td className="table-cell">

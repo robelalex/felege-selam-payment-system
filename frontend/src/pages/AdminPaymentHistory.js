@@ -29,7 +29,7 @@ function AdminPaymentHistory() {
     'መጋቢት', 'ሚያዝያ', 'ግንቦት', 'ሰኔ', 'ሐምሌ', 'ነሐሴ', 'ጳጉሜ'
   ];
 
-  const grades = ['1', '2', '3', '4', '5', '6', '7', '8'];
+  const grades = Array.from({ length: 12 }, (_, i) => i + 1);
 
   useEffect(() => { fetchHistory(); }, [selectedYear]);
 

@@ -520,10 +520,17 @@ const selectAll = () => {
               onChange={(e) => setSelectedGrade(e.target.value)}
               className="input-field"
             >
-              <option value="all">All Grades</option>
-              {[1,2,3,4,5,6,7,8].map(grade => (
-                <option key={grade} value={grade}>Grade {grade}</option>
-              ))}
+<option value="all">All Grades</option>
+<optgroup label="🏫 Elementary">
+  {[1,2,3,4,5,6,7,8].map(grade => (
+    <option key={grade} value={grade}>Grade {grade}</option>
+  ))}
+</optgroup>
+<optgroup label="🎓 High School">
+  {[9,10,11,12].map(grade => (
+    <option key={grade} value={grade}>Grade {grade}</option>
+  ))}
+</optgroup>
             </select>
           </div>
 

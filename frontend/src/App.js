@@ -50,6 +50,7 @@ import BankSlips from './pages/BankSlips';
 import VerifyETSettings from './pages/VerifyETSettings';
 import SchoolChapaSettings from './pages/SchoolChapaSettings';
 import PaymentLandingPage from './pages/PaymentLandingPage';
+import AdminSections from './pages/AdminSections';
 
 // Styles
 import './index.css';
@@ -372,6 +373,18 @@ function App() {
                   </ChapaWarningProvider>
                 </ProtectedRoute>
               } />
+
+<Route
+    path="/admin/sections"
+    element={
+        <ProtectedRoute>
+            <AdminLayout>
+                <AdminSections />
+            </AdminLayout>
+        </ProtectedRoute>
+    }
+/>
+
             </Routes>
           </Router>
         </YearProvider>

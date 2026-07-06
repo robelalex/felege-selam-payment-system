@@ -18,9 +18,6 @@ def dashboard_stats(request):
     school_id = request.headers.get('X-School-ID')
     year_id = request.query_params.get('academic_year_id')
 
-    print(f"📊 dashboard_stats - X-School-ID: {school_id}")
-    print(f"📊 dashboard_stats - year_id: {year_id}")
-
     if not school_id:
         return Response({'error': 'School ID required'}, status=400)
 
@@ -29,7 +26,6 @@ def dashboard_stats(request):
     except ValueError:
         return Response({'error': 'Invalid school ID'}, status=400)
 
-    # Resolve academic year object
     academic_year = None
     if year_id:
         try:
@@ -42,14 +38,10 @@ def dashboard_stats(request):
             school_id=school_id, is_current=True
         ).first()
 
-    print(f"📊 Academic year: {academic_year.name if academic_year else None}")
-
-    # Students — still uses CharField on Student model, so use name string here
     students = Student.objects.filter(school_id=school_id)
     total_students = students.count()
     active_students = students.filter(status='active').count()
 
-    # ✅ FIX: filter payments via deadline__academic_year FK object, not string
     payments = Payment.objects.filter(
         student__school_id=school_id,
         status='verified'
@@ -59,13 +51,11 @@ def dashboard_stats(request):
 
     total_collected = payments.aggregate(total=Sum('amount'))['total'] or 0
 
-    # Pending verifications (unrelated to year)
     pending_verifications = Payment.objects.filter(
         student__school_id=school_id,
         status='pending'
     ).count()
 
-    # ✅ FIX: filter deadlines via FK object, not string
     today = date.today()
     deadlines = PaymentDeadline.objects.filter(
         school_id=school_id,
@@ -74,7 +64,6 @@ def dashboard_stats(request):
     if academic_year:
         deadlines = deadlines.filter(academic_year=academic_year)
 
-    # Verified payment set for overdue checking
     verified_qs = Payment.objects.filter(
         student__school_id=school_id,
         status='verified'
@@ -92,10 +81,8 @@ def dashboard_stats(request):
                     pending_students_count += 1
                     break
 
-    # Students paid = distinct students with at least one verified payment
     students_paid = payments.values('student').distinct().count()
 
-    # Collection rate
     active_count = students.filter(status='active').count()
     collection_rate = round((students_paid / active_count * 100) if active_count > 0 else 0, 1)
 
@@ -120,9 +107,6 @@ def grade_overview(request):
     school_id = request.headers.get('X-School-ID')
     year_id = request.query_params.get('academic_year_id')
 
-    print(f"📊 grade_overview - X-School-ID: {school_id}")
-    print(f"📊 grade_overview - year_id: {year_id}")
-
     if not school_id:
         return Response([], status=200)
 
@@ -131,7 +115,6 @@ def grade_overview(request):
     except ValueError:
         return Response([], status=200)
 
-    # Resolve academic year object
     academic_year = None
     if year_id:
         try:
@@ -144,12 +127,10 @@ def grade_overview(request):
             school_id=school_id, is_current=True
         ).first()
 
-    # Students — Student.academic_year is still a CharField, filter by name
     students = Student.objects.filter(school_id=school_id, status='active')
     if academic_year:
         students = students.filter(academic_year=academic_year.name)
 
-    # ✅ FIX: payments filtered via deadline FK object
     payments = Payment.objects.filter(
         student__school_id=school_id,
         status='verified'
@@ -158,7 +139,8 @@ def grade_overview(request):
         payments = payments.filter(deadline__academic_year=academic_year)
 
     grade_stats = []
-    for grade in range(1, 9):
+    # ✅ FIXED: 1-12 instead of 1-8
+    for grade in range(1, 13):
         grade_students = students.filter(grade=grade)
         grade_count = grade_students.count()
 
@@ -191,9 +173,6 @@ def pending_payments_report(request):
     period = request.query_params.get('period', 'year')
     year_id = request.query_params.get('academic_year_id')
 
-    print(f"📊 pending_payments_report - X-School-ID: {school_id}")
-    print(f"📊 pending_payments_report - period: {period}, year_id: {year_id}")
-
     if not school_id:
         return Response([], status=200)
 
@@ -202,7 +181,6 @@ def pending_payments_report(request):
     except ValueError:
         return Response([], status=200)
 
-    # Resolve academic year object
     academic_year = None
     if year_id:
         try:
@@ -220,21 +198,18 @@ def pending_payments_report(request):
 
     today = date.today()
 
-    # Students — CharField filter is fine here
     students = Student.objects.filter(
         school_id=school_id,
         status='active',
         academic_year=academic_year.name
     )
 
-    # ✅ FIX: deadlines filtered via FK object
     deadlines = PaymentDeadline.objects.filter(
         school_id=school_id,
         academic_year=academic_year,
         is_active=True
     )
 
-    # ✅ FIX: verified payments filtered via FK object
     verified_qs = Payment.objects.filter(
         student__school_id=school_id,
         status='verified',

@@ -15,7 +15,7 @@ function AdminDeadlines() {
     due_date: '',
     academic_year: '',
     is_active: true,
-    grade: ''  // ✅ NEW: Grade field
+    grade: ''
   });
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState(null);
@@ -26,8 +26,8 @@ function AdminDeadlines() {
     'መጋቢት', 'ሚያዝያ', 'ግንቦት', 'ሰኔ', 'ሐምሌ', 'ነሐሴ', 'ጳጉሜ'
   ];
 
-  // ✅ Grades array for dropdown
-  const grades = [1, 2, 3, 4, 5, 6, 7, 8];
+  // ✅ FIXED: 1-12 instead of 1-8
+  const grades = Array.from({ length: 12 }, (_, i) => i + 1);
 
   useEffect(() => {
     fetchDeadlines();
@@ -55,19 +55,17 @@ function AdminDeadlines() {
     setMessage(null);
 
     try {
-      // Get school ID from localStorage
       const savedSchool = localStorage.getItem('selectedSchool');
       let schoolId = null;
       let schoolData = null;
-      
+
       if (savedSchool) {
         schoolData = JSON.parse(savedSchool);
         schoolId = schoolData.id;
       }
 
-      // Prepare data in the format backend expects
       const monthNumber = months.indexOf(formData.month) + 1;
-      
+
       const data = {
         month: monthNumber,
         amount: parseFloat(formData.amount),
@@ -75,15 +73,12 @@ function AdminDeadlines() {
         is_active: formData.is_active,
         due_date: formData.due_date || null,
         school: schoolId,
-        grade: formData.grade ? parseInt(formData.grade) : null  // ✅ NEW: Send grade
+        grade: formData.grade ? parseInt(formData.grade) : null
       };
 
       console.log('📤 Sending deadline data:', data);
 
-      const config = {
-        headers: {}
-      };
-      
+      const config = { headers: {} };
       if (schoolId) {
         config.headers['X-School-ID'] = schoolId;
       }
@@ -101,9 +96,9 @@ function AdminDeadlines() {
       fetchDeadlines();
     } catch (err) {
       console.error('Error saving deadline:', err.response?.data);
-      setMessage({ 
-        type: 'error', 
-        text: err.response?.data?.error || err.response?.data?.message || 'Failed to save deadline' 
+      setMessage({
+        type: 'error',
+        text: err.response?.data?.error || err.response?.data?.message || 'Failed to save deadline'
       });
     } finally {
       setSubmitting(false);
@@ -123,13 +118,13 @@ function AdminDeadlines() {
   };
 
   const resetForm = () => {
-    setFormData({ 
-      month: '', 
-      amount: '', 
-      due_date: '', 
-      academic_year: '', 
+    setFormData({
+      month: '',
+      amount: '',
+      due_date: '',
+      academic_year: '',
       is_active: true,
-      grade: ''  // ✅ Reset grade
+      grade: ''
     });
     setEditingDeadline(null);
   };
@@ -147,12 +142,11 @@ function AdminDeadlines() {
       due_date: deadline.due_date?.split('T')[0] || '',
       academic_year: deadline.academic_year,
       is_active: deadline.is_active,
-      grade: deadline.grade || ''  // ✅ NEW: Load existing grade
+      grade: deadline.grade || ''
     });
     setShowModal(true);
   };
 
-  // ✅ Helper to get grade display text
   const getGradeDisplay = (deadline) => {
     if (deadline.grade) {
       return `Grade ${deadline.grade}`;
@@ -259,7 +253,6 @@ function AdminDeadlines() {
         </div>
       </div>
 
-      {/* Modal for Create/Edit */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
@@ -283,7 +276,7 @@ function AdminDeadlines() {
                   </select>
                 </div>
 
-                {/* ✅ NEW: Grade Selector */}
+                {/* ✅ FIXED: Grade Selector now grouped Elementary / High School, 1-12 */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Grade (Optional)</label>
                   <select
@@ -292,9 +285,16 @@ function AdminDeadlines() {
                     className="input-field"
                   >
                     <option value="">All Grades</option>
-                    {grades.map((grade) => (
-                      <option key={grade} value={grade}>Grade {grade}</option>
-                    ))}
+                    <optgroup label="🏫 Elementary">
+                      {[1, 2, 3, 4, 5, 6, 7, 8].map((g) => (
+                        <option key={g} value={g}>Grade {g}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="🎓 High School">
+                      {[9, 10, 11, 12].map((g) => (
+                        <option key={g} value={g}>Grade {g}</option>
+                      ))}
+                    </optgroup>
                   </select>
                   <p className="text-xs text-gray-500 mt-1">
                     Leave blank to apply this deadline to all grades

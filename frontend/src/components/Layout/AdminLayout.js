@@ -21,6 +21,7 @@ import {
   CalendarDays,
   User,
   ArrowLeft,
+  Grid,
   Users as UsersIcon
 } from 'lucide-react';
 import api from '../../services/api';
@@ -157,6 +158,7 @@ const getLogoUrl = () => {
   const schoolAdminSettingsNavItems = [
     { path: '/admin/academic-years', label: 'Academic Years', icon: Calendar },
     { path: '/admin/deadlines', label: 'Payment Deadlines', icon: Calendar },
+    { path: '/admin/sections', label: 'Sections', icon: Grid },
     { path: '/admin/reports', label: 'Reports', icon: BarChart3 },
     { path: '/admin/reminders', label: 'Reminders', icon: Bell },
     { path: '/admin-dashboard/payment-history', label: 'Payment History', icon: Archive },

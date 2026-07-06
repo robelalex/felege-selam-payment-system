@@ -6,7 +6,7 @@ from django.conf.urls.static import static
 from django.views.generic import TemplateView
 from rest_framework.routers import DefaultRouter
 from common.views import health_check
-from students.views import StudentViewSet
+from students.views import StudentViewSet, SectionViewSet
 from academics.views import AcademicYearViewSet
 from payments.views import PaymentViewSet, PaymentDeadlineViewSet, payments_filtered_by_year
 from students.dashboard import dashboard_stats, grade_overview, pending_payments
@@ -23,6 +23,7 @@ from academics.views import AcademicYearViewSet
 # ✅ SchoolViewSet is REMOVED from this router — it lives in schools/urls.py now
 router = DefaultRouter()
 router.register(r'students', StudentViewSet, basename='student')
+router.register(r'sections', SectionViewSet, basename='section')
 router.register(r'academic-years', AcademicYearViewSet, basename='academic-year')
 
 urlpatterns = [
@@ -39,7 +40,7 @@ urlpatterns = [
     # ✅ schools.urls FIRST — contains custom chapa/sms/verify-et paths + its own router
     path('api/', include('schools.urls')),
 
-    # ✅ Main router AFTER schools — students, academic-years
+    # ✅ Main router AFTER schools — students, sections, academic-years
     path('api/', include(router.urls)),
 
     path('api-auth/', include('rest_framework.urls')),

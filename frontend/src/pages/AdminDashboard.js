@@ -27,8 +27,11 @@ import ClassCard from '../components/Admin/ClassCard';
 import ClassDetails from '../components/Admin/ClassDetails';
 import { useYear } from '../context/YearContext';
 
+const ALL_GRADES = Array.from({ length: 12 }, (_, i) => i + 1); // 1-12
+
 function AdminDashboard() {
   const [selectedGrade, setSelectedGrade] = useState(null);
+  const [levelFilter, setLevelFilter] = useState('all'); // 'all' | 'elementary' | 'high_school'
   const [students, setStudents] = useState([]);
   const [payments, setPayments] = useState([]);
   const [stats, setStats] = useState({});
@@ -173,7 +176,7 @@ function AdminDashboard() {
       setPendingStudents(pendingRes.data || []);
       
       const byGrade = {};
-      for (let grade = 1; grade <= 8; grade++) {
+      for (let grade = 1; grade <= 12; grade++) {
         byGrade[grade] = { total: 0, paid: 0, pending: 0, totalPayments: 0, totalAmount: 0, collectionRate: 0 };
       }
       
@@ -233,6 +236,12 @@ function AdminDashboard() {
     totalCollected: dashboardStats.total_collected
   };
 
+  const visibleGrades = ALL_GRADES.filter(g => {
+    if (levelFilter === 'elementary') return g <= 8;
+    if (levelFilter === 'high_school') return g >= 9;
+    return true;
+  });
+
   const handleDismissChapaBanner = () => {
     setChapaBannerDismissed(true);
     sessionStorage.setItem('chapaBannerDismissed', '1');
@@ -242,7 +251,7 @@ function AdminDashboard() {
     try {
       let csvContent = "Grade,Total Students,Students Paid,Pending Students,Total Payments,Total Amount (ETB),Collection Rate\n";
       
-      for (let grade = 1; grade <= 8; grade++) {
+      for (let grade = 1; grade <= 12; grade++) {
         const data = stats[grade] || { total: 0, paid: 0, pending: 0, totalPayments: 0, totalAmount: 0, collectionRate: 0 };
         csvContent += `${grade},${data.total},${data.paid},${data.pending},${data.totalPayments},${data.totalAmount},${data.collectionRate}%\n`;
       }
@@ -542,7 +551,28 @@ function AdminDashboard() {
       <div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
           <h2 className="text-lg md:text-xl font-semibold text-gray-900">Classes Overview</h2>
-          <p className="text-xs md:text-sm text-gray-500">Tap on a class to view details</p>
+
+          <div className="flex items-center gap-3">
+            {/* ✅ NEW: School level toggle */}
+            <div className="bg-gray-100 rounded-lg p-1 flex gap-1">
+              {[
+                { key: 'all', label: 'All' },
+                { key: 'elementary', label: '🏫 Elementary (1-8)' },
+                { key: 'high_school', label: '🎓 High School (9-12)' },
+              ].map(opt => (
+                <button
+                  key={opt.key}
+                  onClick={() => setLevelFilter(opt.key)}
+                  className={`px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
+                    levelFilter === opt.key ? 'bg-white shadow-sm text-primary-600' : 'text-gray-500'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs md:text-sm text-gray-500 hidden lg:block">Tap on a class to view details</p>
+          </div>
         </div>
         
         <AnimatePresence mode="wait">
@@ -559,7 +589,7 @@ function AdminDashboard() {
               exit={{ opacity: 0 }}
               className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4"
             >
-              {[1,2,3,4,5,6,7,8].map(grade => (
+              {visibleGrades.map(grade => (
                 <ClassCard
                   key={grade}
                   grade={grade}

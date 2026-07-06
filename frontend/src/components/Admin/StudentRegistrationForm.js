@@ -25,6 +25,10 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
   const [schoolId, setSchoolId] = useState(null);
   const [availableYears, setAvailableYears] = useState([]);
   const [generatedId, setGeneratedId] = useState('');
+
+  // ✅ NEW: sections available for the currently selected grade
+  const [availableSections, setAvailableSections] = useState([]);
+  const [loadingSections, setLoadingSections] = useState(false);
   
   const [formData, setFormData] = useState({
     student_id: editStudent?.student_id || '',
@@ -33,7 +37,7 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
     father_name: editStudent?.father_name || '',
     mother_name: editStudent?.mother_name || '',
     grade: editStudent?.grade || 1,
-    section: editStudent?.section || 'A',
+    section: editStudent?.section || '',
     academic_year: editStudent?.academic_year || '',
     parent_full_name: editStudent?.parent_full_name || '',
     parent_phone: editStudent?.parent_phone || '',
@@ -52,6 +56,36 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
     fetchAcademicYears();
     fetchSchoolId();
   }, []);
+
+  // ✅ NEW: Fetch sections whenever the selected grade changes
+  useEffect(() => {
+    if (!formData.grade) return;
+
+    const fetchSections = async () => {
+      setLoadingSections(true);
+      try {
+        const response = await api.get(`/sections/?grade=${formData.grade}`);
+        setAvailableSections(response.data);
+
+        // If the current section isn't valid for this grade, reset it
+        // (but leave it alone on first load while editing an existing student)
+        const validNames = response.data.map(s => s.name);
+        if (formData.section && !validNames.includes(formData.section)) {
+          setFormData(prev => ({ ...prev, section: response.data[0]?.name || '' }));
+        } else if (!formData.section && response.data.length > 0) {
+          setFormData(prev => ({ ...prev, section: response.data[0].name }));
+        }
+      } catch (err) {
+        console.error('Error fetching sections:', err);
+        setAvailableSections([]);
+      } finally {
+        setLoadingSections(false);
+      }
+    };
+
+    fetchSections();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.grade]);
 
   const fetchAcademicYears = async () => {
     try {
@@ -318,9 +352,16 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
                     className="input-field"
                     required
                   >
-                    {[1,2,3,4,5,6,7,8].map(g => (
-                      <option key={g} value={g}>Grade {g}</option>
-                    ))}
+                    <optgroup label="🏫 Elementary">
+                      {[1,2,3,4,5,6,7,8].map(g => (
+                        <option key={g} value={g}>Grade {g}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="🎓 High School">
+                      {[9,10,11,12].map(g => (
+                        <option key={g} value={g}>Grade {g}</option>
+                      ))}
+                    </optgroup>
                   </select>
                 </div>
                 
@@ -333,11 +374,23 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
                     value={formData.section}
                     onChange={handleChange}
                     className="input-field"
+                    disabled={loadingSections}
                   >
-                    {['A','B','C','D','E'].map(s => (
-                      <option key={s} value={s}>Section {s}</option>
-                    ))}
+                    {availableSections.length === 0 ? (
+                      <option value="">
+                        {loadingSections ? 'Loading...' : 'No sections yet'}
+                      </option>
+                    ) : (
+                      availableSections.map(s => (
+                        <option key={s.id} value={s.name}>Section {s.name}</option>
+                      ))
+                    )}
                   </select>
+                  {availableSections.length === 0 && !loadingSections && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      No sections exist for Grade {formData.grade} yet. Create one from the Sections page.
+                    </p>
+                  )}
                 </div>
                 
                 <div>

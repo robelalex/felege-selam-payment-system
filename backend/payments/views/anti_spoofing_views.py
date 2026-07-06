@@ -29,9 +29,9 @@ def _build_page_payload(record, request=None):
         if not field:
             return None
         try:
-            url = field.url  # Get the actual URL string
+            url = field.url
             if request:
-                return request.build_absolute_uri(url)  # Make absolute
+                return request.build_absolute_uri(url)
             return url
         except (ValueError, AttributeError):
             return None
@@ -49,7 +49,21 @@ def _build_page_payload(record, request=None):
     }
 
 
-class PaymentLandingView(APIView):
+class NoCacheAPIView(APIView):
+    """
+    Base API view that prevents caching of all responses.
+    Critical for payment/OTP endpoints to ensure fresh validation on every request.
+    """
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        # Prevent all caching by browsers, CDNs, and proxies
+        response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response["Pragma"] = "no-cache"
+        response["Expires"] = "0"
+        return response
+
+
+class PaymentLandingView(NoCacheAPIView):
     """
     GET /api/pay/<token>/
     ALWAYS triggers mandatory OTP gate first. 
@@ -88,7 +102,7 @@ class PaymentLandingView(APIView):
         return Response(_build_page_payload(record, request))
 
 
-class OtpVerifyView(APIView):
+class OtpVerifyView(NoCacheAPIView):
     """POST /api/pay/<token>/verify-otp/"""
     permission_classes = [AllowAny]
 
@@ -116,7 +130,7 @@ class OtpVerifyView(APIView):
         return Response(_build_page_payload(record, request))
 
 
-class PaymentInitiateView(APIView):
+class PaymentInitiateView(NoCacheAPIView):
     """
     POST /api/pay/<token>/initiate/
     Only reachable after mandatory OTP verification.

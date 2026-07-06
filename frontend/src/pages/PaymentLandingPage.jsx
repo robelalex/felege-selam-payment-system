@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "react-router-dom"; // ✅ ADD THIS IMPORT
+import { useParams } from "react-router-dom";
+
+// ✅ CRITICAL FIX: Point to actual Django backend on Render
+const API_BASE = "https://felege-selam-payment-system.onrender.com";
 
 const STATUS_MESSAGES = {
   expired: "This payment link has expired. Please contact the school office for a new one.",
@@ -10,15 +13,13 @@ const STATUS_MESSAGES = {
   network: "Connection failed. Check your internet and retry.",
 };
 
-// Helper to convert relative Django media paths to absolute URLs
 const getFullUrl = (path) => {
   if (!path) return null;
-  if (typeof path !== 'string') return null; // ✅ SAFETY CHECK
+  if (typeof path !== 'string') return null;
   if (path.startsWith("http")) return path;
-  return `https://felege-selam-payment-system.onrender.com${path}`;
+  return `${API_BASE}${path}`;
 };
 
-// Generates consistent initials avatar from name
 const InitialsAvatar = ({ name, size = "w-14 h-14", textSize = "text-lg" }) => {
   const initials = name
     .split(" ")
@@ -35,7 +36,7 @@ const InitialsAvatar = ({ name, size = "w-14 h-14", textSize = "text-lg" }) => {
 };
 
 export default function PaymentLandingPage() {
-  const { token } = useParams(); // ✅ EXTRACT TOKEN FROM URL
+  const { token } = useParams();
   const [state, setState] = useState({ phase: "loading" });
   const [otp, setOtp] = useState("");
   const [secondsLeft, setSecondsLeft] = useState(null);
@@ -43,11 +44,17 @@ export default function PaymentLandingPage() {
   const load = useCallback(async () => {
     setState({ phase: "loading" });
     try {
-      const res = await fetch(`/api/pay/${token}/`);
+      // ✅ FIXED: Absolute URL to Render backend + no-store cache
+      const res = await fetch(`${API_BASE}/api/pay/${token}/`, { 
+        cache: "no-store",
+        headers: { "Accept": "application/json" }
+      });
+      
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      
       const data = await res.json();
       
       if (data.status === "ok") {
-        // Process image URLs safely
         const processedData = {
           ...data,
           school_seal_url: getFullUrl(data.school_seal_url),
@@ -59,14 +66,14 @@ export default function PaymentLandingPage() {
       } else {
         setState({ phase: "error", code: data.status });
       }
-    } catch {
+    } catch (err) {
+      console.error("Load failed:", err);
       setState({ phase: "error", code: "network" });
     }
   }, [token]);
 
   useEffect(() => { load(); }, [load]);
 
-  // Countdown timer
   useEffect(() => {
     if (state.phase !== "ready" || !state.data?.expires_at) return;
     const tick = () => {
@@ -78,36 +85,61 @@ export default function PaymentLandingPage() {
     return () => clearInterval(id);
   }, [state]);
 
-const submitOtp = async () => {
-  const res = await fetch(`/api/pay/${token}/verify-otp/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code: otp }),
-  });
-  const data = await res.json();
-  if (data.status === "ok") {
-    setState({ 
-      phase: "ready", 
-      data: {
-        ...data,
-        school_seal_url: getFullUrl(data.school_seal_url),
-        student_photo_url: data.student_photo_url ? getFullUrl(data.student_photo_url) : null,
-      }
-    });
-  } else if (data.status === "otp_invalid") {
-    setState((s) => ({ ...s, otpError: "Incorrect code. Check your SMS." }));
-  } else setState({ phase: "error", code: data.status });
-};
+  const submitOtp = async () => {
+    try {
+      // ✅ FIXED: Absolute URL to Render backend
+      const res = await fetch(`${API_BASE}/api/pay/${token}/verify-otp/`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        body: JSON.stringify({ code: otp }),
+        cache: "no-store",
+      });
+      
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      
+      const data = await res.json();
+      if (data.status === "ok") {
+        setState({ 
+          phase: "ready", 
+          data: {
+            ...data,
+            school_seal_url: getFullUrl(data.school_seal_url),
+            student_photo_url: data.student_photo_url ? getFullUrl(data.student_photo_url) : null,
+          }
+        });
+      } else if (data.status === "otp_invalid") {
+        setState((s) => ({ ...s, otpError: "Incorrect code. Check your SMS." }));
+      } else setState({ phase: "error", code: data.status });
+    } catch (err) {
+      console.error("OTP submit failed:", err);
+      setState({ phase: "error", code: "network" });
+    }
+  };
 
   const pay = async () => {
     setState((s) => ({ ...s, paying: true }));
-    const res = await fetch(`/api/pay/${token}/initiate/`, { method: "POST" });
-    const data = await res.json();
-    if (data.status === "ok") window.location.href = data.checkout_url;
-    else setState({ phase: "error", code: data.status });
+    try {
+      // ✅ FIXED: Absolute URL to Render backend
+      const res = await fetch(`${API_BASE}/api/pay/${token}/initiate/`, { 
+        method: "POST",
+        cache: "no-store",
+        headers: { "Accept": "application/json" }
+      });
+      
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      
+      const data = await res.json();
+      if (data.status === "ok") window.location.href = data.checkout_url;
+      else setState({ phase: "error", code: data.status });
+    } catch (err) {
+      console.error("Pay failed:", err);
+      setState({ phase: "error", code: "network" });
+    }
   };
 
-  // Loading State
   if (state.phase === "loading") {
     return (
       <div className="min-h-[70vh] flex items-center justify-center text-slate-500">
@@ -116,21 +148,20 @@ const submitOtp = async () => {
     );
   }
 
-if (state.phase === "processing") {
-  return (
-    <div className="min-h-[70vh] flex items-center justify-center px-4">
-      <div className="max-w-sm w-full border border-emerald-200 bg-emerald-50 rounded-2xl p-6 text-center">
-        <p className="font-semibold text-emerald-800 mb-2">Redirecting to Secure Payment...</p>
-        <p className="text-sm text-emerald-700 leading-relaxed">
-          Please do not close this page or click the back button. 
-          You will be redirected to Telebirr/CBE shortly.
-        </p>
+  if (state.phase === "processing") {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center px-4">
+        <div className="max-w-sm w-full border border-emerald-200 bg-emerald-50 rounded-2xl p-6 text-center">
+          <p className="font-semibold text-emerald-800 mb-2">Redirecting to Secure Payment...</p>
+          <p className="text-sm text-emerald-700 leading-relaxed">
+            Please do not close this page or click the back button. 
+            You will be redirected to Telebirr/CBE shortly.
+          </p>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-  // Error State
   if (state.phase === "error") {
     return (
       <div className="min-h-[70vh] flex items-center justify-center px-4">
@@ -144,7 +175,6 @@ if (state.phase === "processing") {
     );
   }
 
-  // OTP Challenge State (MANDATORY FOR ALL)
   if (state.phase === "otp") {
     const d = state.data;
     return (
@@ -176,7 +206,6 @@ if (state.phase === "processing") {
     );
   }
 
-  // Ready / Payment State
   const d = state.data;
   const mins = secondsLeft !== null ? Math.floor(secondsLeft / 60) : null;
   const secs = secondsLeft !== null ? secondsLeft % 60 : null;
@@ -185,7 +214,6 @@ if (state.phase === "processing") {
     <div className="min-h-[70vh] flex items-center justify-center px-4">
       <div className="max-w-sm w-full border border-slate-200 rounded-2xl shadow-sm bg-white overflow-hidden">
         
-        {/* Header with School Seal */}
         <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-100 bg-slate-50/50">
           {d.school_seal_url ? (
             <img src={d.school_seal_url} alt="" className="w-9 h-9 rounded-full object-cover border border-slate-200" />
@@ -201,7 +229,6 @@ if (state.phase === "processing") {
         </div>
 
         <div className="px-6 py-5">
-          {/* Student Info with Initials Fallback */}
           <div className="flex items-center gap-3 mb-5">
             {d.student_photo_url ? (
               <img src={d.student_photo_url} alt="" className="w-14 h-14 rounded-full object-cover border border-slate-200" />
@@ -215,8 +242,6 @@ if (state.phase === "processing") {
               </p>
             </div>
           </div>
-
-          {/* ✅ REMOVED: Verification Code Box (No longer needed for dynamic OTP flow) */}
 
           {secondsLeft !== null && (
             <p className="text-xs text-slate-400 mb-4 text-center">
