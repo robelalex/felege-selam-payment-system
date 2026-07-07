@@ -12,6 +12,7 @@ const STATUS_MESSAGES = {
   locked: "Too many incorrect codes. Contact the school to unlock.",
   network: "Connection failed. Check your internet and retry.",
   otp_send_failed: "We couldn't send your verification code. Please try again in a moment or contact the school.",
+  timeout: "The server is waking up — this can take up to 60-90 seconds. Please wait a moment, then refresh this page.",
 };
 
 const getFullUrl = (path) => {
@@ -42,14 +43,17 @@ export default function PaymentLandingPage() {
   const [otp, setOtp] = useState("");
   const [secondsLeft, setSecondsLeft] = useState(null);
 
-  const load = useCallback(async () => {
+const load = useCallback(async () => {
     setState({ phase: "loading" });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
     try {
-      // ✅ FIXED: Absolute URL to Render backend + no-store cache
       const res = await fetch(`${API_BASE}/api/pay/${token}/`, { 
         cache: "no-store",
-        headers: { "Accept": "application/json" }
+        headers: { "Accept": "application/json" },
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       
@@ -67,9 +71,14 @@ export default function PaymentLandingPage() {
       } else {
         setState({ phase: "error", code: data.status });
       }
-    } catch (err) {
+  } catch (err) {
+      clearTimeout(timeoutId);
       console.error("Load failed:", err);
-      setState({ phase: "error", code: "network" });
+      if (err.name === "AbortError") {
+        setState({ phase: "error", code: "timeout" });
+      } else {
+        setState({ phase: "error", code: "network" });
+      }
     }
   }, [token]);
 

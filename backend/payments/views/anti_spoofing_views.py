@@ -77,7 +77,7 @@ class PaymentLandingView(NoCacheAPIView):
 
     def get(self, request, token):
         ip = client_ip(request)
-        rl_key = f"pl_rl_{ip}"
+        rl_key = f"pl_rl_{token[:8]}_{ip}"
         attempts = cache.get(rl_key, 0)
         if attempts >= RATE_LIMIT_MAX_ATTEMPTS:
             return Response({"status": "rate_limited"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
