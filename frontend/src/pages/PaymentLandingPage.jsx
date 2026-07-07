@@ -43,10 +43,11 @@ export default function PaymentLandingPage() {
   const [otp, setOtp] = useState("");
   const [secondsLeft, setSecondsLeft] = useState(null);
 
-const load = useCallback(async () => {
+  const load = useCallback(async () => {
     setState({ phase: "loading" });
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 90000);
+    
     try {
       const res = await fetch(`${API_BASE}/api/pay/${token}/`, { 
         cache: "no-store",
@@ -55,9 +56,18 @@ const load = useCallback(async () => {
       });
       clearTimeout(timeoutId);
       
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // ✅ SAFE PARSE: Read JSON body BEFORE checking status
+      // This allows us to read otp_send_failed even on 502 responses
+      let data;
+      try {
+        data = await res.json();
+      } catch (e) {
+        throw new Error(`HTTP ${res.status}: Invalid JSON response`);
+      }
       
-      const data = await res.json();
+      if (!res.ok && !data?.status) {
+        throw new Error(`HTTP ${res.status}`);
+      }
       
       if (data.status === "ok") {
         const processedData = {
@@ -71,7 +81,7 @@ const load = useCallback(async () => {
       } else {
         setState({ phase: "error", code: data.status });
       }
-  } catch (err) {
+    } catch (err) {
       clearTimeout(timeoutId);
       console.error("Load failed:", err);
       if (err.name === "AbortError") {
@@ -97,7 +107,6 @@ const load = useCallback(async () => {
 
   const submitOtp = async () => {
     try {
-      // ✅ FIXED: Absolute URL to Render backend
       const res = await fetch(`${API_BASE}/api/pay/${token}/verify-otp/`, {
         method: "POST",
         headers: { 
@@ -108,9 +117,18 @@ const load = useCallback(async () => {
         cache: "no-store",
       });
       
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // ✅ Apply same safe parse pattern here
+      let data;
+      try {
+        data = await res.json();
+      } catch (e) {
+        throw new Error(`HTTP ${res.status}: Invalid JSON response`);
+      }
       
-      const data = await res.json();
+      if (!res.ok && !data?.status) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      
       if (data.status === "ok") {
         setState({ 
           phase: "ready", 
@@ -122,7 +140,9 @@ const load = useCallback(async () => {
         });
       } else if (data.status === "otp_invalid") {
         setState((s) => ({ ...s, otpError: "Incorrect code. Check your SMS." }));
-      } else setState({ phase: "error", code: data.status });
+      } else {
+        setState({ phase: "error", code: data.status });
+      }
     } catch (err) {
       console.error("OTP submit failed:", err);
       setState({ phase: "error", code: "network" });
@@ -132,18 +152,30 @@ const load = useCallback(async () => {
   const pay = async () => {
     setState((s) => ({ ...s, paying: true }));
     try {
-      // ✅ FIXED: Absolute URL to Render backend
+      // ✅ FIXED: Restored correct endpoint + removed broken controller references
       const res = await fetch(`${API_BASE}/api/pay/${token}/initiate/`, { 
         method: "POST",
         cache: "no-store",
         headers: { "Accept": "application/json" }
       });
       
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // ✅ Safe parse for initiate endpoint too
+      let data;
+      try {
+        data = await res.json();
+      } catch (e) {
+        throw new Error(`HTTP ${res.status}: Invalid JSON response`);
+      }
       
-      const data = await res.json();
-      if (data.status === "ok") window.location.href = data.checkout_url;
-      else setState({ phase: "error", code: data.status });
+      if (!res.ok && !data?.status) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      
+      if (data.status === "ok") {
+        window.location.href = data.checkout_url;
+      } else {
+        setState({ phase: "error", code: data.status });
+      }
     } catch (err) {
       console.error("Pay failed:", err);
       setState({ phase: "error", code: "network" });

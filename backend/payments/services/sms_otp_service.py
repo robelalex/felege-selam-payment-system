@@ -60,34 +60,42 @@ def send_payment_otp(school_id: int, phone_number: str, code: str) -> dict:
         "Authorization": f"Bearer {school.at_api_key}"
     }
 
-    params = {
-        "to": formatted_number,
-        "message": message,
-    }
+    param_variants = []
     if school.sms_sender_id:
-        params["sender"] = school.sms_sender_id
+        param_variants.append({"to": formatted_number, "message": message, "sender": school.sms_sender_id})
+        param_variants.append({"to": formatted_number, "message": message, "sender_name": school.sms_sender_id})
+    else:
+        param_variants.append({"to": formatted_number, "message": message})
 
-    try:
-        response = requests.get(
-            AFRO_MESSAGE_SEND_URL,
-            headers=headers,
-            params=params,
-            timeout=10
-        )
+    last_error = None
 
-        data = response.json()
+    for params in param_variants:
+        try:
+            response = requests.get(
+                AFRO_MESSAGE_SEND_URL,
+                headers=headers,
+                params=params,
+                timeout=10
+            )
+            data = response.json()
+        except requests.exceptions.Timeout:
+            logger.error(f"❌ OTP send timeout for {school.name}")
+            return {'success': False, 'message': 'Connection timeout'}
+        except Exception as e:
+            logger.error(f"❌ OTP send error for {school.name}: {e}")
+            return {'success': False, 'message': str(e)}
 
         if response.status_code == 200 and data.get("acknowledge") == "success":
             logger.info(f"✅ Payment OTP sent to {formatted_number} for school {school.name}")
             return {'success': True, 'message': 'OTP sent successfully'}
-        else:
-            error_detail = data.get("response", "Unknown API Error")
-            logger.error(f"❌ OTP send failed for {school.name}: {error_detail}")
-            return {'success': False, 'message': f'Afro Message error: {error_detail}'}
 
-    except requests.exceptions.Timeout:
-        logger.error(f"❌ OTP send timeout for {school.name}")
-        return {'success': False, 'message': 'Connection timeout'}
-    except Exception as e:
-        logger.error(f"❌ OTP send error for {school.name}: {e}")
-        return {'success': False, 'message': str(e)}
+        error_detail = data.get("response") or data.get("errors") or "Unknown API Error"
+        last_error = f"Afro Message error: {error_detail}"
+
+        error_text = str(error_detail).lower()
+        sender_related = "sender" in error_text or "identifier" in error_text
+        if not sender_related:
+            break
+
+    logger.error(f"❌ OTP send failed for {school.name}: {last_error}")
+    return {'success': False, 'message': last_error}
