@@ -50,10 +50,11 @@ def send_payment_otp(school_id: int, phone_number: str, code: str) -> dict:
         return {'success': False, 'message': 'Invalid phone number format'}
 
     # Build OTP-specific message (no amount, no student name — per anti-spoofing design)
+    formatted_code = f"{code[:3]}-{code[3:]}"
     message = (
-        f"{school.name}: A payment request is ready for review.\n"
-        f"Code: {code}\n\n"
-        f"Never share this code by phone or reply to this SMS. Valid 2 hours."
+        f"{school.name}: Payment verification required.\n"
+        f"Your security code is: {formatted_code}\n\n"
+        f"Do NOT share this code with anyone calling you. Expires in 2 hours."
     )
 
     headers = {

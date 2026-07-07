@@ -56,8 +56,6 @@ export default function PaymentLandingPage() {
       });
       clearTimeout(timeoutId);
       
-      // ✅ SAFE PARSE: Read JSON body BEFORE checking status
-      // This allows us to read otp_send_failed even on 502 responses
       let data;
       try {
         data = await res.json();
@@ -107,17 +105,24 @@ export default function PaymentLandingPage() {
 
   const submitOtp = async () => {
     try {
+      // ✅ Normalize OTP: Remove dashes/spaces before sending to backend
+      const normalizedOtp = otp.replace(/[-\s]/g, "");
+
+      if (normalizedOtp.length !== 6) {
+        setState((s) => ({ ...s, otpError: "Please enter all 6 digits." }));
+        return;
+      }
+
       const res = await fetch(`${API_BASE}/api/pay/${token}/verify-otp/`, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
           "Accept": "application/json"
         },
-        body: JSON.stringify({ code: otp }),
+        body: JSON.stringify({ code: normalizedOtp }),
         cache: "no-store",
       });
       
-      // ✅ Apply same safe parse pattern here
       let data;
       try {
         data = await res.json();
@@ -152,14 +157,12 @@ export default function PaymentLandingPage() {
   const pay = async () => {
     setState((s) => ({ ...s, paying: true }));
     try {
-      // ✅ FIXED: Restored correct endpoint + removed broken controller references
       const res = await fetch(`${API_BASE}/api/pay/${token}/initiate/`, { 
         method: "POST",
         cache: "no-store",
         headers: { "Accept": "application/json" }
       });
       
-      // ✅ Safe parse for initiate endpoint too
       let data;
       try {
         data = await res.json();
@@ -224,21 +227,24 @@ export default function PaymentLandingPage() {
         <div className="max-w-sm w-full border border-slate-200 rounded-2xl p-6 shadow-sm bg-white">
           <p className="font-semibold text-slate-800 mb-1">Security Verification</p>
           <p className="text-sm text-slate-500 mb-5 leading-relaxed">
-            For your safety, we've sent a 6-digit code to <span className="font-mono font-medium">{d.masked_phone}</span>. 
+            For your safety, we've sent a code to <span className="font-mono font-medium">{d.masked_phone}</span>. 
             Enter it below to access your payment details.
           </p>
+          
+          {/* ✅ FIXED INPUT FIELD: Allows dashes, visual hint matches SMS format */}
           <input
             value={otp}
-            onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            onChange={(e) => setOtp(e.target.value.replace(/[^\d-]/g, "").slice(0, 7))} 
             inputMode="numeric"
-            maxLength={6}
-            className="w-full border border-slate-300 rounded-xl py-3 text-center text-xl tracking-[0.5em] mb-3 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-            placeholder="______"
+            maxLength={7} 
+            className="w-full border border-slate-300 rounded-xl py-3 text-center text-xl tracking-[0.3em] mb-3 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+            placeholder="___-___" 
           />
+          
           {state.otpError && <p className="text-sm text-rose-600 mb-3">{state.otpError}</p>}
           <button
             onClick={submitOtp}
-            disabled={otp.length !== 6}
+            disabled={otp.length < 6} // Allow clicking once 6+ chars (digits+dashes) are entered
             className="w-full bg-slate-900 disabled:bg-slate-300 text-white rounded-xl py-3 font-medium transition-colors"
           >
             Confirm Code
