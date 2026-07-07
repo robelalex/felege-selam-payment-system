@@ -11,6 +11,7 @@ const STATUS_MESSAGES = {
   rate_limited: "Too many attempts. Please wait 15 minutes and try again.",
   locked: "Too many incorrect codes. Contact the school to unlock.",
   network: "Connection failed. Check your internet and retry.",
+  otp_send_failed: "We couldn't send your verification code. Please try again in a moment or contact the school.",
 };
 
 const getFullUrl = (path) => {

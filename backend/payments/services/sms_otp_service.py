@@ -63,8 +63,9 @@ def send_payment_otp(school_id: int, phone_number: str, code: str) -> dict:
     params = {
         "to": formatted_number,
         "message": message,
-        "sender": school.sms_sender_id or "INFO"
     }
+    if school.sms_sender_id:
+        params["sender"] = school.sms_sender_id
 
     try:
         response = requests.get(

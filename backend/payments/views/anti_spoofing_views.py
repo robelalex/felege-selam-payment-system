@@ -1,6 +1,7 @@
 # backend/payments/views/anti_spoofing_views.py
 import json
 import secrets
+import logging
 from django.core.cache import cache
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -10,6 +11,9 @@ from django.utils import timezone
 from ..tokens import client_ip, fingerprint, ip_prefix, mask_phone, verify_payment_token
 from ..services.sms_otp_service import send_payment_otp
 from ..services.school_chapa_service import SchoolChapaService
+
+
+logger = logging.getLogger(__name__)
 
 RATE_LIMIT_WINDOW_SECONDS = 15 * 60
 RATE_LIMIT_MAX_ATTEMPTS = 8
@@ -88,11 +92,26 @@ class PaymentLandingView(NoCacheAPIView):
             if not cache.get(f"otp_sent_{record.id}"):
                 code = f"{secrets.randbelow(1_000_000):06d}"
                 cache.set(f"otp_code_{record.id}", code, OTP_CODE_TTL_SECONDS)
-                cache.set(f"otp_sent_{record.id}", True, OTP_RESEND_COOLDOWN_SECONDS)
-                
+
                 # Send dynamic OTP via our dedicated service
-                send_payment_otp(record.payment.student.school_id, record.parent_phone, code)
-            
+                otp_result = send_payment_otp(
+                    record.payment.student.school_id, record.parent_phone, code
+                )
+
+                if not otp_result.get("success"):
+                    logger.error(
+                        f"OTP send failed for record {record.id}: {otp_result.get('message')}"
+                    )
+                    return Response(
+                        {
+                            "status": "otp_send_failed",
+                            "error": otp_result.get("message"),
+                        },
+                        status=status.HTTP_502_BAD_GATEWAY,
+                    )
+
+                cache.set(f"otp_sent_{record.id}", True, OTP_RESEND_COOLDOWN_SECONDS)
+
             return Response({
                 "status": "otp_required",
                 "masked_phone": mask_phone(record.parent_phone)
