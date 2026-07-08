@@ -1,4 +1,5 @@
 # backend/payments/services/school_chapa_service.py
+import re
 import requests
 import json
 import logging
@@ -40,6 +41,32 @@ class SchoolChapaService:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
+
+    @staticmethod
+    def _sanitize_chapa_text(text, max_length=50, fallback="Payment"):
+        """
+        Chapa's customization.title / customization.description fields:
+        - only allow letters, numbers, hyphens, underscores, spaces, and dots
+        - must not exceed a fixed character limit (varies by field, 50 is
+          the tightest one we've hit — description)
+
+        IMPORTANT: sanitize first, THEN truncate the finished string.
+        Truncating a substring (e.g. only the school name) before
+        concatenating it into the final message, like the old code did,
+        can still produce an over-length or invalid final string.
+        """
+        if not text:
+            return fallback
+
+        # Strip anything that isn't letters/numbers/-/_/./space
+        cleaned = re.sub(r'[^A-Za-z0-9\-_. ]', '', str(text))
+        # Collapse repeated whitespace left behind by stripped characters
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+        if not cleaned:
+            return fallback
+
+        return cleaned[:max_length].strip()
     
     def initialize_payment(self, amount, email, first_name, last_name, tx_ref, callback_url, return_url):
         """
@@ -66,6 +93,24 @@ class SchoolChapaService:
                 'success': False,
                 'error': f'Chapa not configured for school: {self.school.name}'
             }
+
+        # ✅ FIX: Chapa rejects customization.description if it exceeds 50
+        # chars OR contains characters outside [A-Za-z0-9\-_. ] (this
+        # includes '/' — which many Ethiopian school names contain, e.g.
+        # "Felege Selam K/Gebriel Elementary School").
+        #
+        # The old code did f"Fee Payment - {self.school.name[:50]}" which
+        # truncated only the school-name portion BEFORE prepending
+        # "Fee Payment - ", so the final string could still exceed 50
+        # characters — and never stripped the invalid '/' at all.
+        raw_description = f"Fee Payment - {self.school.name}"
+        description = self._sanitize_chapa_text(
+            raw_description, max_length=50, fallback="School Fee Payment"
+        )
+
+        title = self._sanitize_chapa_text(
+            "School Fee", max_length=16, fallback="School Fee"
+        )
         
         data = {
             "amount": str(amount),
@@ -77,8 +122,8 @@ class SchoolChapaService:
             "callback_url": callback_url,
             "return_url": return_url,
             "customization": {
-                "title": "School Fee",
-                "description": f"Fee Payment - {self.school.name[:50]}"
+                "title": title,
+                "description": description
             },
             "meta": {
                 "school_id": str(self.school.id),
@@ -110,8 +155,13 @@ class SchoolChapaService:
                         'error': result.get('message', 'Payment initialization failed')
                     }
             else:
-                logger.error(f"❌ Chapa 400 response body: {response.text}")
-                logger.error(f"❌ Chapa request data was: amount={data.get('amount')}, email={data.get('email')}, first_name={data.get('first_name')}, last_name={data.get('last_name')}, tx_ref={data.get('tx_ref')}")
+                logger.error(f"❌ Chapa {response.status_code} response body: {response.text}")
+                logger.error(
+                    f"❌ Chapa request data was: amount={data.get('amount')}, "
+                    f"email={data.get('email')}, first_name={data.get('first_name')}, "
+                    f"last_name={data.get('last_name')}, tx_ref={data.get('tx_ref')}, "
+                    f"description={data['customization'].get('description')!r}"
+                )
                 return {
                     'success': False,
                     'error': f'Chapa API error: {response.status_code} - {response.text}',
