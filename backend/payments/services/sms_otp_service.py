@@ -3,6 +3,13 @@
 High-priority OTP SMS sender for anti-spoofing payment links.
 Uses Afro Message REST API independently from reminder quotas.
 This service is ONLY for security-critical OTP codes — never for marketing or reminders.
+
+✅ FIXED: Afro Message's beta account applies a content filter that masks
+any message resembling a bank/financial transaction alert (confirmed
+directly by their support team) — replacing the real code with `<<...>>`.
+Trigger phrases included "Payment verification required" and "security
+code". The message below uses the plain "one time password" phrasing
+Afro Message support confirmed passes through correctly.
 """
 import logging
 import requests
@@ -11,6 +18,12 @@ from schools.models import School
 logger = logging.getLogger(__name__)
 
 AFRO_MESSAGE_SEND_URL = "https://api.afromessage.com/api/send"
+
+# ✅ Must match OTP_CODE_TTL_SECONDS in anti_spoofing_views.py (10 minutes).
+# The old message said "Expires in 2 hours" while the actual cache TTL was
+# 10 minutes — a parent who waited past 10 min would get "invalid code"
+# with no idea why. Keep this string in sync with the real TTL.
+OTP_EXPIRY_TEXT = "10 minutes"
 
 
 def send_payment_otp(school_id: int, phone_number: str, code: str) -> dict:
@@ -49,54 +62,49 @@ def send_payment_otp(school_id: int, phone_number: str, code: str) -> dict:
         logger.error(f"❌ OTP send failed: Invalid phone format: {phone_number}")
         return {'success': False, 'message': 'Invalid phone number format'}
 
-    # Build OTP-specific message (no amount, no student name — per anti-spoofing design)
-    formatted_code = f"{code[:3]}-{code[3:]}"
+    # ✅ REWORDED: plain "one time password" phrasing, no "Payment",
+    # "verification required", or "security code" — those trigger Afro
+    # Message's bank-transaction content filter (confirmed by their support).
     message = (
-        f"{school.name}: Payment verification required.\n"
-        f"Your security code is: {formatted_code}\n\n"
-        f"Do NOT share this code with anyone calling you. Expires in 2 hours."
+        f"{school.name} - Your one time password is {code}. "
+        f"Do not share this with anyone. Valid for {OTP_EXPIRY_TEXT}."
     )
 
     headers = {
         "Authorization": f"Bearer {school.at_api_key}"
     }
 
-    param_variants = []
+    # ✅ SIMPLIFIED: earlier testing confirmed this account only accepts
+    # `sender_name` (not `sender`) — sending `sender` first was wasting an
+    # extra API call (and possibly an extra SMS credit) on every OTP send.
     if school.sms_sender_id:
-        param_variants.append({"to": formatted_number, "message": message, "sender": school.sms_sender_id})
-        param_variants.append({"to": formatted_number, "message": message, "sender_name": school.sms_sender_id})
+        params = {"to": formatted_number, "message": message, "sender_name": school.sms_sender_id}
     else:
-        param_variants.append({"to": formatted_number, "message": message})
+        params = {"to": formatted_number, "message": message}
 
-    last_error = None
+    try:
+        response = requests.get(
+            AFRO_MESSAGE_SEND_URL,
+            headers=headers,
+            params=params,
+            timeout=10
+        )
+        data = response.json()
+    except requests.exceptions.Timeout:
+        logger.error(f"❌ OTP send timeout for {school.name}")
+        return {'success': False, 'message': 'Connection timeout'}
+    except ValueError:
+        logger.error(f"❌ OTP send: non-JSON response for {school.name}: {response.text[:200]}")
+        return {'success': False, 'message': f'Unexpected response from Afro Message: {response.text[:200]}'}
+    except Exception as e:
+        logger.error(f"❌ OTP send error for {school.name}: {e}")
+        return {'success': False, 'message': str(e)}
 
-    for params in param_variants:
-        try:
-            response = requests.get(
-                AFRO_MESSAGE_SEND_URL,
-                headers=headers,
-                params=params,
-                timeout=10
-            )
-            data = response.json()
-        except requests.exceptions.Timeout:
-            logger.error(f"❌ OTP send timeout for {school.name}")
-            return {'success': False, 'message': 'Connection timeout'}
-        except Exception as e:
-            logger.error(f"❌ OTP send error for {school.name}: {e}")
-            return {'success': False, 'message': str(e)}
+    if response.status_code == 200 and data.get("acknowledge") == "success":
+        logger.info(f"✅ Payment OTP sent to {formatted_number} for school {school.name}")
+        return {'success': True, 'message': 'OTP sent successfully'}
 
-        if response.status_code == 200 and data.get("acknowledge") == "success":
-            logger.info(f"✅ Payment OTP sent to {formatted_number} for school {school.name}")
-            return {'success': True, 'message': 'OTP sent successfully'}
-
-        error_detail = data.get("response") or data.get("errors") or "Unknown API Error"
-        last_error = f"Afro Message error: {error_detail}"
-
-        error_text = str(error_detail).lower()
-        sender_related = "sender" in error_text or "identifier" in error_text
-        if not sender_related:
-            break
-
-    logger.error(f"❌ OTP send failed for {school.name}: {last_error}")
+    error_detail = data.get("response") or data.get("errors") or "Unknown API Error"
+    last_error = f"Afro Message error: {error_detail}"
+    logger.error(f"❌ OTP send failed for {school.name}: {last_error} | raw response: {data}")
     return {'success': False, 'message': last_error}

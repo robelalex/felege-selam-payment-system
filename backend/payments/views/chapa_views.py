@@ -11,6 +11,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from ..services.chapa_service import ChapaService
 from ..services.payment_initiation_service import initiate_payment_checkout
+from ..services.receipt_service import finalize_receipt
 from ..models import Payment, PaymentDeadline
 from students.models import Student
 from schools.models import School
@@ -285,6 +286,7 @@ def verify_chapa_payment(request):
         payment = Payment.objects.filter(transaction_reference=tx_ref).first()
 
         if payment and payment.status == 'verified':
+            finalize_receipt(payment)
             return JsonResponse({
                 'success': True,
                 'status': 'success',
@@ -294,10 +296,10 @@ def verify_chapa_payment(request):
                 'amount': str(payment.amount),
                 'student_name': payment.student.full_name,
                 'month': payment.deadline.get_month_display(),
+                'receipt_token': str(payment.receipt_token),
             })
 
         # Poll Chapa API to confirm
-        # ✅ Use school's credentials
         if payment:
             from ..services.school_chapa_service import SchoolChapaService
             chapa_service = SchoolChapaService(payment.student.school.id)
@@ -308,16 +310,17 @@ def verify_chapa_payment(request):
                 if chapa_status == 'success' and payment.status != 'verified':
                     payment.status = 'verified'
                     payment.verified_at = timezone.now()
-                    if not payment.invoice_number:
-                        payment.invoice_number = payment.generate_invoice_number()
+                    finalize_receipt(payment)
                     payment.save()
                     _send_payment_confirmation(payment)
 
+                receipt_token = str(payment.receipt_token) if payment.receipt_token else None
                 return JsonResponse({
                     'success': True,
                     'status': chapa_status,
                     'verified': chapa_status == 'success',
                     'invoice_number': payment.invoice_number if payment else None,
+                    'receipt_token': receipt_token,
                 })
 
         # Chapa API unreachable — return local status
@@ -343,6 +346,10 @@ def payment_status(request, tx_ref):
     try:
         payment = Payment.objects.filter(transaction_reference=tx_ref).first()
         if payment:
+            receipt_token = None
+            if payment.status == 'verified':
+                finalize_receipt(payment)
+                receipt_token = str(payment.receipt_token)
             return JsonResponse({
                 'success': True,
                 'status': payment.status,
@@ -351,6 +358,7 @@ def payment_status(request, tx_ref):
                 'invoice_number': payment.invoice_number,
                 'student_name': payment.student.full_name,
                 'month': payment.deadline.get_month_display(),
+                'receipt_token': receipt_token,
             })
         return JsonResponse({'success': False, 'error': 'Payment not found'}, status=404)
     except Exception as e:
