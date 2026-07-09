@@ -161,6 +161,41 @@ function AdminPayments() {
     }
   };
 
+  const bulkReject = async () => {
+    if (selectedPayments.length === 0) {
+      alert('Please select at least one payment.');
+      return;
+    }
+    const reason = window.prompt('Reason for rejection (applies to all selected):') || '';
+    try {
+      await api.post('/payments/bulk_reject/', { payment_ids: selectedPayments, reason });
+      await fetchPayments();
+      setSelectedPayments([]);
+      setSelectAll(false);
+    } catch (err) {
+      console.error('Error bulk rejecting payments:', err);
+      alert('Failed to reject payments. Please try again.');
+    }
+  };
+
+  const bulkDeletePending = async () => {
+    if (selectedPayments.length === 0) {
+      alert('Please select at least one payment.');
+      return;
+    }
+    if (window.confirm(`Permanently delete ${selectedPayments.length} pending payment(s)? This cannot be undone.`)) {
+      try {
+        await api.post('/payments/bulk_delete_pending/', { payment_ids: selectedPayments });
+        await fetchPayments();
+        setSelectedPayments([]);
+        setSelectAll(false);
+      } catch (err) {
+        console.error('Error bulk deleting payments:', err);
+        alert('Failed to delete payments. Please try again.');
+      }
+    }
+  };
+
   const toggleSelectPayment = (paymentId) => {
     setSelectedPayments(prev => 
       prev.includes(paymentId) 
@@ -308,15 +343,36 @@ const getMonthName = (payment) => {
         </div>
         
         <div className="flex gap-2 flex-wrap">
-          {selectedPayments.length > 0 && (
-            <button 
-              onClick={bulkArchive}
-              className="bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 tap-target text-sm"
-            >
-              <Trash2 className="h-4 w-4" />
-              Archive ({selectedPayments.length})
-            </button>
-          )}
+         {selectedPayments.length > 0 && (() => {
+            const selectedRows = filteredPayments.filter(p => selectedPayments.includes(p.id));
+            const allPending = selectedRows.every(p => p.status === 'pending');
+            return allPending ? (
+              <>
+                <button
+                  onClick={bulkReject}
+                  className="bg-orange-600 text-white px-3 py-2 rounded-lg hover:bg-orange-700 transition-colors flex items-center gap-2 tap-target text-sm"
+                >
+                  <XCircle className="h-4 w-4" />
+                  Reject ({selectedPayments.length})
+                </button>
+                <button
+                  onClick={bulkDeletePending}
+                  className="bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 tap-target text-sm"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete ({selectedPayments.length})
+                </button>
+              </>
+            ) : (
+              <button 
+                onClick={bulkArchive}
+                className="bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 tap-target text-sm"
+              >
+                <Trash2 className="h-4 w-4" />
+                Archive ({selectedPayments.length})
+              </button>
+            );
+          })()}
           <button onClick={handleExport} className="btn-outline flex items-center gap-2 tap-target">
             <Download className="h-4 w-4" />
             <span className="hidden sm:inline">Export</span>

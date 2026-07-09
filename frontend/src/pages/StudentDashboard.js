@@ -32,6 +32,7 @@ function StudentDashboard() {
   const [student, setStudent] = useState(null);
   const [pendingPayments, setPendingPayments] = useState([]);
   const [paidPayments, setPaidPayments] = useState([]);
+  const [rejectedPayments, setRejectedPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -56,7 +57,9 @@ function StudentDashboard() {
       
       const allPayments = historyResponse.data || [];
       const paid = allPayments.filter(p => p.status === 'verified');
+      const rejected = allPayments.filter(p => p.status === 'rejected');
       setPaidPayments(paid);
+      setRejectedPayments(rejected);
       
       setPendingPayments(pendingResponse.data || []);
       
@@ -446,6 +449,60 @@ function StudentDashboard() {
                           <p className="font-medium text-gray-900 text-sm md:text-base">{payment.month}</p>
                           <p className="text-xs text-gray-500">
                             {new Date(payment.payment_date).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-left sm:text-right">
+                        <p className="font-bold text-gray-900 text-sm md:text-base">{payment.amount} Birr</p>
+                        <p className="text-xs text-gray-500 capitalize">{payment.payment_method}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* Rejected Payments Section */}
+      {rejectedPayments.length > 0 && (
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+          <button
+            onClick={() => setExpandedSection(expandedSection === 'rejected' ? null : 'rejected')}
+            className="w-full px-4 md:px-6 py-3 md:py-4 flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors tap-target"
+          >
+            <div className="flex items-center gap-2 md:gap-3">
+              <AlertTriangle className="h-4 w-4 md:h-5 md:w-5 text-red-500" />
+              <h2 className="text-base md:text-lg font-semibold text-gray-900">
+                Rejected Payments ({rejectedPayments.length})
+              </h2>
+            </div>
+            <ChevronDown className={`h-4 w-4 md:h-5 md:w-5 text-gray-500 transform transition-transform ${
+              expandedSection === 'rejected' ? 'rotate-180' : ''
+            }`} />
+          </button>
+
+          <AnimatePresence>
+            {expandedSection === 'rejected' && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="divide-y divide-gray-200"
+              >
+                {rejectedPayments.map((payment, idx) => (
+                  <div key={idx} className="p-4 md:p-5 hover:bg-gray-50 transition-colors bg-red-50/30">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-medium text-gray-900 text-sm md:text-base">{payment.month}</p>
+                          <p className="text-xs text-gray-500">
+                            {new Date(payment.payment_date).toLocaleDateString()}
+                          </p>
+                          <p className="text-xs text-red-600 mt-1">
+                            Please re-upload or contact the school office.
                           </p>
                         </div>
                       </div>

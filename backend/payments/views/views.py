@@ -255,6 +255,49 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
         payment.delete()
         return Response({'success': True, 'message': 'Payment permanently deleted'}, status=200)
+    
+    @action(detail=False, methods=['post'])
+    def bulk_reject(self, request):
+        """Reject multiple pending payments at once"""
+        payment_ids = request.data.get('payment_ids', [])
+        reason = request.data.get('reason', '')
+        school_id = request.headers.get('X-School-ID')
+
+        if not payment_ids:
+            return Response({'error': 'No payment IDs provided'}, status=400)
+        if not school_id:
+            return Response({'error': 'School ID required'}, status=400)
+
+        payments = Payment.objects.filter(
+            id__in=payment_ids,
+            student__school_id=int(school_id),
+            status='pending'
+        )
+        count = payments.count()
+        payments.update(status='rejected', rejection_reason=reason, verified_at=timezone.now(), verified_by=request.user)
+
+        return Response({'success': True, 'message': f'Rejected {count} payment(s)', 'rejected_count': count})
+
+    @action(detail=False, methods=['post'])
+    def bulk_delete_pending(self, request):
+        """Permanently delete multiple pending payments at once"""
+        payment_ids = request.data.get('payment_ids', [])
+        school_id = request.headers.get('X-School-ID')
+
+        if not payment_ids:
+            return Response({'error': 'No payment IDs provided'}, status=400)
+        if not school_id:
+            return Response({'error': 'School ID required'}, status=400)
+
+        payments = Payment.objects.filter(
+            id__in=payment_ids,
+            student__school_id=int(school_id),
+            status='pending'
+        )
+        count = payments.count()
+        payments.delete()
+
+        return Response({'success': True, 'message': f'Deleted {count} payment(s)', 'deleted_count': count})
 
 
 class PaymentDeadlineViewSet(viewsets.ModelViewSet):

@@ -50,9 +50,13 @@ urlpatterns = [
     path('payments/initiate-payment/', PaymentViewSet.as_view({'post': 'initiate_payment'}), name='initiate-payment'),
     path('payments/verify-payment/<int:pk>/', PaymentViewSet.as_view({'post': 'verify_payment'}), name='verify-payment'),
     path('payments/pending-verifications/', PaymentViewSet.as_view({'get': 'pending_verifications'}), name='pending-verifications'),
-    path('payments/delete-payment/<int:pk>/', PaymentViewSet.as_view({'delete': 'delete_payment'}), name='delete-payment'),
-    path('payments/bulk-delete/', PaymentViewSet.as_view({'post': 'bulk_delete'}), name='bulk-delete'),
-    path('payments/<int:pk>/parent_delete/', PaymentViewSet.as_view({'delete': 'parent_delete'}), name='parent-delete'),
+    path('payments/delete-payment/<int:pk>/', PaymentViewSet.as_view({'delete': 'delete_pending'}), name='delete-payment'),
+    path('payments/bulk-delete/', PaymentViewSet.as_view({'post': 'bulk_delete_pending'}), name='bulk-delete'),
+    path('payments/<int:pk>/parent_delete/', PaymentViewSet.as_view({'delete': 'delete_pending'}), name='parent-delete'),
+    path('payments/<int:pk>/reject_payment/', PaymentViewSet.as_view({'post': 'reject_payment'}), name='reject-payment'),
+    path('payments/<int:pk>/delete_pending/', PaymentViewSet.as_view({'delete': 'delete_pending'}), name='delete-pending'),
+    path('payments/bulk_reject/', PaymentViewSet.as_view({'post': 'bulk_reject'}), name='bulk-reject'),
+    path('payments/bulk_delete_pending/', PaymentViewSet.as_view({'post': 'bulk_delete_pending'}), name='bulk-delete-pending'),
     
     # Archive/History endpoints
     path('payments/<int:pk>/archive_payment/', PaymentViewSet.as_view({'post': 'archive_payment'}), name='archive-payment'),

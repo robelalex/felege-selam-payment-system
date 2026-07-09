@@ -178,8 +178,12 @@ class ReportService:
                 'total_paid': total_paid,
                 'total_pending': total_students - total_paid,
                 'total_collected': float(total_collected),
+                'total_rejected': Payment.objects.filter(
+                    deadline__academic_year=academic_year_obj, status='rejected',
+                    **({'student__school_id': int(school_id)} if school_id else {})
+                ).count(),
                 'collection_rate': round((total_paid / total_students * 100) if total_students > 0 else 0, 1)
-            },
+             },
             'by_grade': by_grade,
             'monthly_breakdown': monthly_data
         }

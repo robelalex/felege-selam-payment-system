@@ -329,10 +329,36 @@ def verify_slip(request, slip_id):
                 )
 
         elif action == 'reject':
+            reason = request.data.get('reason', 'Rejected by admin')
             slip.status = 'rejected'
             slip.verification_status = 'failed'
-            slip.verification_error = request.data.get('reason', 'Rejected by admin')
+            slip.verification_error = reason
             slip.save()
+
+            existing_payment = Payment.objects.filter(
+                student=slip.student, deadline=slip.deadline
+            ).exclude(status='verified').first()
+
+            if existing_payment:
+                existing_payment.status = 'rejected'
+                existing_payment.rejection_reason = reason
+                existing_payment.verified_at = timezone.now()
+                existing_payment.save()
+            else:
+                Payment.objects.create(
+                    student=slip.student,
+                    deadline=slip.deadline,
+                    amount=slip.amount,
+                    payment_method='bank_transfer',
+                    transaction_reference=slip.transaction_reference or f'SLIP-{slip.id}',
+                    status='rejected',
+                    rejection_reason=reason,
+                    paid_by=slip.uploaded_by,
+                    paid_by_phone='',
+                    is_from_slip=True,
+                    slip=slip,
+                    verified_at=timezone.now(),
+                )
 
         else:
             return Response({'error': 'Invalid action'}, status=400)
