@@ -1,4 +1,5 @@
 # backend/payments/models.py
+import uuid
 from django.db import models
 from django.core.validators import MinValueValidator
 from students.models import Student
@@ -108,6 +109,12 @@ class Payment(models.Model):
     paid_by_phone = models.CharField(max_length=20)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # ✅ NEW: unguessable public receipt identifier (separate from invoice_number,
+    # which stays human-readable). This is what goes in the receipt URL.
+    receipt_token = models.UUIDField(
+        default=None, null=True, blank=True, unique=True, editable=False,
+        help_text="Public token for the receipt page — generated only after payment is verified."
+    )
 
     class Meta:
         ordering = ['-created_at']
@@ -123,11 +130,27 @@ class Payment(models.Model):
         return f"{self.student.student_id} - {self.amount} Birr"
 
     def generate_invoice_number(self):
+        """
+        ✅ FIXED: scoped PER SCHOOL, not globally sequential.
+        Old behavior: INV-2026-0001 shared across ALL schools — a school
+        with few payments could see numbers jump unpredictably depending
+        on other schools' activity, and it gave no visual indication of
+        which school issued the receipt.
+        New behavior: INV-{SCHOOLCODE}-{YEAR}-{SEQUENCE}, sequence counted
+        only within that school. Two schools can both have INV-XX-2026-0001
+        with zero collision risk, and the receipt is self-describing.
+        """
         from django.utils import timezone
+        school = self.student.school
+        school_code = school.code or f"S{school.id}"
         year = timezone.now().year
+        prefix = f'INV-{school_code}-{year}-'
+
         last = Payment.objects.filter(
-            invoice_number__startswith=f'INV-{year}-'
+            invoice_number__startswith=prefix,
+            student__school=school
         ).order_by('-invoice_number').first()
+
         if last and last.invoice_number:
             try:
                 new_num = int(last.invoice_number.split('-')[-1]) + 1
@@ -135,7 +158,14 @@ class Payment(models.Model):
                 new_num = 1
         else:
             new_num = 1
-        return f'INV-{year}-{new_num:04d}'
+
+        return f'{prefix}{new_num:04d}'
+
+    def generate_receipt_token(self):
+        """Called once, when a payment becomes verified. Idempotent."""
+        if not self.receipt_token:
+            self.receipt_token = uuid.uuid4()
+        return self.receipt_token
 
 
 class PaymentReminder(models.Model):

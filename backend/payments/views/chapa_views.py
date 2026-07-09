@@ -10,6 +10,7 @@ from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from ..services.chapa_service import ChapaService
+from ..services.payment_initiation_service import initiate_payment_checkout
 from ..models import Payment, PaymentDeadline
 from students.models import Student
 from schools.models import School
@@ -24,11 +25,6 @@ ENGLISH_MONTHS = {
     'ሰኔ': 'Sene', 'ሐምሌ': 'Hamle', 'ነሐሴ': 'Nehase', 'ጳጉሜ': 'Pagume'
 }
 
-
-def _generate_tx_ref(student_id, deadline_id):
-    return f"FSPAY-{student_id}-{deadline_id}-{uuid.uuid4().hex[:8]}"
-
-
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def initiate_chapa_payment(request):
@@ -42,7 +38,7 @@ def initiate_chapa_payment(request):
         first_name  = data.get('first_name', 'Parent')
         last_name   = data.get('last_name', 'User')
         platform    = data.get('platform', 'web')
-        
+
         # ✅ Get school from header
         school_id = request.headers.get('X-School-ID')
         if not school_id:
@@ -115,7 +111,6 @@ def initiate_chapa_payment(request):
         ).first()
 
         if not payment:
-            tx_ref = _generate_tx_ref(student.student_id, deadline.id)
             payment = Payment.objects.create(
                 student=student,
                 deadline=deadline,
@@ -124,44 +119,34 @@ def initiate_chapa_payment(request):
                 status='pending',
                 paid_by=f"{first_name} {last_name}",
                 paid_by_phone=student.parent_phone or '',
-                transaction_reference=tx_ref,
             )
-        else:
-            tx_ref = payment.transaction_reference
 
-        month_amharic = deadline.get_month_display()
-        month_english = ENGLISH_MONTHS.get(month_amharic, 'Monthly Fee')
-
-        # Define return_url based on platform
+        # Define return_url base depending on platform
         if platform == 'mobile':
-            return_url = f'https://felege-selam-payment-system.onrender.com/api/chapa/mobile-redirect/?tx_ref={tx_ref}'
+            return_url_base = 'https://felege-selam-payment-system.onrender.com/api/chapa/mobile-redirect/'
         else:
-            return_url = f'https://felege-selam-payment-system.vercel.app/payment/success?tx_ref={tx_ref}'
+            return_url_base = 'https://felege-selam-payment-system.vercel.app/payment/success'
 
-        # ✅ Use school's Chapa credentials instead of global
-        from ..services.school_chapa_service import SchoolChapaService
-        chapa_service = SchoolChapaService(school.id)
-        
-        result = chapa_service.initialize_payment(
-            amount=float(amount),
+        # ✅ Unified checkout — same function the reminder-link flow uses.
+        # Generates tx_ref, saves it onto the Payment row, THEN calls Chapa.
+        result = initiate_payment_checkout(
+            payment=payment,
             email=email or student.parent_email or f"{student.student_id}@parent.com",
             first_name=first_name,
             last_name=last_name,
-            tx_ref=tx_ref,
             callback_url='https://felege-selam-payment-system.onrender.com/api/chapa/webhook/',
-            return_url=return_url,
+            return_url_base=return_url_base,
         )
 
         if result.get('success'):
-            logger.info(f"✅ Chapa payment initiated for {student.student_id}, tx_ref={tx_ref}")
+            logger.info(f"✅ Chapa payment initiated for {student.student_id}, tx_ref={result['tx_ref']}")
             return JsonResponse({
                 'success': True,
                 'checkout_url': result.get('checkout_url'),
-                'tx_ref': tx_ref,
+                'tx_ref': result.get('tx_ref'),
                 'payment_id': payment.id,
             })
         else:
-            payment.delete()
             return JsonResponse(
                 {'success': False, 'error': result.get('error', 'Chapa error')},
                 status=500
@@ -170,7 +155,6 @@ def initiate_chapa_payment(request):
     except Exception as e:
         logger.exception("initiate_chapa_payment error")
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
-
 
 # Keep test_payment as alias — same logic
 @api_view(['POST', 'OPTIONS'])
@@ -276,21 +260,17 @@ def chapa_webhook(request):
 
 
 def _send_payment_confirmation(payment):
-    """Send SMS to parent after successful payment."""
+    """
+    Send SMS + Email receipt confirmation to parent after successful payment.
+    Routed through receipt_service, which also generates the tokenized
+    receipt link and uses MultiSchoolSMSService (Afro Message) instead of
+    the broken africastalking-based common/sms_service.py.
+    """
+    from ..services.receipt_service import send_payment_success_notifications
     try:
-        from common.sms_service import send_sms
-        phone = payment.student.parent_phone
-        if phone:
-            month = payment.deadline.get_month_display()
-            message = (
-                f"Dear {payment.paid_by}, your payment of {payment.amount} Birr "
-                f"for {payment.student.full_name} ({month}) has been confirmed. "
-                f"Invoice: {payment.invoice_number}. Thank you!"
-            )
-            send_sms(phone, message)
-            logger.info(f"✅ SMS confirmation sent to {phone}")
+        send_payment_success_notifications(payment)
     except Exception as e:
-        logger.warning(f"⚠️ SMS confirmation failed: {e}")
+        logger.warning(f"⚠️ Receipt notification failed for payment {payment.id}: {e}")
 
 
 @api_view(['GET'])

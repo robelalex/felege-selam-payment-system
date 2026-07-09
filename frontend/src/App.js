@@ -51,7 +51,7 @@ import VerifyETSettings from './pages/VerifyETSettings';
 import SchoolChapaSettings from './pages/SchoolChapaSettings';
 import PaymentLandingPage from './pages/PaymentLandingPage';
 import AdminSections from './pages/AdminSections';
-
+import ReceiptPage from './pages/ReceiptPage';
 // Styles
 import './index.css';
 
@@ -362,6 +362,7 @@ function App() {
               <Route path="/privacy-policy" element={<PrivacyPolicy />} />
               <Route path="/admin-dashboard/payment-history" element={<AdminPaymentHistory />} />
               <Route path="/school/verify-et-settings" element={<VerifyETSettings />} />
+              <Route path="/receipt/:token" element={<ReceiptPage />} />
               
               {/* ✅ Chapa Settings - Already wrapped with ChapaWarningProvider */}
               <Route path="/admin/chapa-settings" element={

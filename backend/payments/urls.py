@@ -5,6 +5,7 @@ from .views.views import PaymentViewSet, PaymentDeadlineViewSet
 from .views import ReminderViewSet, send_reminders, send_payment_confirmation
 from .views.report_views import monthly_report, student_report, annual_summary, monthly_detailed_report
 from .views import PaymentLandingView, OtpVerifyView, PaymentInitiateView
+from .views.receipt_views import get_receipt
 from .views.slip_views import (
     upload_slip, pending_slips, verify_slip, ai_stats, slip_status,
     delete_slip, bulk_delete_slips,
@@ -127,4 +128,7 @@ urlpatterns += [
     path('pay/<str:token>/', PaymentLandingView.as_view(), name='payment-landing'),
     path('pay/<str:token>/verify-otp/', OtpVerifyView.as_view(), name='payment-verify-otp'),
     path('pay/<str:token>/initiate/', PaymentInitiateView.as_view(), name='payment-initiate'),
+]
+urlpatterns += [
+    path('receipt/<str:token>/', get_receipt, name='payment-receipt'),
 ]

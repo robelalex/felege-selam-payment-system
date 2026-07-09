@@ -167,7 +167,9 @@ class PaymentInitiateView(NoCacheAPIView):
     """
     POST /api/pay/<token>/initiate/
     Only reachable after mandatory OTP verification.
-    Marks token consumed BEFORE handing off to Chapa.
+    Now uses the SAME unified checkout function as the dashboard flow —
+    tx_ref is generated once and saved onto the Payment row before
+    Chapa is ever contacted, so status/verify lookups always succeed.
     """
     permission_classes = [AllowAny]
 
@@ -176,40 +178,30 @@ class PaymentInitiateView(NoCacheAPIView):
         if error:
             return Response({"status": error}, status=status.HTTP_400_BAD_REQUEST)
 
-        # ✅ MANDATORY CHECK: Must have verified OTP
         if not record.otp_verified_at:
             return Response({"status": "otp_required"}, status=status.HTTP_403_FORBIDDEN)
 
-        # Mark consumed BEFORE calling PSP to close double-submit race window
         record.consumed_at = timezone.now()
         record.save(update_fields=["consumed_at"])
 
-        # Generate checkout URL using existing SchoolChapaService
-        try:
-            chapa_service = SchoolChapaService(record.payment.student.school_id)
-            result = chapa_service.initialize_payment(
-                amount=float(record.payment.amount),
-                email=record.payment.student.parent_email or f"{record.payment.student.student_id}@parent.com",
-                first_name="Parent",
-                last_name="User",
-                tx_ref=f"PL-{record.id.hex[:8]}",
-                callback_url="https://felege-selam-payment-system.onrender.com/api/chapa/webhook/",
-                return_url=f"https://felege-selam-payment-system.vercel.app/payment/success?tx_ref=PL-{record.id.hex[:8]}",
-            )
+        from ..services.payment_initiation_service import initiate_payment_checkout
 
-            if result.get("success"):
-                return Response({
-                    "status": "ok",
-                    "checkout_url": result["checkout_url"]
-                })
-            else:
-                return Response({
-                    "status": "payment_init_failed",
-                    "error": result.get("error", "Unknown payment error")
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        payment = record.payment
+        student = payment.student
 
-        except Exception as e:
+        result = initiate_payment_checkout(
+            payment=payment,
+            email=student.parent_email or f"{student.student_id}@parent.com",
+            first_name="Parent",
+            last_name="User",
+            callback_url="https://felege-selam-payment-system.onrender.com/api/chapa/webhook/",
+            return_url_base="https://felege-selam-payment-system.vercel.app/payment/success",
+        )
+
+        if result.get("success"):
+            return Response({"status": "ok", "checkout_url": result["checkout_url"]})
+        else:
             return Response({
-                "status": "payment_init_error",
-                "error": str(e)
+                "status": "payment_init_failed",
+                "error": result.get("error", "Unknown payment error")
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
