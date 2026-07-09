@@ -21,7 +21,7 @@ def _serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(settings.SECRET_KEY, salt="payment-link-v1")
 
 
-def generate_payment_token(payment, parent_phone: str):
+def generate_payment_token(payment, parent_phone: str, channel: str = "sms"):
     """
     Creates a PaymentLinkToken row and returns (signed_token, record).
     Note: verification_code is now generated dynamically in the View, not here.
@@ -29,6 +29,7 @@ def generate_payment_token(payment, parent_phone: str):
     Args:
         payment: A payments.Payment instance
         parent_phone: Parent's phone in E.164 format (e.g., 251911234567)
+        channel: "sms" or "email" — determines where the OTP will be sent later
 
     Returns:
         tuple: (signed_token_string, PaymentLinkToken_instance)
@@ -45,6 +46,7 @@ def generate_payment_token(payment, parent_phone: str):
         jti=jti,
         verification_code="",  # Will be filled dynamically when link is clicked
         expires_at=timezone.now() + timedelta(seconds=TOKEN_MAX_AGE_SECONDS),
+        delivery_channel=channel,
     )
 
     # Token payload uses 'pay' key to match our Payment FK

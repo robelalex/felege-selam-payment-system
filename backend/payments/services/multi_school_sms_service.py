@@ -230,7 +230,7 @@ class MultiSchoolSMSService:
         try:
             # Generate signed token + DB record. 
             # Note: verification_code is now generated dynamically in the View, not here.
-            token, record = generate_payment_token(payment, payment.student.parent_phone)
+            token, record = generate_payment_token(payment, payment.student.parent_phone, channel="sms")
             
             formatted_phone = self.format_phone_number(payment.student.parent_phone)
             school_name = self.school.name

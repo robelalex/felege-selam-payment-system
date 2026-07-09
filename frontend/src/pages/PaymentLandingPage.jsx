@@ -227,7 +227,7 @@ export default function PaymentLandingPage() {
         <div className="max-w-sm w-full border border-slate-200 rounded-2xl p-6 shadow-sm bg-white">
           <p className="font-semibold text-slate-800 mb-1">Security Verification</p>
           <p className="text-sm text-slate-500 mb-5 leading-relaxed">
-            For your safety, we've sent a code to <span className="font-mono font-medium">{d.masked_phone}</span>. 
+            For your safety, we've sent a code to your {d.channel === "email" ? "email" : "phone"}: <span className="font-mono font-medium">{d.masked_phone}</span>. 
             Enter it below to access your payment details.
           </p>
           

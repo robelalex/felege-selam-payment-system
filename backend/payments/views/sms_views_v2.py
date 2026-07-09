@@ -124,7 +124,7 @@ class MultiSchoolSendPaymentReminderView(APIView):
                     'status': 'pending'
                 }
             )
-            token, record = generate_payment_token(payment_obj, student.parent_phone)
+            token, record = generate_payment_token(payment_obj, student.parent_phone, channel="sms")
             payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
             
             # Create bilingual message with payment link
@@ -263,7 +263,7 @@ class MultiSchoolSendBulkRemindersView(APIView):
                         'status': 'pending'
                     }
                 )
-                token, record = generate_payment_token(payment_obj, student.parent_phone)
+                token, record = generate_payment_token(payment_obj, student.parent_phone, channel="sms")
                 payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
                 
                 # Build message

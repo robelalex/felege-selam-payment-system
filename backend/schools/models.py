@@ -22,9 +22,9 @@ class School(models.Model):
     # Telebirr details
     telebirr_merchant_id = models.CharField(max_length=100, blank=True)
     
-    # ========== SMSEthiopia SMS Configuration ==========
+    # ========== Afro Message SMS Configuration ==========
     # Note: 'at_username' DB column kept for backward compatibility, 
-    # but now stores SMSEthiopia API Key or Campaign Name if needed
+    # but now stores Afro Message API Key or Campaign Name if needed
     at_username = models.CharField(
         max_length=100, 
         blank=True, 

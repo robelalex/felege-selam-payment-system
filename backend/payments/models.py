@@ -359,6 +359,12 @@ class PaymentLinkToken(models.Model):
     otp_required = models.BooleanField(default=False)
     otp_verified_at = models.DateTimeField(null=True, blank=True)
     failed_attempts = models.PositiveSmallIntegerField(default=0)
+    delivery_channel = models.CharField(
+        max_length=10,
+        choices=[("sms", "SMS"), ("email", "Email")],
+        default="sms",
+        help_text="Which channel this link was sent through — determines where the OTP is delivered."
+    )
 
     class Meta:
         indexes = [models.Index(fields=["jti"])]

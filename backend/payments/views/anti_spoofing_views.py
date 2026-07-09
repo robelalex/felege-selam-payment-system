@@ -10,6 +10,7 @@ from rest_framework import status
 from django.utils import timezone
 from ..tokens import client_ip, fingerprint, ip_prefix, mask_phone, verify_payment_token
 from ..services.sms_otp_service import send_payment_otp
+from ..services.email_otp_service import send_payment_otp_email
 from ..services.school_chapa_service import SchoolChapaService
 
 
@@ -93,10 +94,17 @@ class PaymentLandingView(NoCacheAPIView):
                 code = f"{secrets.randbelow(1_000_000):06d}"
                 cache.set(f"otp_code_{record.id}", code, OTP_CODE_TTL_SECONDS)
 
-                # Send dynamic OTP via our dedicated service
-                otp_result = send_payment_otp(
-                    record.payment.student.school_id, record.parent_phone, code
-                )
+                
+               # Send dynamic OTP via the correct channel this link was sent through
+                if record.delivery_channel == "email":
+                    parent_email = record.payment.student.parent_email
+                    otp_result = send_payment_otp_email(
+                        record.payment.student.school_id, parent_email, code
+                    )
+                else:
+                    otp_result = send_payment_otp(
+                        record.payment.student.school_id, record.parent_phone, code
+                    )
 
                 if not otp_result.get("success"):
                     logger.error(
@@ -112,9 +120,15 @@ class PaymentLandingView(NoCacheAPIView):
 
                 cache.set(f"otp_sent_{record.id}", True, OTP_RESEND_COOLDOWN_SECONDS)
 
+            if record.delivery_channel == "email":
+                masked_contact = record.payment.student.parent_email or "your email"
+            else:
+                masked_contact = mask_phone(record.parent_phone)
+
             return Response({
                 "status": "otp_required",
-                "masked_phone": mask_phone(record.parent_phone)
+                "masked_phone": masked_contact,
+                "channel": record.delivery_channel,
             })
 
         # If OTP already verified, show payment details

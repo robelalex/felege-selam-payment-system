@@ -248,7 +248,7 @@ class ReminderViewSet(viewsets.ViewSet):
                         }
                 )
 
-                token, record = generate_payment_token(payment_obj, student.parent_phone)
+                token, record = generate_payment_token(payment_obj, student.parent_phone, channel="email")
                 payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
             
             # ✅ NEW: Use SchoolEmailService instead of global send_mail

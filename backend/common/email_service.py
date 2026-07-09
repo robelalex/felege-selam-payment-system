@@ -578,7 +578,7 @@ def send_deadline_reminder_email(recipient_email, student, deadline, school, pay
         )
         
         # Generate secure anti-spoofing token (same function used by SMS)
-        token, record = generate_payment_token(payment, student.parent_phone)
+        token, record = generate_payment_token(payment, student.parent_phone, channel="email")
         payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
     
     # Format due date
