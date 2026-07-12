@@ -439,21 +439,48 @@ function SMSDashboard() {
         </button>
       </div>
 
-      {/* Balance Card */}
+      {/* SMS Usage Card */}
       <div className="bg-gradient-to-r from-primary-600 to-primary-800 rounded-xl shadow-lg p-6 text-white">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-primary-100">SMS Account Balance</p>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex-1 min-w-[220px]">
+            <p className="text-primary-100">SMS Sent This Month</p>
             <p className="text-3xl font-bold mt-2">
-              {balance?.success ? (
-                balance.balance || 'Available'
-              ) : 'N/A'}
+              {balance?.success ? balance.sent_this_month : '—'}
+              {balance?.success && balance.monthly_limit > 0 && (
+                <span className="text-lg font-medium text-primary-200"> / {balance.monthly_limit}</span>
+              )}
             </p>
-            <p className="text-primary-200 text-sm mt-2">
-              {balance?.success ? 'Using school\'s own Afro Message account' : 'Configure SMS in School Settings'}
+
+            {/* Usage bar, only when there's a quota to measure against */}
+            {balance?.success && balance.monthly_limit > 0 && (
+              <div className="w-full bg-white/20 rounded-full h-2 mt-3 max-w-xs">
+                <div
+                  className="bg-white h-2 rounded-full transition-all"
+                  style={{
+                    width: `${Math.min(100, (balance.sent_this_month / balance.monthly_limit) * 100)}%`
+                  }}
+                />
+              </div>
+            )}
+
+            <p className="text-primary-200 text-sm mt-3">
+              {balance?.success
+                ? "This is usage tracked inside this app, not your live Afro Message credit balance — Afro Message doesn't provide a balance API. Use the button to check your real balance or top up."
+                : 'Configure SMS in School Settings to see usage.'}
             </p>
           </div>
-          <DollarSign className="h-12 w-12 text-white/30" />
+          <div className="flex flex-col items-end gap-2">
+            <MessageSquare className="h-12 w-12 text-white/30" />
+            <a
+              href="https://afromessage.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 bg-white/15 hover:bg-white/25 transition-colors rounded-lg px-3 py-2 text-sm font-medium whitespace-nowrap"
+            >
+              <DollarSign className="h-4 w-4" />
+              Open Afro Message Dashboard
+            </a>
+          </div>
         </div>
       </div>
 

@@ -193,17 +193,51 @@ class MultiSchoolSMSService:
 
     def get_balance(self):
         """
-        NOTE: I don't have a confirmed Afro Message balance endpoint from
-        their public SDKs — their dashboard is the reliable source for this.
-        Leaving this as a stub that returns a clear 'not supported' message
-        rather than guessing a URL, since a wrong guess here would just
-        produce another confusing error for you to debug.
+        Afro Message's public API (send / bulk / code / verify) does not
+        expose a balance or top-up endpoint, so we can't pull a live SMS
+        credit balance from them. Instead, this returns OUR OWN internal
+        usage tracker — how many SMS this school has sent this calendar
+        month against its configured quota — which we already record on
+        every successful send (see _update_quota_count). This is not the
+        real Afro Message account balance; for that, the school admin
+        needs to log into the Afro Message dashboard directly.
         """
+        self._check_quota_reset_if_needed()
+
+        monthly_limit = self.school.sms_monthly_limit or 0
+        sent_this_month = self.school.sms_current_month_count or 0
+        remaining = (monthly_limit - sent_this_month) if monthly_limit > 0 else None
+
         return {
-            'success': False,
-            'error': 'Balance check not implemented for Afro Message — check balance in the Afro Message dashboard directly.',
-            'school': self.school.name
+            'success': True,
+            'type': 'internal_usage',  # not a live provider balance
+            'school': self.school.name,
+            'sms_enabled': self.school.sms_enabled,
+            'sms_test_status': self.school.sms_test_status or '',
+            'sms_last_test': self.school.sms_last_test,
+            'sender_id': self.school.sms_sender_id or '',
+            'sent_this_month': sent_this_month,
+            'monthly_limit': monthly_limit,  # 0 means unlimited/no cap set
+            'remaining_this_month': remaining,
+            'provider_dashboard_url': 'https://afromessage.com/',
+            'note': (
+                "This is your usage inside this app, not your live Afro "
+                "Message credit balance — Afro Message doesn't offer an API "
+                "for that. Check your real balance or top up on their site."
+            ),
         }
+
+    def _check_quota_reset_if_needed(self):
+        """Roll over the monthly counter if we've crossed into a new month,
+        without raising (unlike _check_quota, which is used before sending)."""
+        today = date.today()
+        if self.school.sms_last_reset and self.school.sms_last_reset.month != today.month:
+            self.school.sms_current_month_count = 0
+            self.school.sms_last_reset = today
+            self.school.save(update_fields=['sms_current_month_count', 'sms_last_reset'])
+        elif not self.school.sms_last_reset:
+            self.school.sms_last_reset = today
+            self.school.save(update_fields=['sms_last_reset'])
     
     # ---------- ANTI-SPOOFING PAYMENT REMINDER (SIMPLIFIED) ----------
 
