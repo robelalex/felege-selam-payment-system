@@ -209,12 +209,20 @@ const getLogoUrl = () => {
   // give them a minimal, honest nav until a real library module is built.
   const noModuleYetNavItems = [];
 
+  // ✅ school_admin / super_admin: Normal Mode now shows EVERYTHING
+  // (the old 5-item normal list + the settings list combined), since the
+  // school admin is the one who controls the whole system and shouldn't
+  // have to flip into Settings Mode just to reach Staff, Reports, etc.
+  // Settings Mode itself is untouched — same subset it always showed —
+  // it's just no longer the only way to reach those pages.
+  const fullAdminNavItems = [...schoolAdminNormalNavItems, ...schoolAdminSettingsNavItems];
+
   // Determine which navigation to show based on role
   const getNavItems = () => {
     if (userRole === 'school_admin' || userRole === 'super_admin') {
       return { 
-        normal: schoolAdminNormalNavItems, 
-        settings: schoolAdminSettingsNavItems 
+        normal: fullAdminNavItems,            // ✅ everything, in Normal Mode
+        settings: schoolAdminSettingsNavItems  // unchanged subset, still available via toggle
       };
     }
     
@@ -245,7 +253,7 @@ const getLogoUrl = () => {
 
   const navItems = getNavItems();
   const currentNavItems = isSettingsMode ? navItems.settings : navItems.normal;
-  const showSettingsToggle = navItems.settings.length > 0 && userRole === 'school_admin';
+  const showSettingsToggle = navItems.settings.length > 0 && (userRole === 'school_admin' || userRole === 'super_admin');
 
   const isPathActive = (path) => {
     return location.pathname === path;
@@ -334,8 +342,8 @@ const getLogoUrl = () => {
             }
           </button>
 
-          {/* Mode Indicator (only for School Admin) */}
-          {!isCollapsed && userRole === 'school_admin' && (
+          {/* Mode Indicator (School Admin / Super Admin) */}
+          {!isCollapsed && (userRole === 'school_admin' || userRole === 'super_admin') && (
             <div className="px-3 py-2 mt-2">
               <div className={`text-xs font-medium px-2 py-1 rounded-full inline-block ${
                 isSettingsMode ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
@@ -411,8 +419,8 @@ const getLogoUrl = () => {
               );
             })}
 
-            {/* Manage Years - Special button that appears in Settings Mode for School Admin */}
-            {isSettingsMode && userRole === 'school_admin' && (
+            {/* Manage Years - Special button that appears in Settings Mode for School Admin / Super Admin */}
+            {isSettingsMode && (userRole === 'school_admin' || userRole === 'super_admin') && (
               <button
                 onClick={() => setShowYearSelectorModal(true)}
                 className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} w-full px-3 py-2 rounded-lg transition-all duration-200 mb-1 text-purple-600 bg-purple-50 hover:bg-purple-100`}
@@ -424,8 +432,8 @@ const getLogoUrl = () => {
             )}
           </nav>
 
-          {/* Year Selector - Only show in Normal Mode for School Admin */}
-          {!isSettingsMode && userRole === 'school_admin' && (
+          {/* Year Selector - Only show in Normal Mode for School Admin / Super Admin */}
+          {!isSettingsMode && (userRole === 'school_admin' || userRole === 'super_admin') && (
             <div className="flex-shrink-0 px-3 py-2 border-t border-gray-100">
               <div className="flex items-center justify-between">
                 {!isCollapsed && <span className="text-[10px] text-gray-400">Academic Year</span>}
