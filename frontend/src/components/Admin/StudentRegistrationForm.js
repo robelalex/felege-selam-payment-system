@@ -17,6 +17,7 @@ import {
   Calendar
 } from 'lucide-react';
 import api from '../../services/api';
+import { getMediaUrl } from '../../utils/imageUrl';
 
 const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
   const [loading, setLoading] = useState(false);
@@ -29,6 +30,10 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
   // ✅ NEW: sections available for the currently selected grade
   const [availableSections, setAvailableSections] = useState([]);
   const [loadingSections, setLoadingSections] = useState(false);
+
+  // ✅ NEW: student photo
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(editStudent?.photo ? getMediaUrl(editStudent.photo) : null);
   
   const [formData, setFormData] = useState({
     student_id: editStudent?.student_id || '',
@@ -121,6 +126,25 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
     setSuccess('');
   };
 
+  // ✅ NEW: handle photo selection + live preview
+  const handlePhotoChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!['image/jpeg', 'image/png', 'image/jpg'].includes(file.type)) {
+      setError('Photo must be a JPG or PNG image');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Photo must be smaller than 5MB');
+      return;
+    }
+
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+    setError('');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -147,35 +171,40 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
     }
 
     try {
-      const studentData = {
-        student_id: '', // Send empty to let backend generate
-        school: schoolId,
-        first_name: formData.first_name,
-        last_name: formData.last_name,
-        father_name: formData.father_name || '',
-        mother_name: formData.mother_name || '',
-        grade: parseInt(formData.grade),
-        section: formData.section || '',
-        academic_year: formData.academic_year,
-        parent_full_name: formData.parent_full_name || `${formData.first_name} ${formData.last_name}'s Parent`,
-        parent_phone: formData.parent_phone,
-        parent_alternative_phone: formData.parent_alternative_phone || '',
-        parent_email: formData.parent_email || '',
-        monthly_fee: parseFloat(formData.monthly_fee),
-        city: formData.city || 'Jimma',
-        subcity: formData.subcity || '',
-        kebele: formData.kebele || '',
-        house_number: formData.house_number || '',
-        status: formData.status || 'active'
-      };
+      // ✅ Use FormData so the photo (if any) actually gets uploaded.
+      // Same multipart pattern already used for bank slip uploads elsewhere in this app.
+      const studentData = new FormData();
+      studentData.append('student_id', ''); // Let backend generate
+      studentData.append('school', schoolId);
+      studentData.append('first_name', formData.first_name);
+      studentData.append('last_name', formData.last_name);
+      studentData.append('father_name', formData.father_name || '');
+      studentData.append('mother_name', formData.mother_name || '');
+      studentData.append('grade', parseInt(formData.grade));
+      studentData.append('section', formData.section || '');
+      studentData.append('academic_year', formData.academic_year);
+      studentData.append('parent_full_name', formData.parent_full_name || `${formData.first_name} ${formData.last_name}'s Parent`);
+      studentData.append('parent_phone', formData.parent_phone);
+      studentData.append('parent_alternative_phone', formData.parent_alternative_phone || '');
+      studentData.append('parent_email', formData.parent_email || '');
+      studentData.append('monthly_fee', parseFloat(formData.monthly_fee));
+      studentData.append('city', formData.city || 'Jimma');
+      studentData.append('subcity', formData.subcity || '');
+      studentData.append('kebele', formData.kebele || '');
+      studentData.append('house_number', formData.house_number || '');
+      studentData.append('status', formData.status || 'active');
+      if (photoFile) {
+        studentData.append('photo', photoFile);
+      }
 
-      console.log('Sending data:', studentData);
+      console.log('Sending data (FormData with photo:', !!photoFile, ')');
 
       let response;
+      const multipartConfig = { headers: { 'Content-Type': 'multipart/form-data' } };
       if (editStudent) {
-        response = await api.put(`/students/${editStudent.id}/`, studentData);
+        response = await api.patch(`/students/${editStudent.id}/`, studentData, multipartConfig);
       } else {
-        response = await api.post('/students/', studentData);
+        response = await api.post('/students/', studentData, multipartConfig);
       }
       
       console.log('Response:', response.data);
@@ -276,6 +305,29 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
                 Personal Information
               </h3>
               
+              {/* ✅ NEW: Student photo upload */}
+              <div className="flex items-center gap-4 mb-4">
+                <div className="h-20 w-20 rounded-full bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center flex-shrink-0">
+                  {photoPreview ? (
+                    <img src={photoPreview} alt="Student preview" className="h-full w-full object-cover" />
+                  ) : (
+                    <User className="h-8 w-8 text-gray-400" />
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Student Photo
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/jpg"
+                    onChange={handlePhotoChange}
+                    className="text-sm text-gray-600"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">JPG or PNG, up to 5MB. Used on ID cards and report cards.</p>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">

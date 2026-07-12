@@ -30,6 +30,14 @@ class Student(models.Model):
         help_text="Format: SCHOOLCODE-YEAR-SEQUENCE (e.g., FS-2024-1001). Auto-generated if left blank."
     )
 
+    # ✅ Student profile photo — shown on ID cards, report cards, and parent/teacher portals
+    photo = models.ImageField(
+        upload_to='student_photos/%Y/%m/',
+        blank=True,
+        null=True,
+        help_text="Student profile photo (JPG, PNG)"
+    )
+
     school = models.ForeignKey(
         School,
         on_delete=models.CASCADE,

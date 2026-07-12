@@ -10,6 +10,7 @@ import {
   Upload, Banknote, Trash2, AlertTriangle
 } from 'lucide-react';
 import api from '../services/api';
+import { getMediaUrl } from '../utils/imageUrl';
 import ParentLayout from '../components/Layout/ParentLayout';
 import UploadSlipModal from '../components/UploadSlipModal';
 import ReceiptModal from '../components/ReceiptModal';
@@ -284,9 +285,17 @@ const handleMakePayment = async (deadlineId, amount) => {
         <div className="bg-white rounded-2xl shadow-lg p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex items-center gap-4">
-              <div className="p-4 bg-indigo-100 rounded-full">
-                <GraduationCap className="h-8 w-8 text-indigo-600" />
-              </div>
+              {student.photo ? (
+                <img
+                  src={getMediaUrl(student.photo)}
+                  alt={student.full_name}
+                  className="w-16 h-16 rounded-full object-cover border-2 border-indigo-200"
+                />
+              ) : (
+                <div className="p-4 bg-indigo-100 rounded-full">
+                  <GraduationCap className="h-8 w-8 text-indigo-600" />
+                </div>
+              )}
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">{student.full_name}</h1>
                 <div className="flex flex-wrap gap-3 mt-1 text-sm text-gray-500">

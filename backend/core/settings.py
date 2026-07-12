@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'authentication',
     'academics',
     'common',
+    'staff',
     'admin_dashboard',
     'django_q',
     'anymail',

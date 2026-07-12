@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
+import { getMediaUrl } from '../utils/imageUrl';
 
 const SchoolSettings = () => {
     const { getAuthHeader } = useAuth();
@@ -30,9 +31,88 @@ const SchoolSettings = () => {
         email_current_month_count: 0
     });
 
+    // ✅ NEW: Branding (logo) + Grading System state
+    const [schoolId, setSchoolId] = useState(null);
+    const [logoFile, setLogoFile] = useState(null);
+    const [logoPreview, setLogoPreview] = useState(null);
+    const [savingBranding, setSavingBranding] = useState(false);
+    const [gradingSystem, setGradingSystem] = useState('percentage');
+    const [savingGrading, setSavingGrading] = useState(false);
+
     useEffect(() => {
         fetchAllConfigs();
+        fetchSchoolProfile();
     }, []);
+
+    // ✅ NEW: load current school (logo + grading system) — this account's own school
+    const fetchSchoolProfile = async () => {
+        try {
+            const res = await api.get('/schools/');
+            const school = Array.isArray(res.data) ? res.data[0] : res.data;
+            if (school) {
+                setSchoolId(school.id);
+                setLogoPreview(school.logo ? getMediaUrl(school.logo) : null);
+                setGradingSystem(school.grading_system || 'percentage');
+            }
+        } catch (error) {
+            console.error('Error fetching school profile:', error);
+        }
+    };
+
+    const handleLogoChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!['image/jpeg', 'image/png', 'image/jpg'].includes(file.type)) {
+            alert('Logo must be a JPG or PNG image');
+            return;
+        }
+        if (file.size > 3 * 1024 * 1024) {
+            alert('Logo must be smaller than 3MB');
+            return;
+        }
+        setLogoFile(file);
+        setLogoPreview(URL.createObjectURL(file));
+    };
+
+    const handleLogoSave = async () => {
+        if (!logoFile || !schoolId) return;
+        setSavingBranding(true);
+        try {
+            const formData = new FormData();
+            formData.append('logo', logoFile);
+            const res = await api.patch(`/schools/${schoolId}/`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            alert('✅ School logo updated successfully!');
+            await fetchSchoolProfile();
+
+            // ✅ Keep the sidebar's cached school info in sync immediately —
+            // without this, AdminLayout kept showing the OLD logo (or the
+            // default icon) until logout/login cleared its stale cache.
+            const cached = JSON.parse(localStorage.getItem('selectedSchool') || '{}');
+            localStorage.setItem('selectedSchool', JSON.stringify({ ...cached, logo: res.data.logo }));
+            window.dispatchEvent(new Event('schoolInfoUpdated'));
+        } catch (error) {
+            console.error('Error saving logo:', error);
+            alert('❌ Failed to update logo');
+        } finally {
+            setSavingBranding(false);
+        }
+    };
+
+    const handleGradingSystemSave = async () => {
+        if (!schoolId) return;
+        setSavingGrading(true);
+        try {
+            await api.patch(`/schools/${schoolId}/`, { grading_system: gradingSystem });
+            alert('✅ Grading system saved! Exam results will now display using this format.');
+        } catch (error) {
+            console.error('Error saving grading system:', error);
+            alert('❌ Failed to save grading system');
+        } finally {
+            setSavingGrading(false);
+        }
+    };
 
     const fetchAllConfigs = async () => {
         setLoading(true);
@@ -153,7 +233,77 @@ const SchoolSettings = () => {
 
     return (
         <div className="max-w-4xl mx-auto p-6 space-y-8">
-            <h1 className="text-2xl font-bold mb-6">School Communication Settings</h1>
+            <h1 className="text-2xl font-bold mb-6">School Settings</h1>
+
+            {/* ==================== BRANDING (LOGO) SECTION — NEW ==================== */}
+            <div className="bg-white shadow rounded-lg overflow-hidden">
+                <div className="bg-purple-50 border-l-4 border-purple-400 p-4">
+                    <p className="text-purple-800">
+                        🏫 Your school logo appears on receipts, report cards, and the parent portal.
+                    </p>
+                </div>
+                <div className="p-6 flex items-center gap-6">
+                    <div className="h-24 w-24 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center flex-shrink-0">
+                        {logoPreview ? (
+                            <img src={logoPreview} alt="School logo" className="h-full w-full object-cover" />
+                        ) : (
+                            <span className="text-xs text-gray-400 text-center px-2">No logo yet</span>
+                        )}
+                    </div>
+                    <div className="flex-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Upload School Logo</label>
+                        <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/jpg"
+                            onChange={handleLogoChange}
+                            className="text-sm text-gray-600 mb-3"
+                        />
+                        <p className="text-xs text-gray-500 mb-3">JPG or PNG, up to 3MB.</p>
+                        <button
+                            onClick={handleLogoSave}
+                            disabled={!logoFile || savingBranding}
+                            className="px-6 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
+                        >
+                            {savingBranding ? 'Saving...' : 'Save Logo'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* ==================== GRADING SYSTEM SECTION — NEW ==================== */}
+            <div className="bg-white shadow rounded-lg overflow-hidden">
+                <div className="bg-teal-50 border-l-4 border-teal-400 p-4">
+                    <p className="text-teal-800">
+                        📊 Choose how exam results are graded and displayed for your school. This applies to report cards and the grade-entry screens teachers use.
+                    </p>
+                </div>
+                <div className="p-6 space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Grading System</label>
+                        <select
+                            value={gradingSystem}
+                            onChange={(e) => setGradingSystem(e.target.value)}
+                            className="w-full md:w-96 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-teal-500 focus:border-teal-500"
+                        >
+                            <option value="percentage">Percentage (out of 100)</option>
+                            <option value="letter_grade">Letter Grade (A, B, C...)</option>
+                            <option value="both">Both — show percentage and letter grade</option>
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1">
+                            {gradingSystem === 'percentage' && 'Results will show raw marks out of 100, e.g. "87/100".'}
+                            {gradingSystem === 'letter_grade' && 'Results will show a letter grade based on your school\'s scale (default: 90+=A, 80-89=B, etc). Editable later in exam settings.'}
+                            {gradingSystem === 'both' && 'Results will show both, e.g. "87/100 (B)".'}
+                        </p>
+                    </div>
+                    <button
+                        onClick={handleGradingSystemSave}
+                        disabled={savingGrading}
+                        className="px-6 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50"
+                    >
+                        {savingGrading ? 'Saving...' : 'Save Grading System'}
+                    </button>
+                </div>
+            </div>
 
             {/* ==================== SMS CONFIGURATION SECTION ==================== */}
             <div className="bg-white shadow rounded-lg overflow-hidden">

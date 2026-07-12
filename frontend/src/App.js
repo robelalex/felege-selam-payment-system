@@ -39,7 +39,6 @@ import ParentLogin from './pages/ParentLogin';
 import SelectStudent from './pages/SelectStudent';
 import ParentDashboard from './pages/ParentDashboard';
 import EnterStudentId from './pages/EnterStudentId';
-import StaffManagement from './pages/StaffManagement';
 import RegistrarDashboard from './pages/RegistrarDashboard';
 import PaymentManagerDashboard from './pages/PaymentManagerDashboard';
 import ReportingDashboard from './pages/ReportingDashboard';
@@ -51,6 +50,8 @@ import VerifyETSettings from './pages/VerifyETSettings';
 import SchoolChapaSettings from './pages/SchoolChapaSettings';
 import PaymentLandingPage from './pages/PaymentLandingPage';
 import AdminSections from './pages/AdminSections';
+import AdminStaff from './pages/AdminStaff';
+import AdminActivityLog from './pages/AdminActivityLog';
 import ReceiptPage from './pages/ReceiptPage';
 // Styles
 import './index.css';
@@ -257,20 +258,6 @@ function App() {
                 } 
               />
 
-              {/* Staff Management */}
-              <Route 
-                path="/admin/staff" 
-                element={
-                  <ProtectedRoute>
-                    <ChapaWarningProvider>
-                      <AdminLayout>
-                        <StaffManagement />
-                      </AdminLayout>
-                    </ChapaWarningProvider>
-                  </ProtectedRoute>
-                } 
-              />
-
               {/* Registrar Dashboard */}
               <Route 
                 path="/registrar/dashboard" 
@@ -379,9 +366,24 @@ function App() {
     path="/admin/sections"
     element={
         <ProtectedRoute>
-            <AdminLayout>
-                <AdminSections />
-            </AdminLayout>
+            <ChapaWarningProvider>
+                <AdminLayout>
+                    <AdminSections />
+                </AdminLayout>
+            </ChapaWarningProvider>
+        </ProtectedRoute>
+    }
+/>
+
+<Route
+    path="/admin/staff"
+    element={
+        <ProtectedRoute>
+            <ChapaWarningProvider>
+                <AdminLayout>
+                    <AdminStaff />
+                </AdminLayout>
+            </ChapaWarningProvider>
         </ProtectedRoute>
     }
 />

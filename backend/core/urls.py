@@ -40,6 +40,9 @@ urlpatterns = [
     # ✅ schools.urls FIRST — contains custom chapa/sms/verify-et paths + its own router
     path('api/', include('schools.urls')),
 
+    # ✅ Staff module (teacher/staff HR records + class assignments)
+    path('api/', include('staff.urls')),
+
     # ✅ Main router AFTER schools — students, sections, academic-years
     path('api/', include(router.urls)),
 

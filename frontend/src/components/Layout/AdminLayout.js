@@ -22,9 +22,11 @@ import {
   User,
   ArrowLeft,
   Grid,
+  History,
   Users as UsersIcon
 } from 'lucide-react';
 import api from '../../services/api';
+import { getMediaUrl } from '../../utils/imageUrl';
 import { useChapaWarning } from '../../context/ChapaWarningContext';  // ✅ ADD THIS
 
 const AdminLayout = ({ children }) => {
@@ -65,15 +67,30 @@ useEffect(() => {
   initData();
 }, [location.pathname]);
 
-  const fetchSchoolInfo = async () => {
+// ✅ Listen for school-info updates fired from anywhere in the app
+// (e.g. SchoolSettings.js after a successful logo/grading-system save).
+// Without this, the sidebar only ever showed the FIRST cached copy of
+// the school from localStorage and never refreshed — so a newly
+// uploaded logo never appeared until the cache happened to be cleared.
+useEffect(() => {
+  const handleSchoolInfoUpdated = () => {
+    fetchSchoolInfo(true); // force a real API refetch, bypassing the cache
+  };
+  window.addEventListener('schoolInfoUpdated', handleSchoolInfoUpdated);
+  return () => window.removeEventListener('schoolInfoUpdated', handleSchoolInfoUpdated);
+}, []);
+
+  const fetchSchoolInfo = async (forceRefresh = false) => {
     try {
-      const savedSchool = localStorage.getItem('selectedSchool');
-      if (savedSchool) {
-        const school = JSON.parse(savedSchool);
-        setSchoolInfo(school);
-        return;
+      if (!forceRefresh) {
+        const savedSchool = localStorage.getItem('selectedSchool');
+        if (savedSchool) {
+          const school = JSON.parse(savedSchool);
+          setSchoolInfo(school);
+          return;
+        }
       }
-      
+
       const response = await api.get('/schools/');
       if (response.data && response.data[0]) {
         setSchoolInfo(response.data[0]);
@@ -112,16 +129,9 @@ useEffect(() => {
 
 const getLogoUrl = () => {
   if (schoolInfo?.logo) {
-    if (schoolInfo.logo.startsWith('http')) {
-      return schoolInfo.logo;
-    }
-    if (process.env.NODE_ENV === 'development') {
-      return `http://127.0.0.1:8000${schoolInfo.logo}`;
-    }
-    const backendUrl = process.env.REACT_APP_API_URL || 'https://felege-selam-payment-system.onrender.com';
-    return `${backendUrl}${schoolInfo.logo}`;
+    return getMediaUrl(schoolInfo.logo);
   }
-  
+
   // ✅ DEFAULT: Use a generic school icon
   return `data:image/svg+xml,${encodeURIComponent(`
     <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
@@ -159,10 +169,13 @@ const getLogoUrl = () => {
     { path: '/admin/academic-years', label: 'Academic Years', icon: Calendar },
     { path: '/admin/deadlines', label: 'Payment Deadlines', icon: Calendar },
     { path: '/admin/sections', label: 'Sections', icon: Grid },
+    { path: '/admin/staff', label: 'Staff & Teachers', icon: UsersIcon },
+    { path: '/admin/activity-log', label: 'Activity Log', icon: History },
     { path: '/admin/reports', label: 'Reports', icon: BarChart3 },
     { path: '/admin/reminders', label: 'Reminders', icon: Bell },
     { path: '/admin-dashboard/payment-history', label: 'Payment History', icon: Archive },
     { path: '/admin/chapa-settings', label: 'Chapa Payment', icon: CreditCard, badge: <ChapaStatusBadge /> },
+    { path: '/school-settings', label: 'School Settings', icon: Settings },
   ];
 
   // Registrar Navigation (Only Students)

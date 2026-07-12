@@ -34,6 +34,46 @@ def get_school_id_from_request(request):
     
     return None
 
+
+def get_verified_school_id(request):
+    """
+    ✅ Safer alternative to get_school_id_from_request() above.
+
+    The older function trusts the X-School-ID header FIRST, even for
+    non-super-admins — meaning a school_admin could send a different
+    school's ID and read/write that school's data. Use this function for
+    any NEW view (staff, attendance, exams, payroll, library, hostel, etc).
+
+    - Non-super-admins: ALWAYS resolved from their own profile
+      (SchoolAdminProfile or UserProfile.school_id). The header is ignored
+      entirely for them — they cannot override which school they're scoped to.
+    - Super admins: may use the X-School-ID header to switch which school's
+      data they're viewing/managing, since they're allowed to see all schools
+      anyway.
+    """
+    user = request.user
+    if not user.is_authenticated:
+        return None
+
+    if is_super_admin(user):
+        school_id = request.headers.get('X-School-ID')
+        if school_id:
+            try:
+                return int(school_id)
+            except ValueError:
+                return None
+        return None
+
+    school = get_user_school(user)
+    if school:
+        return school.id
+
+    profile = getattr(user, 'profile', None)
+    if profile and getattr(profile, 'school_id', None):
+        return profile.school_id
+
+    return None
+
 def log_action(user, action, details='', request=None):
     """Helper function to log user actions"""
     ip_address = None

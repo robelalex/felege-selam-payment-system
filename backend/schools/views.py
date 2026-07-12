@@ -14,8 +14,71 @@ from payments.services.multi_school_sms_service import MultiSchoolSMSService
 
 
 class SchoolViewSet(viewsets.ModelViewSet):
-    queryset = School.objects.all()
+    """
+    ✅ SECURITY FIX: previously had no permission_classes, which meant it
+    inherited the project-wide default of AllowAny — any unauthenticated
+    request could list/create/update/delete ANY school, including other
+    schools' bank account numbers and payment gateway API keys.
+
+    Now:
+    - Requires authentication for every action.
+    - Super admins (is_staff/is_superuser) see and manage all schools.
+    - School admins/staff can only see and edit their OWN school — resolved
+      from their SchoolAdminProfile/UserProfile, never from a client-sent
+      header, so a user can't just send a different school's ID to read
+      or modify it.
+    - Only super admins can create or delete a School record.
+    """
     serializer_class = SchoolSerializer
+    permission_classes = [IsAuthenticated]
+    # NOTE: this queryset attribute is ONLY used by DRF's router to infer the
+    # url basename ('school') — it is NOT what actually runs per-request.
+    # get_queryset() below overrides it for every real request, which is what
+    # enforces the tenant scoping. Removing this attribute entirely breaks
+    # router.register() with "could not automatically determine the name".
+    queryset = School.objects.all()
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff or user.is_superuser:
+            return School.objects.all()
+
+        school_ids = list(
+            SchoolAdminProfile.objects.filter(user=user, is_active=True)
+            .values_list('school_id', flat=True)
+        )
+        profile_school_id = getattr(getattr(user, 'profile', None), 'school_id', None)
+        if profile_school_id:
+            school_ids.append(profile_school_id)
+
+        return School.objects.filter(id__in=school_ids)
+
+    def check_object_permissions(self, request, obj):
+        super().check_object_permissions(request, obj)
+        # Belt-and-suspenders: even if get_queryset were bypassed somehow,
+        # never allow a non-super-admin to touch a school outside their own.
+        user = request.user
+        if user.is_staff or user.is_superuser:
+            return
+        if obj.id not in self.get_queryset().values_list('id', flat=True):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You do not have access to this school.")
+
+    def create(self, request, *args, **kwargs):
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response(
+                {'detail': 'Only a super admin can create a new school.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().create(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response(
+                {'detail': 'Only a super admin can delete a school.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().destroy(request, *args, **kwargs)
 
 
 # ========== DEBUG ENDPOINT - TO FIND THE PROBLEM ==========

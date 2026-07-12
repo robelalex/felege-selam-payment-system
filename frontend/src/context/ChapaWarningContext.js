@@ -2,7 +2,17 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import api from '../services/api';
 
-const ChapaWarningContext = createContext();
+// ✅ FIX: without a default value here, useChapaWarning() returns `undefined`
+// on any route that isn't wrapped in <ChapaWarningProvider> — and since the
+// sidebar's ChapaStatusBadge renders on EVERY admin page (not just the one
+// route that wraps the provider), that crashed the whole app on pages like
+// /admin/sections. A safe default means the badge just quietly assumes
+// "configured" until a real provider overrides it, instead of crashing.
+const ChapaWarningContext = createContext({
+  chapaConfigured: true,
+  loading: false,
+  setChapaConfigured: () => {},
+});
 
 export const ChapaWarningProvider = ({ children }) => {
   const [chapaConfigured, setChapaConfigured] = useState(true);
