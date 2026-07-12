@@ -23,9 +23,10 @@ class StaffMemberSerializer(serializers.ModelSerializer):
 
     # ✅ Both school and the auto-generated staff_id are read-only —
     # they're set/derived server-side, never taken from client input.
+    # user is also read-only: it's only ever set via create_login/revoke_login.
     school = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = StaffMember
         fields = '__all__'
-        read_only_fields = ['school', 'staff_id']
+        read_only_fields = ['school', 'staff_id', 'user']

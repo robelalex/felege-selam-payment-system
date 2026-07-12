@@ -74,6 +74,40 @@ def get_verified_school_id(request):
 
     return None
 
+def get_effective_role(user):
+    """
+    ✅ Single source of truth for "what can this person do" — unifies the
+    two role systems that previously disagreed:
+      - authentication.UserProfile.role: only ever 'super_admin',
+        'school_admin', 'staff', or 'parent'. Every staff login created via
+        StaffMemberViewSet.create_login gets 'staff' here, which is useless
+        for telling a registrar apart from an accountant.
+      - staff.StaffMember.role: the real, granular role
+        (teacher/registrar/accountant/librarian/reporting_manager/
+        reminder_manager/other/school_admin) chosen when the staff member
+        was added.
+    Resolution order: super_admin > school_admin > StaffMember.role >
+    UserProfile.role > None.
+    """
+    if not user or not user.is_authenticated:
+        return None
+    if is_super_admin(user):
+        return 'super_admin'
+
+    profile = getattr(user, 'profile', None)
+    if profile and profile.role == 'school_admin':
+        return 'school_admin'
+
+    staff_profile = getattr(user, 'staff_profile', None)
+    if staff_profile is not None:
+        return staff_profile.role
+
+    if profile:
+        return profile.role
+
+    return None
+
+
 def log_action(user, action, details='', request=None):
     """Helper function to log user actions"""
     ip_address = None

@@ -1,7 +1,8 @@
 # payments/views.py
 from django.db import models
 from rest_framework import viewsets, status
-from rest_framework.decorators import action, api_view
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.utils import timezone
 from .models import Payment, PaymentDeadline, PaymentReminder
@@ -12,10 +13,23 @@ from academics.models import AcademicYear
 from schools.models import School
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+from authentication.permissions import CanManagePayments, CanSendReminders
 
 
 class PaymentViewSet(viewsets.ModelViewSet):
+    """
+    ✅ SECURITY FIX: previously had no permission_classes — inherited the
+    project-wide AllowAny default, meaning payment records (amounts,
+    students, receipts) were readable AND writable by anyone who sent an
+    X-School-ID header, no login required at all.
+    """
     serializer_class = PaymentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            return [IsAuthenticated(), CanManagePayments()]
+        return [IsAuthenticated()]
 
     def get_queryset(self):
         school_id = self.request.headers.get('X-School-ID')
@@ -249,6 +263,12 @@ class PaymentViewSet(viewsets.ModelViewSet):
 @method_decorator(csrf_exempt, name='dispatch')
 class PaymentDeadlineViewSet(viewsets.ModelViewSet):
     serializer_class = PaymentDeadlineSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            return [IsAuthenticated(), CanManagePayments()]
+        return [IsAuthenticated()]
 
     def get_queryset(self):
         school_id = self.request.headers.get('X-School-ID')
@@ -309,6 +329,17 @@ class PaymentDeadlineViewSet(viewsets.ModelViewSet):
 
 
 class ReminderViewSet(viewsets.ViewSet):
+    """
+    ✅ SECURITY FIX: previously had no permission_classes at all — anyone
+    could trigger real (cost-incurring) SMS sends with a bare POST, no
+    login required.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action == 'send':
+            return [IsAuthenticated(), CanSendReminders()]
+        return [IsAuthenticated()]
 
     @action(detail=False, methods=['get'])
     def pending(self, request):
@@ -364,6 +395,7 @@ class ReminderViewSet(viewsets.ViewSet):
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def payments_filtered_by_year(request):
     year_id = request.query_params.get('academic_year_id')
     school_id = request.headers.get('X-School-ID')

@@ -178,15 +178,19 @@ const getLogoUrl = () => {
     { path: '/school-settings', label: 'School Settings', icon: Settings },
   ];
 
-  // Registrar Navigation (Only Students)
+  // Registrar Navigation (Students + Sections — matches CanManageStudents on the backend)
   const registrarNavItems = [
     { path: '/admin/students', label: 'Students', icon: Users },
+    { path: '/admin/sections', label: 'Sections', icon: Grid },
   ];
 
-  // Payment Manager Navigation
-  const paymentManagerNavItems = [
+  // Accountant Navigation (Payments + Bank Slips + Deadlines — matches CanManagePayments)
+  // ✅ FIXED: backend StaffMember.role uses 'accountant', not 'payment_manager' —
+  // that mismatch was why accountants used to fall through to the full admin menu.
+  const accountantNavItems = [
     { path: '/admin/payments', label: 'Payments', icon: CreditCard },
     { path: '/admin/slips', label: 'Bank Slips', icon: Eye },
+    { path: '/admin/deadlines', label: 'Payment Deadlines', icon: Calendar },
   ];
 
   // Reporting Manager Navigation
@@ -200,9 +204,14 @@ const getLogoUrl = () => {
     { path: '/admin/reminders', label: 'Reminders', icon: Bell },
   ];
 
+  // ✅ Librarian / Other: no dedicated module exists yet in this system.
+  // Rather than silently handing them the full admin menu (the old bug),
+  // give them a minimal, honest nav until a real library module is built.
+  const noModuleYetNavItems = [];
+
   // Determine which navigation to show based on role
   const getNavItems = () => {
-    if (userRole === 'school_admin') {
+    if (userRole === 'school_admin' || userRole === 'super_admin') {
       return { 
         normal: schoolAdminNormalNavItems, 
         settings: schoolAdminSettingsNavItems 
@@ -213,8 +222,8 @@ const getLogoUrl = () => {
       return { normal: registrarNavItems, settings: [] };
     }
     
-    if (userRole === 'payment_manager') {
-      return { normal: paymentManagerNavItems, settings: [] };
+    if (userRole === 'accountant') {
+      return { normal: accountantNavItems, settings: [] };
     }
     
     if (userRole === 'reporting_manager') {
@@ -224,9 +233,14 @@ const getLogoUrl = () => {
     if (userRole === 'reminder_manager') {
       return { normal: reminderManagerNavItems, settings: [] };
     }
-    
-    // Fallback for any other role
-    return { normal: schoolAdminNormalNavItems, settings: [] };
+
+    if (userRole === 'librarian' || userRole === 'other') {
+      return { normal: noModuleYetNavItems, settings: [] };
+    }
+
+    // Unknown/unmapped role (e.g. 'teacher', pending its own module):
+    // show nothing rather than silently granting the full admin menu.
+    return { normal: [], settings: [] };
   };
 
   const navItems = getNavItems();
@@ -241,10 +255,14 @@ const getLogoUrl = () => {
   const getRoleDisplay = () => {
     switch(userRole) {
       case 'school_admin': return 'School Admin';
+      case 'super_admin': return 'Super Admin';
       case 'registrar': return 'Registrar';
-      case 'payment_manager': return 'Payment Manager';
+      case 'accountant': return 'Accountant';
+      case 'librarian': return 'Librarian';
       case 'reporting_manager': return 'Reporting Manager';
       case 'reminder_manager': return 'Reminder Manager';
+      case 'teacher': return 'Teacher';
+      case 'other': return 'Staff';
       default: return 'Admin';
     }
   };

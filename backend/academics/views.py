@@ -16,6 +16,7 @@ from django.utils.decorators import method_decorator
 
 class AcademicYearViewSet(viewsets.ModelViewSet):
     serializer_class = AcademicYearSerializer
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         queryset = AcademicYear.objects.all()
@@ -91,7 +92,7 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
         return Response({'error': 'No academic year found for this school'}, status=404)
 
     @method_decorator(csrf_exempt, name='dispatch')
-    @action(detail=True, methods=['post'], url_path='set_current', permission_classes=[AllowAny])
+    @action(detail=True, methods=['post'], url_path='set_current', permission_classes=[IsAuthenticated])
     def set_current(self, request, pk=None):
         """Set this academic year as current for its school"""
         year = self.get_object()

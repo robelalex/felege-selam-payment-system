@@ -388,6 +388,19 @@ function App() {
     }
 />
 
+<Route
+    path="/admin/activity-log"
+    element={
+        <ProtectedRoute>
+            <ChapaWarningProvider>
+                <AdminLayout>
+                    <AdminActivityLog />
+                </AdminLayout>
+            </ChapaWarningProvider>
+        </ProtectedRoute>
+    }
+/>
+
             </Routes>
           </Router>
         </YearProvider>

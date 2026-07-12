@@ -4,6 +4,7 @@ from .services.bulk_import import BulkImportService
 import json
 from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .models import Student, Section, GRADUATION_GRADE
 from .serializers import StudentSerializer, SectionSerializer
@@ -16,10 +17,26 @@ from academics.models import AcademicYear
 
 # ✅ NEW: Import helper functions
 from common.utils import get_school_id_from_request, is_super_admin, get_user_school
+from authentication.permissions import CanManageStudents
 
 
 class StudentViewSet(viewsets.ModelViewSet):
+    """
+    ✅ SECURITY FIX: this previously had no permission_classes at all,
+    which meant it inherited the project-wide default of AllowAny —
+    student records (names, phone numbers, payment status) were readable
+    AND writable by anyone on the internet who sent an X-School-ID header,
+    no login required. IsAuthenticated is now required for everything,
+    and only school_admin/registrar can create/edit/delete (see
+    get_permissions below) — everyone else on staff can still view.
+    """
     serializer_class = StudentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            return [IsAuthenticated(), CanManageStudents()]
+        return [IsAuthenticated()]
 
     def get_queryset(self):
         """Filter students by school (super admin sees all, school admin sees only their school)"""
@@ -615,6 +632,12 @@ class SectionViewSet(viewsets.ModelViewSet):
     what's selectable in the registration form dropdown.
     """
     serializer_class = SectionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            return [IsAuthenticated(), CanManageStudents()]
+        return [IsAuthenticated()]
 
     def get_queryset(self):
         queryset = Section.objects.filter(is_active=True)

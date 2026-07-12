@@ -18,6 +18,11 @@ class AuditLog(models.Model):
         ('SCHOOL_APPROVE', 'School Approved'),
         ('SCHOOL_REJECT', 'School Rejected'),
         ('SETTINGS_CHANGE', 'Settings Changed'),
+        ('STAFF_CREATE', 'Staff Member Added'),
+        ('STAFF_EDIT', 'Staff Member Edited'),
+        ('STAFF_DELETE', 'Staff Member Removed'),
+        ('STAFF_LOGIN_GRANTED', 'Staff Login Granted'),
+        ('STAFF_LOGIN_REVOKED', 'Staff Login Revoked'),
     ]
     
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='audit_logs')

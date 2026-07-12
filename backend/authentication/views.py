@@ -619,15 +619,15 @@ def get_current_user(request):
         except Exception as e:
             print(f"Error getting school info: {e}")
         
-        role = 'staff'
-        is_super_admin = False
-        is_school_admin = False
-        
-        if hasattr(user, 'profile'):
-            profile = user.profile
-            role = profile.role
-            is_super_admin = (role == 'super_admin')
-            is_school_admin = (role == 'school_admin')
+        # ✅ Was: role = profile.role (always 'staff' for anyone logged in
+        # via StaffMemberViewSet.create_login — the frontend nav couldn't
+        # tell a registrar from an accountant from a librarian, and fell
+        # back to showing everyone the full admin menu).
+        # Now: resolves the real StaffMember.role when there is one.
+        from common.utils import get_effective_role
+        role = get_effective_role(user) or 'staff'
+        is_super_admin = (role == 'super_admin')
+        is_school_admin = (role == 'school_admin')
         
         return Response({
             'success': True,
