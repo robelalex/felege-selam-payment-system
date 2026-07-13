@@ -168,9 +168,27 @@ def admin_login_step2(request):
     school_info = None
     try:
         from schools.models import SchoolAdminProfile, School
+        school = None
+
+        # 1. Preferred: SchoolAdminProfile
         school_admin_profile = SchoolAdminProfile.objects.filter(user=user, is_active=True).first()
         if school_admin_profile:
             school = School.objects.get(id=school_admin_profile.school_id)
+        else:
+            # 2. ✅ FIX: fall back to UserProfile.school_id — without this,
+            # any account without a SchoolAdminProfile row (super_admin
+            # accounts, or staff logins resolved only through UserProfile)
+            # got school_info = None on login. That meant the sidebar's
+            # localStorage cache never received the school's logo/name at
+            # login time, so it kept showing the generic icon even after
+            # the logo was successfully saved in School Settings — this
+            # mirrors the same SchoolAdminProfile-only bug fixed in the
+            # SMS balance/reminder endpoints.
+            school_id = getattr(profile, 'school_id', None)
+            if school_id:
+                school = School.objects.filter(id=school_id).first()
+
+        if school:
             school_info = {
                 'id': school.id,
                 'name': school.name,

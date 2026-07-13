@@ -66,7 +66,7 @@ function SMSDashboard() {
   const checkSMSConfiguration = useCallback(async () => {
     setCheckingConfig(true);
     try {
-         const response = await api.get('/sms-config/', {
+         const response = await api.get('/schools/sms-config/', {
              headers: getAuthHeader()
           });
       setSmsConfigured(response.data.sms_enabled === true);
@@ -107,59 +107,57 @@ function SMSDashboard() {
     }
   }, [selectedYear, selectedDeadline, getAuthHeader]);
 
-  // ✅ Fetch pending students with all filters (UPDATED for multi-school)
+  // ✅ FIX: this used to call /sms/multi-school/deadline/{id}/pending/, a
+  // narrower endpoint that only matched students against ONE specific
+  // deadline row. AdminReminders.js instead calls /reminders/pending/,
+  // which uses ReminderService.get_pending_students — a richer, proven
+  // search across all deadlines in a ±reminder window, filtered by
+  // month/grade/search/academic year. Switching to the same endpoint
+  // AdminReminders already uses means Send SMS now sees the same pending
+  // students AdminReminders does, instead of coming up empty.
   const fetchPendingStudents = useCallback(async () => {
-    if (!selectedDeadline) return;
-    
+    if (!selectedYear || !selectedYear.id) return;
+
     try {
-      // Use new multi-school endpoint
-      const response = await api.get(`/sms/multi-school/deadline/${selectedDeadline.id}/pending/`, {
+      const params = new URLSearchParams();
+      params.append('academic_year_id', selectedYear.id);
+      if (selectedDeadline?.month) {
+        params.append('month', selectedDeadline.month);
+      }
+      if (filterGrade && filterGrade !== 'all') {
+        params.append('grade', filterGrade);
+      }
+      if (studentSearch) {
+        params.append('student_search', studentSearch);
+      }
+
+      const response = await api.get(`/reminders/pending/?${params.toString()}`, {
         headers: getAuthHeader()
       });
-      
+
       console.log('📱 Pending students response:', response.data);
-      
+
       const data = response.data;
-      const students = data.students || [];
-      
-      // Transform to match existing UI format
-      const transformedStudents = students.map(s => ({
-        student_id: s.student_id,
-        student_name: s.name,
-        grade: s.grade,
-        parent_phone: s.parent_phone,
-        parent_email: s.parent_email,
-        pending_months: [{
-          month_name: data.deadline?.month || selectedDeadline?.month_name,
-          amount: s.amount,
-          days_overdue: 0
-        }],
-        total_due: s.amount,
-        payment_link: s.payment_link
-      }));
-      
-      setPendingStudents(transformedStudents);
+      // ReminderService.get_pending_students already returns students in
+      // the exact shape this page needs (student_id, student_name, grade,
+      // parent_phone, parent_email, pending_months[], total_due) — no
+      // manual reshaping required.
+      setPendingStudents(data.students || []);
       setPendingStats({
         total_pending: data.total_pending || 0,
         total_pending_months: data.total_pending || 0,
-        by_month: {
-          [selectedDeadline.id]: {
-            month_name: data.deadline?.month,
-            count: data.total_pending,
-            total_amount: data.total_pending * (data.deadline?.amount || 0)
-          }
-        }
+        by_month: data.by_month || {}
       });
-      
+
       // Reset selected students when data changes
       setSelectedStudents([]);
-      
+
     } catch (err) {
       console.error('Error fetching pending students:', err);
       setPendingStudents([]);
       setPendingStats(null);
     }
-  }, [selectedDeadline, getAuthHeader]);
+  }, [selectedYear, selectedDeadline, filterGrade, studentSearch, getAuthHeader]);
 
   // Fetch SMS balance and history (UPDATED for multi-school)
   const fetchData = useCallback(async () => {
@@ -682,9 +680,16 @@ function SMSDashboard() {
                       className="input-field"
                     >
                       <option value="all">All Grades</option>
-                      {[1,2,3,4,5,6,7,8].map(g => (
-                        <option key={g} value={g}>Grade {g}</option>
-                      ))}
+                      <optgroup label="🏫 Elementary">
+                        {[1,2,3,4,5,6,7,8].map(g => (
+                          <option key={g} value={g}>Grade {g}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="🎓 High School">
+                        {[9,10,11,12].map(g => (
+                          <option key={g} value={g}>Grade {g}</option>
+                        ))}
+                      </optgroup>
                     </select>
                   </div>
 

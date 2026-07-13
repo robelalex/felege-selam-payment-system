@@ -18,8 +18,10 @@ import {
   Calendar
 } from 'lucide-react';
 import api from '../../services/api';
+import { useYear } from '../../context/YearContext';
 
 const ClassDetails = ({ grade, students, onBack }) => {
+  const { selectedYear, allYears, switchYear } = useYear();
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
   const [paymentData, setPaymentData] = useState({});
@@ -190,6 +192,38 @@ const ClassDetails = ({ grade, students, onBack }) => {
         </div>
       </div>
 
+      {/* ✅ NEW: explain WHY this grade is empty instead of silently
+          showing 0 — the #1 cause is simply viewing a year that these
+          students aren't in (e.g. right after a promotion moved them
+          into the next year). Only shows when the incoming list itself
+          is empty — not when a search just has no matches. */}
+      {students.length === 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <p className="text-sm text-amber-800 font-medium">
+            No Grade {grade} students in {selectedYear?.name || 'the selected academic year'}.
+          </p>
+          <p className="text-xs text-amber-700 mt-1">
+            If you recently promoted students, they've likely moved into the next
+            academic year. Try another year below:
+          </p>
+          {allYears && allYears.length > 1 && (
+            <div className="flex flex-wrap gap-2 mt-3">
+              {allYears
+                .filter(y => y.id !== selectedYear?.id)
+                .map(y => (
+                  <button
+                    key={y.id}
+                    onClick={() => switchYear(y)}
+                    className="px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-medium text-amber-800 hover:bg-amber-100 transition-colors"
+                  >
+                    View {y.name}
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Search */}
       <div className="bg-white rounded-xl shadow-lg p-6">
         <div className="relative">
@@ -215,7 +249,7 @@ const ClassDetails = ({ grade, students, onBack }) => {
             <div className="divide-y divide-gray-200">
               {paginatedStudents.length === 0 ? (
                 <div className="p-8 text-center text-gray-500">
-                  No students found
+                  {students.length === 0 ? 'No students in this academic year for this grade — see note above.' : 'No students match your search.'}
                 </div>
               ) : (
                 paginatedStudents.map((student) => {

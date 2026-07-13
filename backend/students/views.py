@@ -65,10 +65,27 @@ class StudentViewSet(viewsets.ModelViewSet):
 
         year_value = year_id or year_id_alt or year_alt or year_param
 
+        # 🔎 DIAGNOSTIC: show exactly what academic_year strings actually
+        # exist on this school's students BEFORE we filter by year, so a
+        # mismatch (e.g. "2018" vs "2018 E.C." vs blank) is provable from
+        # one log line instead of guessed at.
+        existing_years = list(queryset.values_list('academic_year', flat=True).distinct())
+        print(f"📚 DEBUG - academic_year values actually on {queryset.count()} students "
+              f"for this school BEFORE year filter: {existing_years}")
+
         if year_value:
             try:
                 try:
                     year = AcademicYear.objects.get(id=int(year_value))
+                    # 🔎 DIAGNOSTIC: the two strings PRINT identically but
+                    # the filter still returns 0 — that pattern means an
+                    # invisible character difference (different space type,
+                    # stray whitespace, etc). Compare raw bytes to prove it.
+                    print(f"📚 DEBUG - AcademicYear.name bytes: {year.name.encode('utf-8')!r} (len={len(year.name)})")
+                    for v in existing_years:
+                        if v:
+                            match = (v == year.name)
+                            print(f"📚 DEBUG - student value bytes: {v.encode('utf-8')!r} (len={len(v)}) — matches AcademicYear.name: {match}")
                     queryset = queryset.filter(academic_year=year.name)
                     print(f"📚 Filtered by AcademicYear ID {year_value}: {year.name}")
                 except (ValueError, AcademicYear.DoesNotExist):

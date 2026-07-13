@@ -86,17 +86,26 @@ def get_effective_role(user):
         (teacher/registrar/accountant/librarian/reporting_manager/
         reminder_manager/other/school_admin) chosen when the staff member
         was added.
-    Resolution order: super_admin > school_admin > StaffMember.role >
-    UserProfile.role > None.
+    Resolution order: explicit UserProfile.role ('super_admin' or
+    'school_admin') > StaffMember.role > remaining UserProfile.role >
+    is_super_admin() Django-flag fallback (only when there's no profile at
+    all) > None.
+
+    ⚠️ is_super_admin() below checks Django's built-in is_staff/is_superuser
+    flags — those control access to the built-in Django admin site and are
+    NOT the same thing as this app's business 'Super Admin' role. Checking
+    them BEFORE an explicit profile.role caused a real bug: a school admin
+    whose Django user happened to have is_staff=True (e.g. set during an
+    earlier signup flow) was mislabeled as 'Super Admin' everywhere, even
+    though their real role was 'school_admin'. An explicit profile role
+    must always win over that loose flag.
     """
     if not user or not user.is_authenticated:
         return None
-    if is_super_admin(user):
-        return 'super_admin'
 
     profile = getattr(user, 'profile', None)
-    if profile and profile.role == 'school_admin':
-        return 'school_admin'
+    if profile and profile.role in ('super_admin', 'school_admin'):
+        return profile.role
 
     staff_profile = getattr(user, 'staff_profile', None)
     if staff_profile is not None:
@@ -104,6 +113,11 @@ def get_effective_role(user):
 
     if profile:
         return profile.role
+
+    # No profile at all (e.g. a Django-admin-only account with no
+    # UserProfile/StaffMember) — fall back to the Django-level flag.
+    if is_super_admin(user):
+        return 'super_admin'
 
     return None
 

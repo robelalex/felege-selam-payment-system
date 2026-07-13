@@ -7,12 +7,14 @@ from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+from django.core.exceptions import ObjectDoesNotExist
 from ..services.multi_school_sms_service import MultiSchoolSMSService
 from payments.tokens import generate_payment_token
 from payments.models import Payment as PaymentModel
 from ..models import SMSHistory, PaymentDeadline
 from students.models import Student
 from schools.models import School
+from schools.utils import get_school_for_user
 from academics.models import AcademicYear
 import logging
 
@@ -25,19 +27,24 @@ class MultiSchoolSMSBalanceView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        school_id = request.headers.get('X-School-ID')
-        if not school_id:
-            return Response({'error': 'X-School-ID header required'}, status=400)
-        
-        # Verify admin has access
+        # ✅ FIX: this used to require request.user.school_profile directly
+        # and a matching X-School-ID header, which only worked for accounts
+        # with a SchoolAdminProfile row. super_admin accounts (and staff
+        # logins resolved only through UserProfile) don't necessarily have
+        # one, so this endpoint 400/403'd for them and the SMS dashboard's
+        # usage card silently failed to load. get_school_for_user() is the
+        # same resolver already used by SchoolSMSConfigView/SchoolSMSTestView
+        # (SchoolAdminProfile -> UserProfile -> X-School-ID header fallback),
+        # so this endpoint now behaves consistently with the rest of the
+        # SMS settings flow instead of being stricter than everything else.
         try:
-            admin_profile = request.user.school_profile
-            if str(admin_profile.school.id) != school_id:
-                return Response({'error': 'Access denied'}, status=403)
-            school = admin_profile.school
-        except Exception as e:
-            return Response({'error': 'School admin profile not found'}, status=403)
-        
+            school = get_school_for_user(request)
+        except ObjectDoesNotExist as e:
+            return Response(
+                {'error': 'School association not found.', 'detail': str(e)},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         try:
             sms_service = MultiSchoolSMSService(school.id)
             balance = sms_service.get_balance()
@@ -51,18 +58,16 @@ class MultiSchoolSendTestSMSView(APIView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        school_id = request.headers.get('X-School-ID')
-        if not school_id:
-            return Response({'error': 'X-School-ID header required'}, status=400)
-        
-        # Verify admin has access
+        # ✅ FIX: same robust resolver as MultiSchoolSMSBalanceView above —
+        # see the comment there for why the old school_profile-only lookup
+        # broke this for super_admin / UserProfile-only accounts.
         try:
-            admin_profile = request.user.school_profile
-            if str(admin_profile.school.id) != school_id:
-                return Response({'error': 'Access denied'}, status=403)
-            school = admin_profile.school
-        except Exception as e:
-            return Response({'error': 'School admin profile not found'}, status=403)
+            school = get_school_for_user(request)
+        except ObjectDoesNotExist as e:
+            return Response(
+                {'error': 'School association not found.', 'detail': str(e)},
+                status=status.HTTP_403_FORBIDDEN
+            )
         
         phone = request.data.get('phone')
         if not phone:
@@ -83,18 +88,14 @@ class MultiSchoolSendPaymentReminderView(APIView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        school_id = request.headers.get('X-School-ID')
-        if not school_id:
-            return Response({'error': 'X-School-ID header required'}, status=400)
-        
-        # Verify admin has access
+        # ✅ FIX: same robust resolver — see MultiSchoolSMSBalanceView comment.
         try:
-            admin_profile = request.user.school_profile
-            if str(admin_profile.school.id) != school_id:
-                return Response({'error': 'Access denied'}, status=403)
-            school = admin_profile.school
-        except Exception as e:
-            return Response({'error': 'School admin profile not found'}, status=403)
+            school = get_school_for_user(request)
+        except ObjectDoesNotExist as e:
+            return Response(
+                {'error': 'School association not found.', 'detail': str(e)},
+                status=status.HTTP_403_FORBIDDEN
+            )
         
         student_id = request.data.get('student_id')
         deadline_id = request.data.get('deadline_id')
@@ -198,18 +199,14 @@ class MultiSchoolSendBulkRemindersView(APIView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        school_id = request.headers.get('X-School-ID')
-        if not school_id:
-            return Response({'error': 'X-School-ID header required'}, status=400)
-        
-        # Verify admin has access
+        # ✅ FIX: same robust resolver — see MultiSchoolSMSBalanceView comment.
         try:
-            admin_profile = request.user.school_profile
-            if str(admin_profile.school.id) != school_id:
-                return Response({'error': 'Access denied'}, status=403)
-            school = admin_profile.school
-        except Exception as e:
-            return Response({'error': 'School admin profile not found'}, status=403)
+            school = get_school_for_user(request)
+        except ObjectDoesNotExist as e:
+            return Response(
+                {'error': 'School association not found.', 'detail': str(e)},
+                status=status.HTTP_403_FORBIDDEN
+            )
         
         student_ids = request.data.get('student_ids', [])
         deadline_id = request.data.get('deadline_id')
@@ -344,18 +341,14 @@ class MultiSchoolSMSPendingRemindersView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request, deadline_id):
-        school_id = request.headers.get('X-School-ID')
-        if not school_id:
-            return Response({'error': 'X-School-ID header required'}, status=400)
-        
-        # Verify admin has access
+        # ✅ FIX: same robust resolver — see MultiSchoolSMSBalanceView comment.
         try:
-            admin_profile = request.user.school_profile
-            if str(admin_profile.school.id) != school_id:
-                return Response({'error': 'Access denied'}, status=403)
-            school = admin_profile.school
-        except Exception as e:
-            return Response({'error': 'School admin profile not found'}, status=403)
+            school = get_school_for_user(request)
+        except ObjectDoesNotExist as e:
+            return Response(
+                {'error': 'School association not found.', 'detail': str(e)},
+                status=status.HTTP_403_FORBIDDEN
+            )
         
         try:
             deadline = PaymentDeadline.objects.get(id=deadline_id, school=school)

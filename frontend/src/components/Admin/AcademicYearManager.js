@@ -30,6 +30,9 @@ function AcademicYearManager() {
   const [nextYearOptions, setNextYearOptions] = useState([]);
   const [selectedNextYear, setSelectedNextYear] = useState(null);
   const [loadingStudents, setLoadingStudents] = useState(false);
+  // ✅ NEW: grade/section filters for the promotion table
+  const [promoteGradeFilter, setPromoteGradeFilter] = useState('all');
+  const [promoteSectionFilter, setPromoteSectionFilter] = useState('all');
   
   const { refreshYears, switchYear } = useYear();
   const { getAuthHeader } = useAuth();
@@ -88,6 +91,8 @@ function AcademicYearManager() {
     setShowPromoteModal(true);
     setLoadingStudents(true);
     setSelectedForPromotion([]);
+    setPromoteGradeFilter('all');
+    setPromoteSectionFilter('all');
     
     try {
       // Fetch all active students for this year
@@ -154,9 +159,23 @@ function AcademicYearManager() {
       showMessage('success', 
         `✅ Promoted: ${result.promoted} | 🔄 Repeated: ${result.repeated} | 🎓 Graduated: ${result.graduated}`
       );
-      
+
       setShowPromoteModal(false);
       await fetchData();
+
+      // ✅ NEW: students just moved into `selectedNextYear`, but the
+      // "current" year flag doesn't change automatically. Without this,
+      // the dashboard keeps showing the old (now-empty) year and every
+      // stat looks like it broke — ask right away instead of leaving
+      // that to be discovered as a confusing bug later.
+      const promotedIntoYear = nextYearOptions.find(y => y.id === selectedNextYear);
+      if (promotedIntoYear && window.confirm(
+        `Students have been moved into ${promotedIntoYear.name}.\n\n` +
+        `Switch the school's "current" academic year to ${promotedIntoYear.name} now, ` +
+        `so the dashboard shows them? (You can also do this later from the year list.)`
+      )) {
+        await handleSetCurrent(promotedIntoYear.id);
+      }
     } catch (err) {
       showMessage('error', err.response?.data?.error || 'Failed to promote students');
     } finally {
@@ -173,11 +192,44 @@ function AcademicYearManager() {
   };
 
   const selectAllForPromotion = () => {
-    if (selectedForPromotion.length === studentsForPromotion.length) {
-      setSelectedForPromotion([]);
+    // ✅ Operates on the currently FILTERED/visible students only, so you
+    // can filter to Grade 3 - Section A, select-all just that group, then
+    // move on to the next grade/section without touching your earlier picks.
+    const visibleIds = filteredStudentsForPromotion.map(s => s.id);
+    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedForPromotion.includes(id));
+
+    if (allVisibleSelected) {
+      setSelectedForPromotion(prev => prev.filter(id => !visibleIds.includes(id)));
     } else {
-      setSelectedForPromotion(studentsForPromotion.map(s => s.id));
+      setSelectedForPromotion(prev => Array.from(new Set([...prev, ...visibleIds])));
     }
+  };
+
+  // ✅ NEW: distinct grades/sections present among this year's students,
+  // used to populate the filter dropdowns (no extra API call needed).
+  const availableGradesForPromotion = Array.from(
+    new Set(studentsForPromotion.map(s => s.grade))
+  ).sort((a, b) => a - b);
+
+  const availableSectionsForPromotion = Array.from(
+    new Set(
+      studentsForPromotion
+        .filter(s => promoteGradeFilter === 'all' || s.grade === parseInt(promoteGradeFilter))
+        .map(s => s.section)
+        .filter(Boolean)
+    )
+  ).sort();
+
+  const filteredStudentsForPromotion = studentsForPromotion.filter(s => {
+    const gradeMatches = promoteGradeFilter === 'all' || s.grade === parseInt(promoteGradeFilter);
+    const sectionMatches = promoteSectionFilter === 'all' || s.section === promoteSectionFilter;
+    return gradeMatches && sectionMatches;
+  });
+
+  // Reset the section filter if it no longer applies after a grade change
+  const handlePromoteGradeFilterChange = (value) => {
+    setPromoteGradeFilter(value);
+    setPromoteSectionFilter('all');
   };
 
   // ✅ NEW: Handle Create Custom Year (user inputs the year)
@@ -651,16 +703,56 @@ function AcademicYearManager() {
                 </div>
               ) : (
                 <div>
+                  {/* ✅ NEW: Grade / Section filters — narrows a long school-wide
+                      list down to one class at a time so you're not scrolling
+                      past hundreds of students to find the ones you want. */}
+                  <div className="flex flex-wrap items-center gap-3 mb-4 bg-gray-50 border border-gray-200 rounded-xl p-3">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Filter:</span>
+                    <select
+                      value={promoteGradeFilter}
+                      onChange={(e) => handlePromoteGradeFilterChange(e.target.value)}
+                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="all">All Grades</option>
+                      {availableGradesForPromotion.map(g => (
+                        <option key={g} value={g}>Grade {g}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={promoteSectionFilter}
+                      onChange={(e) => setPromoteSectionFilter(e.target.value)}
+                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                      disabled={availableSectionsForPromotion.length === 0}
+                    >
+                      <option value="all">All Sections</option>
+                      {availableSectionsForPromotion.map(sec => (
+                        <option key={sec} value={sec}>Section {sec}</option>
+                      ))}
+                    </select>
+                    {(promoteGradeFilter !== 'all' || promoteSectionFilter !== 'all') && (
+                      <button
+                        onClick={() => { setPromoteGradeFilter('all'); setPromoteSectionFilter('all'); }}
+                        className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                      >
+                        Clear filters
+                      </button>
+                    )}
+                    <span className="text-xs text-gray-500 ml-auto">
+                      Showing {filteredStudentsForPromotion.length} of {studentsForPromotion.length} students
+                    </span>
+                  </div>
+
                   <div className="flex items-center justify-between mb-3">
                     <button
                       onClick={selectAllForPromotion}
                       className="text-sm text-primary-600 hover:text-primary-700 font-medium"
                     >
-                      {selectedForPromotion.length === studentsForPromotion.length
-                        ? 'Deselect All' : 'Select All for Promotion'}
+                      {filteredStudentsForPromotion.length > 0 &&
+                       filteredStudentsForPromotion.every(s => selectedForPromotion.includes(s.id))
+                        ? 'Deselect Shown' : 'Select All Shown for Promotion'}
                     </button>
                     <span className="text-sm text-gray-600">
-                      ✅ {selectedForPromotion.length} promoted | 🔄 {studentsForPromotion.length - selectedForPromotion.length} repeating
+                      ✅ {selectedForPromotion.length} promoted (school-wide) | 🔄 {studentsForPromotion.length - selectedForPromotion.length} repeating
                     </span>
                   </div>
 
@@ -671,7 +763,8 @@ function AcademicYearManager() {
                           <th className="px-4 py-3 text-left">
                             <input
                               type="checkbox"
-                              checked={selectedForPromotion.length === studentsForPromotion.length && studentsForPromotion.length > 0}
+                              checked={filteredStudentsForPromotion.length > 0 &&
+                                       filteredStudentsForPromotion.every(s => selectedForPromotion.includes(s.id))}
                               onChange={selectAllForPromotion}
                               className="rounded text-primary-600"
                             />
@@ -679,11 +772,12 @@ function AcademicYearManager() {
                           <th className="px-4 py-3 text-left font-medium text-gray-600">Student</th>
                           <th className="px-4 py-3 text-left font-medium text-gray-600">ID</th>
                           <th className="px-4 py-3 text-center font-medium text-gray-600">Grade</th>
+                          <th className="px-4 py-3 text-center font-medium text-gray-600">Section</th>
                           <th className="px-4 py-3 text-center font-medium text-gray-600">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
-                        {studentsForPromotion.map((student) => {
+                        {filteredStudentsForPromotion.map((student) => {
                           const isPromoted = selectedForPromotion.includes(student.id);
                           return (
                             <tr
@@ -710,6 +804,9 @@ function AcademicYearManager() {
                                   Grade {student.grade}
                                 </span>
                               </td>
+                              <td className="px-4 py-3 text-center text-gray-500 text-xs">
+                                {student.section || '—'}
+                              </td>
                               <td className="px-4 py-3 text-center">
                                 {isPromoted ? (
                                   <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
@@ -726,9 +823,11 @@ function AcademicYearManager() {
                         })}
                       </tbody>
                     </table>
-                    {studentsForPromotion.length === 0 && (
+                    {filteredStudentsForPromotion.length === 0 && (
                       <div className="p-8 text-center text-gray-500">
-                        No active students found for this academic year.
+                        {studentsForPromotion.length === 0
+                          ? 'No active students found for this academic year.'
+                          : 'No students match the selected grade/section filter.'}
                       </div>
                     )}
                   </div>
