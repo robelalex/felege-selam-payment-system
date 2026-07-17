@@ -125,9 +125,9 @@ function StudentDashboard() {
       amount: payment.amount,
       reference: student?.student_id,
       instructions: [
-        'Bank: Commercial Bank of Ethiopia',
-        'Account Name: Felege Selam School', 
-        'Account Number: 10000001234567',
+        `Bank: ${student?.bank_name || 'Contact school for bank details'}`,
+        `Account Name: ${student?.bank_account_holder || student?.school_name || 'Contact school'}`,
+        `Account Number: ${student?.bank_account_number || 'Contact school for account number'}`,
         `Amount: ${payment.amount} Birr`,
         `Reference: Use Student ID: ${student?.student_id}`,
         `Month: ${payment.month_name} ${payment.academic_year}`,

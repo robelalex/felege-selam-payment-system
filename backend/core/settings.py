@@ -9,7 +9,6 @@ import cloudinary.uploader
 import cloudinary.api
 from datetime import timedelta
 
-logging.basicConfig(level=logging.DEBUG)
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,6 +19,10 @@ if not SECRET_KEY:
     raise ValueError("DJANGO_SECRET_KEY environment variable is not set!")
 
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
+
+# ✅ Verbose logging only in DEBUG — was unconditional before, leaking noisy
+# logs (including request/query details in some libraries) in production.
+logging.basicConfig(level=logging.DEBUG if DEBUG else logging.WARNING)
 
 ALLOWED_HOSTS = [
     'localhost',
@@ -216,8 +219,14 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://felege-selam-payment-system.vercel.app",
-    "https://*.vercel.app",
     "https://felege-selam-payment-system.onrender.com",
+]
+
+# ✅ CORS_ALLOWED_ORIGINS only does exact string matches — "https://*.vercel.app"
+# there was never actually matching anything. Real wildcard support needs
+# regexes, so Vercel preview-branch deployments go here instead.
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://.*\.vercel\.app$",
 ]
 
 CSRF_TRUSTED_ORIGINS = [
@@ -231,7 +240,10 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.onrender.com",
 ]
 
-CORS_ALLOW_ALL_ORIGINS  = True
+# ✅ REMOVED CORS_ALLOW_ALL_ORIGINS — it was overriding CORS_ALLOWED_ORIGINS
+# above and, combined with CORS_ALLOW_CREDENTIALS, let ANY website make
+# authenticated/credentialed requests to this API using a logged-in admin's
+# session. The allowlist above is now the only thing that decides origins.
 CORS_ALLOW_CREDENTIALS  = True
 CORS_ALLOW_METHODS      = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
 CORS_ALLOW_HEADERS      = [

@@ -5,7 +5,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.utils import timezone
-from .models import Payment, PaymentDeadline, PaymentReminder
+from .models import Payment, PaymentDeadline, PaymentReminder, PaymentLinkToken
 from students.models import Student
 from .serializers import PaymentSerializer, PaymentDeadlineSerializer
 from .services.reminder_service import ReminderService
@@ -14,6 +14,13 @@ from schools.models import School
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from authentication.permissions import CanManagePayments, CanSendReminders
+# ✅ SECURITY FIX: school_id used to come straight from the client-controlled
+# X-School-ID header everywhere below, with no check that the logged-in user
+# actually belongs to that school — any authenticated user could read/write
+# another school's payments by just changing the header. get_verified_school_id
+# resolves the school server-side from the user's own profile instead (it only
+# lets super admins use the header, since they're allowed to see every school).
+from common.utils import get_verified_school_id
 
 
 class PaymentViewSet(viewsets.ModelViewSet):
@@ -32,35 +39,32 @@ class PaymentViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated()]
 
     def get_queryset(self):
-        school_id = self.request.headers.get('X-School-ID')
-        print(f"💰 PaymentViewSet.get_queryset - X-School-ID: {school_id}")
+        school_id = get_verified_school_id(self.request)
+        print(f"💰 PaymentViewSet.get_queryset - verified school_id: {school_id}")
 
         if not school_id:
             return Payment.objects.none()
 
-        try:
-            return Payment.objects.filter(
-                student__school_id=int(school_id),
-                is_archived=False
-            )
-        except ValueError:
-            return Payment.objects.none()
+        return Payment.objects.filter(
+            student__school_id=school_id,
+            is_archived=False
+        )
 
     def list(self, request, *args, **kwargs):
         print(f"💰 ===== PAYMENT LIST CALLED =====")
         queryset = self.get_queryset()
 
         year_id = request.query_params.get('academic_year_id')
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
 
         if year_id and school_id:
             try:
                 academic_year = AcademicYear.objects.get(
-                    id=int(year_id), school_id=int(school_id)
+                    id=int(year_id), school_id=school_id
                 )
                 queryset = queryset.filter(
                     deadline__academic_year=academic_year.name,
-                    student__school_id=int(school_id),
+                    student__school_id=school_id,
                     is_archived=False
                 )
                 print(f"💰 After year filter (deadline_academic_year={academic_year.name}), count: {queryset.count()}")
@@ -70,7 +74,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
         else:
             if school_id:
                 queryset = queryset.filter(
-                    student__school_id=int(school_id),
+                    student__school_id=school_id,
                     is_archived=False
                 )
             else:
@@ -88,15 +92,15 @@ class PaymentViewSet(viewsets.ModelViewSet):
         payment_method = request.data.get('payment_method', 'telebirr')
         paid_by = request.data.get('paid_by')
         paid_by_phone = request.data.get('paid_by_phone')
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
 
         try:
             student = Student.objects.get(student_id=student_id)
-            if school_id and str(student.school_id) != school_id:
+            if school_id and student.school_id != school_id:
                 return Response({'error': 'Student does not belong to your school'}, status=403)
 
             deadline = PaymentDeadline.objects.get(id=deadline_id)
-            if school_id and str(deadline.school_id) != school_id:
+            if school_id and deadline.school_id != school_id:
                 return Response({'error': 'Deadline does not belong to your school'}, status=403)
 
             payment = Payment.objects.create(
@@ -119,8 +123,8 @@ class PaymentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def verify_payment(self, request, pk=None):
         payment = self.get_object()
-        school_id = request.headers.get('X-School-ID')
-        if school_id and str(payment.student.school_id) != school_id:
+        school_id = get_verified_school_id(request)
+        if school_id and payment.student.school_id != school_id:
             return Response({'error': 'Payment does not belong to your school'}, status=403)
 
         payment.status = 'verified'
@@ -131,14 +135,14 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def pending_verifications(self, request):
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
         if not school_id:
             return Response([], status=200)
 
         pending = Payment.objects.filter(
             status='pending',
             is_archived=False,
-            student__school_id=int(school_id)
+            student__school_id=school_id
         )
         serializer = self.get_serializer(pending, many=True)
         return Response(serializer.data)
@@ -151,9 +155,9 @@ class PaymentViewSet(viewsets.ModelViewSet):
         so the parent portal does not show the month as unpaid again.
         """
         payment = self.get_object()
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
 
-        if school_id and str(payment.student.school_id) != school_id:
+        if school_id and payment.student.school_id != school_id:
             return Response({'error': 'Payment does not belong to your school'}, status=403)
 
         payment.is_archived = True
@@ -168,7 +172,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
         Move multiple payments to history at once.
         """
         payment_ids = request.data.get('payment_ids', [])
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
 
         if not payment_ids:
             return Response({'error': 'No payment IDs provided'}, status=400)
@@ -178,7 +182,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
         try:
             payments = Payment.objects.filter(
                 id__in=payment_ids,
-                student__school_id=int(school_id),
+                student__school_id=school_id,
                 is_archived=False
             )
 
@@ -206,36 +210,32 @@ class PaymentViewSet(viewsets.ModelViewSet):
         Return all archived payments for this school.
         Used by the Payment History page.
         """
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
         if not school_id:
             return Response([], status=200)
 
-        try:
-            queryset = Payment.objects.filter(
-                student__school_id=int(school_id),
-                is_archived=True
-            )
+        queryset = Payment.objects.filter(
+            student__school_id=school_id,
+            is_archived=True
+        )
 
-            year_id = request.query_params.get('academic_year_id')
-            if year_id:
-                try:
-                    academic_year = AcademicYear.objects.get(
-                        id=int(year_id), school_id=int(school_id)
-                    )
-                    student_ids = Student.objects.filter(
-                        academic_year=academic_year.name,
-                        school_id=int(school_id)
-                    ).values_list('id', flat=True)
-                    queryset = queryset.filter(student_id__in=student_ids)
-                except AcademicYear.DoesNotExist:
-                    pass
+        year_id = request.query_params.get('academic_year_id')
+        if year_id:
+            try:
+                academic_year = AcademicYear.objects.get(
+                    id=int(year_id), school_id=school_id
+                )
+                student_ids = Student.objects.filter(
+                    academic_year=academic_year.name,
+                    school_id=school_id
+                ).values_list('id', flat=True)
+                queryset = queryset.filter(student_id__in=student_ids)
+            except AcademicYear.DoesNotExist:
+                pass
 
-            serializer = self.get_serializer(queryset, many=True)
-            print(f"💰 Returning {len(serializer.data)} archived payments")
-            return Response(serializer.data)
-
-        except ValueError:
-            return Response([], status=200)
+        serializer = self.get_serializer(queryset, many=True)
+        print(f"💰 Returning {len(serializer.data)} archived payments")
+        return Response(serializer.data)
 
     @action(detail=True, methods=['delete'])
     def permanent_delete(self, request, pk=None):
@@ -244,9 +244,9 @@ class PaymentViewSet(viewsets.ModelViewSet):
         Only works on already-archived payments.
         """
         payment = self.get_object()
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
 
-        if school_id and str(payment.student.school_id) != school_id:
+        if school_id and payment.student.school_id != school_id:
             return Response({'error': 'Payment does not belong to your school'}, status=403)
 
         if not payment.is_archived:
@@ -271,21 +271,18 @@ class PaymentDeadlineViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated()]
 
     def get_queryset(self):
-        school_id = self.request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(self.request)
         grade = self.request.query_params.get('grade')
 
         if not school_id:
             return PaymentDeadline.objects.none()
 
-        try:
-            queryset = PaymentDeadline.objects.filter(school_id=int(school_id))
-            if grade:
-                queryset = queryset.filter(
-                    models.Q(grade=int(grade)) | models.Q(grade__isnull=True)
-                )
-            return queryset
-        except ValueError:
-            return PaymentDeadline.objects.none()
+        queryset = PaymentDeadline.objects.filter(school_id=school_id)
+        if grade:
+            queryset = queryset.filter(
+                models.Q(grade=int(grade)) | models.Q(grade__isnull=True)
+            )
+        return queryset
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
@@ -293,36 +290,29 @@ class PaymentDeadlineViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     def perform_create(self, serializer):
-        school_id = self.request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(self.request)
         grade = self.request.data.get('grade')
         if school_id:
-            try:
-                serializer.save(school_id=int(school_id), grade=grade if grade else None)
-            except ValueError:
-                from rest_framework import serializers as s
-                raise s.ValidationError({"error": "Invalid school ID"})
+            serializer.save(school_id=school_id, grade=grade if grade else None)
         else:
             from rest_framework import serializers as s
             raise s.ValidationError({"error": "School ID required"})
 
     @action(detail=False, methods=['get'])
     def active_deadlines(self, request):
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
         grade = request.query_params.get('grade')
 
         if not school_id:
             return Response([], status=200)
 
-        try:
-            deadlines = PaymentDeadline.objects.filter(
-                school_id=int(school_id), is_active=True
+        deadlines = PaymentDeadline.objects.filter(
+            school_id=school_id, is_active=True
+        )
+        if grade:
+            deadlines = deadlines.filter(
+                models.Q(grade=int(grade)) | models.Q(grade__isnull=True)
             )
-            if grade:
-                deadlines = deadlines.filter(
-                    models.Q(grade=int(grade)) | models.Q(grade__isnull=True)
-                )
-        except ValueError:
-            deadlines = PaymentDeadline.objects.none()
 
         serializer = self.get_serializer(deadlines, many=True)
         return Response(serializer.data)
@@ -346,7 +336,7 @@ class ReminderViewSet(viewsets.ViewSet):
         year_id = request.query_params.get('academic_year_id')
         month = request.query_params.get('month')
         grade = request.query_params.get('grade')
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
 
         if not school_id:
             return Response({'error': 'School ID required'}, status=400)
@@ -374,7 +364,7 @@ class ReminderViewSet(viewsets.ViewSet):
         month = request.data.get('month')
         custom_message = request.data.get('message', '')
         academic_year = request.data.get('academic_year')
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
 
         if not school_id:
             return Response({'error': 'School ID required'}, status=400)
@@ -398,13 +388,12 @@ class ReminderViewSet(viewsets.ViewSet):
 @permission_classes([IsAuthenticated])
 def payments_filtered_by_year(request):
     year_id = request.query_params.get('academic_year_id')
-    school_id = request.headers.get('X-School-ID')
+    school_id = get_verified_school_id(request)
 
     if not year_id or not school_id:
         return Response([], status=200)
 
     try:
-        school_id = int(school_id)
         year_id = int(year_id)
     except ValueError:
         return Response([], status=200)
@@ -555,9 +544,24 @@ class PaymentInitiateView(APIView):
         if not record.otp_verified_at:
             return Response({"status": "otp_required"}, status=status.HTTP_403_FORBIDDEN)
 
+        # ✅ CROSS-CHANNEL GUARD: if the SAME payment was already paid/verified
+        # through the OTHER channel's link (or any other route) in the meantime,
+        # this link must not be allowed to start a second checkout.
+        if record.payment.status == 'verified':
+            return Response({"status": "already_paid"}, status=status.HTTP_400_BAD_REQUEST)
+
         # Mark consumed BEFORE calling PSP to close double-submit race window
         record.consumed_at = timezone.now()
         record.save(update_fields=["consumed_at"])
+
+        # ✅ CROSS-CHANNEL GUARD: invalidate every OTHER still-live token
+        # (e.g. the Email link, if this one was the SMS link, or vice versa)
+        # that points at this same payment, so it can never be used afterwards —
+        # "pay once, anywhere" instead of "pay once per channel".
+        PaymentLinkToken.objects.filter(
+            payment=record.payment,
+            consumed_at__isnull=True,
+        ).exclude(pk=record.pk).update(consumed_at=timezone.now())
 
         # Generate checkout URL using existing SchoolChapaService
         try:

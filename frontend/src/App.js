@@ -12,6 +12,7 @@ import AdminLayout from './components/Layout/AdminLayout';
 import { YearProvider } from './context/YearContext';
 import { AuthProvider } from './context/AuthContext';
 import { ChapaWarningProvider } from './context/ChapaWarningContext';  // ✅ ADD THIS
+import { LanguageProvider } from './context/LanguageContext';
 
 // Pages
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
@@ -75,6 +76,7 @@ const ProtectedRoute = ({ children }) => {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <LanguageProvider>
       <AuthProvider>
         <YearProvider>
           <Router>
@@ -405,6 +407,7 @@ function App() {
           </Router>
         </YearProvider>
       </AuthProvider>
+      </LanguageProvider>
     </QueryClientProvider>
   );
 }

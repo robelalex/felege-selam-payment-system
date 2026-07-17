@@ -95,6 +95,15 @@ def initiate_chapa_payment(request):
                 status=404
             )
 
+        # ✅ Verify deadline belongs to the same school as the student — the
+        # student check above didn't cover this, so a deadline from a
+        # different school could otherwise be attached to this payment.
+        if deadline.school_id != student.school_id:
+            return JsonResponse(
+                {'success': False, 'error': 'Deadline does not belong to the student\'s school'},
+                status=403
+            )
+
         # Block if already verified
         if Payment.objects.filter(
             student=student, deadline=deadline, status='verified'

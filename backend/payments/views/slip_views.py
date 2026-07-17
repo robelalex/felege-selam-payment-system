@@ -1,6 +1,6 @@
 # backend/payments/views/slip_views.py
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
@@ -14,6 +14,16 @@ from ..services.ocr_service import OCRService
 from academics.models import AcademicYear
 from schools.models import School
 from django.db import models
+# ✅ SECURITY FIX: every admin-only action below (approve/reject/delete a
+# bank slip, view the pending-review queue) was @permission_classes([AllowAny])
+# with NO login required at all, and the school check was skippable just by
+# omitting the X-School-ID header. That meant anyone on the internet could
+# mark any payment "verified" without ever transferring money, or delete
+# real bank-transfer evidence, for any school. CanManagePayments requires a
+# real logged-in school_admin/super_admin/accountant, and get_verified_school_id
+# resolves the school from THEIR account, not from a client-supplied header.
+from authentication.permissions import CanManagePayments
+from common.utils import get_verified_school_id
 
 
 @api_view(['POST'])
@@ -174,11 +184,11 @@ def slip_status(request, slip_id):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanManagePayments])
 def pending_slips(request):
     """Get slips needing attention, filtered by school, grade, month, and student search"""
-    school_id = request.headers.get('X-School-ID')
-    print(f"📱 pending_slips - X-School-ID: {school_id}")
+    school_id = get_verified_school_id(request)
+    print(f"📱 pending_slips - verified school_id: {school_id}")
 
     if not school_id:
         return Response([], status=200)
@@ -187,12 +197,7 @@ def pending_slips(request):
         verification_status__in=['pending', 'queued', 'failed', 'manual_review', 'timeout']
     )
 
-    try:
-        slips = slips.filter(student__school_id=int(school_id))
-        print(f" Filtered slips by school ID: {school_id}")
-    except ValueError:
-        print(f" Invalid school ID: {school_id}")
-        return Response([], status=200)
+    slips = slips.filter(student__school_id=school_id)
 
     # Filter by grade
     grade = request.query_params.get('grade')
@@ -278,31 +283,27 @@ def pending_slips(request):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanManagePayments])
 def verify_slip(request, slip_id):
     """Manual verify or reject by admin (override async result)"""
     try:
         slip = PaymentSlip.objects.get(id=slip_id)
 
-        school_id = request.headers.get('X-School-ID')
-        if school_id:
-            try:
-                if str(slip.student.school_id) != school_id:
-                    return Response({'error': 'Slip does not belong to your school'}, status=403)
-            except Exception:
-                pass
+        school_id = get_verified_school_id(request)
+        if not school_id or slip.student.school_id != school_id:
+            return Response({'error': 'Slip does not belong to your school'}, status=403)
 
         action = request.data.get('action')
 
         if action == 'verify':
             slip.status = 'verified'
-            slip.verified_by = None
+            slip.verified_by = request.user
             slip.verified_at = timezone.now()
             slip.verification_status = 'verified'
             slip.auto_verified_by_system = False
             slip.cbe_verification_status = 'cbe_verified'
             slip.cbe_check_method = 'manual'
-            slip.cbe_verified_by = request.user if request.user.is_authenticated else None
+            slip.cbe_verified_by = request.user
             slip.cbe_verified_at = timezone.now()
             slip.save()
 
@@ -320,7 +321,7 @@ def verify_slip(request, slip_id):
                     payment_method='bank_transfer',
                     transaction_reference=slip.transaction_reference or f'SLIP-{slip.id}',
                     status='verified',
-                    verified_by=None,
+                    verified_by=request.user,
                     paid_by=slip.uploaded_by,
                     paid_by_phone='',
                     is_from_slip=True,
@@ -370,19 +371,15 @@ def verify_slip(request, slip_id):
 
 
 @api_view(['DELETE'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanManagePayments])
 def delete_slip(request, slip_id):
     """Delete a single slip"""
     try:
         slip = PaymentSlip.objects.get(id=slip_id)
 
-        school_id = request.headers.get('X-School-ID')
-        if school_id:
-            try:
-                if str(slip.student.school_id) != school_id:
-                    return Response({'error': 'Slip does not belong to your school'}, status=403)
-            except Exception:
-                pass
+        school_id = get_verified_school_id(request)
+        if not school_id or slip.student.school_id != school_id:
+            return Response({'error': 'Slip does not belong to your school'}, status=403)
 
         if slip.slip_image:
             local_path = os.path.join(settings.MEDIA_ROOT, slip.slip_image.name)
@@ -401,11 +398,11 @@ def delete_slip(request, slip_id):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanManagePayments])
 def bulk_delete_slips(request):
     """Delete multiple slips at once"""
     slip_ids = request.data.get('slip_ids', [])
-    school_id = request.headers.get('X-School-ID')
+    school_id = get_verified_school_id(request)
 
     if not slip_ids:
         return Response({'error': 'No slip IDs provided'}, status=400)
@@ -415,7 +412,7 @@ def bulk_delete_slips(request):
     try:
         slips = PaymentSlip.objects.filter(
             id__in=slip_ids,
-            student__school_id=int(school_id)
+            student__school_id=school_id
         )
 
         if slips.count() != len(slip_ids):
@@ -445,19 +442,15 @@ def bulk_delete_slips(request):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanManagePayments])
 def update_transaction_reference(request, slip_id):
     """Update transaction reference and re-trigger verification"""
     try:
         slip = PaymentSlip.objects.get(id=slip_id)
 
-        school_id = request.headers.get('X-School-ID')
-        if school_id:
-            try:
-                if str(slip.student.school_id) != school_id:
-                    return Response({'error': 'Slip does not belong to your school'}, status=403)
-            except Exception:
-                pass
+        school_id = get_verified_school_id(request)
+        if not school_id or slip.student.school_id != school_id:
+            return Response({'error': 'Slip does not belong to your school'}, status=403)
 
         transaction_reference = request.data.get('transaction_reference', '')
         slip.transaction_reference = transaction_reference
@@ -465,7 +458,7 @@ def update_transaction_reference(request, slip_id):
         slip.verification_error = ''
         slip.save(update_fields=['transaction_reference', 'verification_status', 'verification_error'])
 
-        task_id = async_task('payments.tasks.verify_slip_async', slip.id, int(school_id))
+        task_id = async_task('payments.tasks.verify_slip_async', slip.id, school_id)
         slip.verify_et_task_id = task_id
         slip.verification_status = 'queued'
         slip.save(update_fields=['verify_et_task_id', 'verification_status'])
@@ -482,17 +475,16 @@ def update_transaction_reference(request, slip_id):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanManagePayments])
 def ai_stats(request):
     """Get AI extraction statistics"""
-    school_id = request.headers.get('X-School-ID')
+    school_id = get_verified_school_id(request)
 
     slips = PaymentSlip.objects.all()
     if school_id:
-        try:
-            slips = slips.filter(student__school_id=int(school_id))
-        except ValueError:
-            pass
+        slips = slips.filter(student__school_id=school_id)
+    else:
+        slips = slips.none()
 
     total = slips.count()
     high_conf = slips.filter(ai_confidence__gte=85).count()
@@ -627,31 +619,29 @@ def extract_slip_data(request):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanManagePayments])
 def check_receipt_with_verify_et(request, slip_id):
     """Manual sync verification (kept for admin override when async fails)."""
     import requests, json, time
 
     try:
         slip = PaymentSlip.objects.get(id=slip_id)
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
         school = None
 
         print(f"🔍 check_receipt_with_verify_et - Slip ID: {slip_id}")
-        print(f"🔍 X-School-ID header: {school_id}")
+        print(f"🔍 verified school_id: {school_id}")
 
-        if school_id:
-            try:
-                school = School.objects.get(id=int(school_id))
-                print(f" Found school: {school.name}")
-                if str(slip.student.school_id) != school_id:
-                    return Response({'error': 'Slip does not belong to your school'}, status=403)
-            except School.DoesNotExist:
-                return Response({'error': 'School not found'}, status=404)
-            except Exception as e:
-                return Response({'error': f'School error: {str(e)}'}, status=400)
-        else:
-            return Response({'error': 'X-School-ID header is required'}, status=400)
+        if not school_id:
+            return Response({'error': 'School ID required'}, status=400)
+        if slip.student.school_id != school_id:
+            return Response({'error': 'Slip does not belong to your school'}, status=403)
+
+        try:
+            school = School.objects.get(id=school_id)
+            print(f" Found school: {school.name}")
+        except School.DoesNotExist:
+            return Response({'error': 'School not found'}, status=404)
 
         if not slip.transaction_reference:
             return Response({'success': False, 'error': 'No transaction reference found.'}, status=400)
@@ -849,24 +839,20 @@ def process_verify_et_response(slip, data, clean_ref):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanManagePayments])
 def verify_slip_from_api(request, slip_id):
     """Create payment record after manual API check succeeded"""
     try:
         slip = PaymentSlip.objects.get(id=slip_id)
-        school_id = request.headers.get('X-School-ID')
-        if school_id:
-            try:
-                if str(slip.student.school_id) != school_id:
-                    return Response({'error': 'Slip does not belong to your school'}, status=403)
-            except Exception:
-                pass
+        school_id = get_verified_school_id(request)
+        if not school_id or slip.student.school_id != school_id:
+            return Response({'error': 'Slip does not belong to your school'}, status=403)
 
         if slip.verify_et_status != 'verified':
             return Response({'error': 'Cannot verify: API verification has not succeeded.'}, status=400)
 
         slip.status = 'verified'
-        slip.verified_by = None
+        slip.verified_by = request.user
         slip.verified_at = timezone.now()
         slip.verification_status = 'verified'
         slip.cbe_verification_status = 'cbe_verified'
@@ -886,7 +872,7 @@ def verify_slip_from_api(request, slip_id):
                 payment_method='bank_transfer',
                 transaction_reference=slip.transaction_reference,
                 status='verified',
-                verified_by=None,
+                verified_by=request.user,
                 paid_by=slip.verify_et_payer_name or slip.uploaded_by,
                 paid_by_phone='',
                 is_from_slip=True,

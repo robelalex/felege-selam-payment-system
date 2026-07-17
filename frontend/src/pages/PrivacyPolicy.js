@@ -1,4 +1,5 @@
 import React from 'react';
+import { PLATFORM_NAME } from '../config/brand';
 
 function PrivacyPolicy() {
   return (
@@ -20,7 +21,7 @@ function PrivacyPolicy() {
         <p>Email: robelalex90@gmail.com</p>
         
         <div className="mt-8 pt-4 border-t text-gray-500 text-sm">
-          <p>Felege Selam Payment System</p>
+          <p>{PLATFORM_NAME}</p>
         </div>
       </div>
     </div>

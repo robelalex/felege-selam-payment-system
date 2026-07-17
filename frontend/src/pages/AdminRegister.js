@@ -3,8 +3,12 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Lock, Mail, ArrowRight, AlertCircle, Loader, User, Phone, Building2, CheckCircle, Image } from 'lucide-react';
 import api from '../services/api';
+import AuthSplitLayout from '../components/Auth/AuthSplitLayout';
+import { useLanguage } from '../context/LanguageContext';
+import { PLATFORM_NAME } from '../config/brand';
 
 function AdminRegister() {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -117,9 +121,12 @@ const handleSubmit = async (e) => {
 };
   if (success) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
-        <div className="max-w-md w-full text-center">
-          <div className="bg-white rounded-2xl shadow-xl p-8">
+      <AuthSplitLayout
+        panelTitle={`Welcome to ${PLATFORM_NAME}.`}
+        panelSubtitle="Your school's dashboard is one step away."
+      >
+        <div className="text-center">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
             <div className="inline-flex items-center justify-center p-3 bg-green-100 rounded-full mb-4">
               <CheckCircle className="h-8 w-8 text-green-600" />
             </div>
@@ -133,55 +140,32 @@ const handleSubmit = async (e) => {
             </Link>
           </div>
         </div>
-      </div>
+      </AuthSplitLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
-      <div className="max-w-md w-full">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center p-3 bg-primary-100 rounded-full mb-4">
-            <Building2 className="h-8 w-8 text-primary-600" />
-          </div>
-          <h1 className="text-3xl font-bold text-gray-900">Register School</h1>
-          <p className="text-gray-600 mt-2">Create your school admin account</p>
-        </div>
+    <AuthSplitLayout
+      panelTitle="Bring your school online in minutes."
+      panelSubtitle="Set up tuition tracking, reminders, and secure payment links for your school — no paperwork, no waiting."
+    >
+      <div className="text-center mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">{t('register_title')}</h1>
+        <p className="text-gray-500 mt-2 text-sm">{t('register_subtitle')}</p>
+      </div>
 
-        <div className="bg-white rounded-2xl shadow-xl p-8">
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  First Name
-                </label>
-                <input
-                  type="text"
-                  name="first_name"
-                  value={formData.first_name}
-                  onChange={handleChange}
-                  className="input-field"
-                  placeholder="John"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Last Name
-                </label>
-                <input
-                  type="text"
-                  name="last_name"
-                  value={formData.last_name}
-                  onChange={handleChange}
-                  className="input-field"
-                  placeholder="Doe"
-                />
-              </div>
-            </div>
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
+        <form onSubmit={handleSubmit} className="space-y-6">
+
+          {/* ===== Section: School Information ===== */}
+          <div className="space-y-4">
+            <p className="text-xs font-semibold text-primary-600 uppercase tracking-wider">
+              {t('register_school_info')}
+            </p>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                School Name *
+                {t('register_school_name')} *
               </label>
               <div className="relative">
                 <Building2 className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -200,7 +184,7 @@ const handleSubmit = async (e) => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  School Code
+                  {t('register_school_code')}
                 </label>
                 <input
                   type="text"
@@ -210,11 +194,11 @@ const handleSubmit = async (e) => {
                   className="input-field"
                   placeholder="e.g., FS"
                 />
-                <p className="text-xs text-gray-500 mt-1">Auto-generated if left blank</p>
+                <p className="text-xs text-gray-500 mt-1">{t('register_school_code_hint')}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Phone
+                  {t('register_phone')}
                 </label>
                 <div className="relative">
                   <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -233,7 +217,7 @@ const handleSubmit = async (e) => {
             {/* Logo Upload Field */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                School Logo
+                {t('register_logo')}
               </label>
               <div className="mt-1 flex items-center space-x-4">
                 <div className="flex-shrink-0">
@@ -241,11 +225,11 @@ const handleSubmit = async (e) => {
                     <img
                       src={logoPreview}
                       alt="Logo preview"
-                      className="h-20 w-20 object-cover rounded-lg border border-gray-200"
+                      className="h-16 w-16 object-cover rounded-lg border border-gray-200"
                     />
                   ) : (
-                    <div className="h-20 w-20 bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center">
-                      <Image className="h-8 w-8 text-gray-400" />
+                    <div className="h-16 w-16 bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center">
+                      <Image className="h-7 w-7 text-gray-400" />
                     </div>
                   )}
                 </div>
@@ -258,15 +242,53 @@ const handleSubmit = async (e) => {
                     className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Upload your school logo (JPG, PNG, max 2MB)
+                    JPG or PNG, max 2MB
                   </p>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-100" />
+
+          {/* ===== Section: Admin Account ===== */}
+          <div className="space-y-4">
+            <p className="text-xs font-semibold text-primary-600 uppercase tracking-wider">
+              {t('register_admin_account')}
+            </p>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('register_first_name')}
+                </label>
+                <input
+                  type="text"
+                  name="first_name"
+                  value={formData.first_name}
+                  onChange={handleChange}
+                  className="input-field"
+                  placeholder="John"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('register_last_name')}
+                </label>
+                <input
+                  type="text"
+                  name="last_name"
+                  value={formData.last_name}
+                  onChange={handleChange}
+                  className="input-field"
+                  placeholder="Doe"
+                />
               </div>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Email *
+                {t('login_email')} *
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -284,7 +306,7 @@ const handleSubmit = async (e) => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Username *
+                {t('register_username')} *
               </label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -300,79 +322,80 @@ const handleSubmit = async (e) => {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Password *
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  type="password"
-                  name="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  className="input-field pl-10"
-                  placeholder="Create a password"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Confirm Password *
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  type="password"
-                  name="confirm_password"
-                  value={formData.confirm_password}
-                  onChange={handleChange}
-                  className="input-field pl-10"
-                  placeholder="Confirm your password"
-                  required
-                />
-              </div>
-            </div>
-
-            {error && (
-              <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded">
-                <div className="flex items-center">
-                  <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
-                  <p className="text-red-700 text-sm">{error}</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('login_password')} *
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    type="password"
+                    name="password"
+                    value={formData.password}
+                    onChange={handleChange}
+                    className="input-field pl-10"
+                    placeholder="Create a password"
+                    required
+                  />
                 </div>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('register_confirm_password')} *
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    type="password"
+                    name="confirm_password"
+                    value={formData.confirm_password}
+                    onChange={handleChange}
+                    className="input-field pl-10"
+                    placeholder="Confirm password"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded">
+              <div className="flex items-center">
+                <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
+                <p className="text-red-700 text-sm">{error}</p>
+              </div>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn-primary w-full flex items-center justify-center gap-2 py-3"
+          >
+            {loading ? (
+              <>
+                <Loader className="h-5 w-5 animate-spin" />
+                {t('register_creating')}
+              </>
+            ) : (
+              <>
+                {t('register_submit')}
+                <ArrowRight className="h-5 w-5" />
+              </>
             )}
+          </button>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="btn-primary w-full flex items-center justify-center gap-2 py-3"
-            >
-              {loading ? (
-                <>
-                  <Loader className="h-5 w-5 animate-spin" />
-                  Creating Account...
-                </>
-              ) : (
-                <>
-                  Register School
-                  <ArrowRight className="h-5 w-5" />
-                </>
-              )}
-            </button>
-
-            <p className="text-center text-sm text-gray-600">
-              Already have an account?{' '}
-              <Link to="/admin/login" className="text-primary-600 hover:text-primary-700 font-medium">
-                Sign In
-              </Link>
-            </p>
-          </form>
-        </div>
+          <p className="text-center text-sm text-gray-600">
+            {t('register_have_account')}{' '}
+            <Link to="/admin/login" className="text-primary-600 hover:text-primary-700 font-medium">
+              {t('register_sign_in')}
+            </Link>
+          </p>
+        </form>
       </div>
-    </div>
+    </AuthSplitLayout>
   );
 }
 

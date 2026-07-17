@@ -60,7 +60,8 @@ def verify_payment_token(token: str):
 
     Returns:
         tuple: (PaymentLinkToken_record_or_None, error_code_or_None)
-        error_code is one of: None (success), 'expired', 'invalid', 'already_used'
+        error_code is one of: None (success), 'expired', 'invalid', 'already_used',
+        'already_paid'
     """
     from .models import PaymentLinkToken
 
@@ -83,6 +84,13 @@ def verify_payment_token(token: str):
         return None, "expired"
     if record.is_consumed():
         return None, "already_used"
+
+    # ✅ Cross-channel lock: a parent may get BOTH an SMS link and an Email
+    # link for the SAME payment. Each has its own token/consumed_at, so
+    # paying through one must not leave the other channel still usable.
+    # We check the underlying Payment itself, not just this token's row.
+    if record.payment.status in ("verified", "paid"):
+        return None, "already_paid"
 
     return record, None
 
