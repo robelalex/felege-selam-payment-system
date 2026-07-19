@@ -51,6 +51,7 @@ import VerifyETSettings from './pages/VerifyETSettings';
 import SchoolChapaSettings from './pages/SchoolChapaSettings';
 import PaymentLandingPage from './pages/PaymentLandingPage';
 import AdminSections from './pages/AdminSections';
+import AcademicsSetup from './pages/AcademicsSetup';
 import AdminStaff from './pages/AdminStaff';
 import AdminActivityLog from './pages/AdminActivityLog';
 import ReceiptPage from './pages/ReceiptPage';
@@ -371,6 +372,19 @@ function App() {
             <ChapaWarningProvider>
                 <AdminLayout>
                     <AdminSections />
+                </AdminLayout>
+            </ChapaWarningProvider>
+        </ProtectedRoute>
+    }
+/>
+
+<Route
+    path="/admin/academics-setup"
+    element={
+        <ProtectedRoute>
+            <ChapaWarningProvider>
+                <AdminLayout>
+                    <AcademicsSetup />
                 </AdminLayout>
             </ChapaWarningProvider>
         </ProtectedRoute>

@@ -5,13 +5,20 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
-from .models import AcademicYear, YearPromotionLog
-from .serializers import AcademicYearSerializer, YearPromotionLogSerializer
+from .models import AcademicYear, YearPromotionLog, Subject, HomeroomAssignment
+from .serializers import (
+    AcademicYearSerializer, YearPromotionLogSerializer,
+    SubjectSerializer, HomeroomAssignmentSerializer,
+)
 from students.models import Student, GRADUATION_GRADE
 from schools.models import School
 from datetime import timedelta
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+# ✅ Same fix as payments/views.py and slip_views.py: resolve the school
+# from the logged-in user's own account, not from a client-supplied header.
+from common.utils import get_verified_school_id
+from authentication.permissions import CanManageAcademics
 
 
 class AcademicYearViewSet(viewsets.ModelViewSet):
@@ -20,19 +27,13 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = AcademicYear.objects.all()
-
-        # ✅ Filter by school from header
-        school_id = self.request.headers.get('X-School-ID')
-        print(f"📚 AcademicYearViewSet - X-School-ID header: {school_id}")
+        school_id = get_verified_school_id(self.request)
+        print(f"📚 AcademicYearViewSet - verified school_id: {school_id}")
 
         if school_id:
-            try:
-                queryset = queryset.filter(school_id=int(school_id))
-                print(f"📚 Filtered academic years by school ID: {school_id}")
-            except ValueError:
-                print(f"📚 Invalid school ID: {school_id}")
+            queryset = queryset.filter(school_id=school_id)
         else:
-            # If no school header, return empty (should not happen for school admins)
+            # If no verified school, return empty (should not happen for school admins)
             queryset = queryset.none()
 
         # Filter by year ID if provided (additional filter)
@@ -46,45 +47,37 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        """✅ CRITICAL FIX: Automatically set school_id from header when creating"""
-        school_id = self.request.headers.get('X-School-ID')
+        """✅ School comes from the verified, logged-in user's own account."""
+        school_id = get_verified_school_id(self.request)
 
         if not school_id:
-            raise serializers.ValidationError({"error": "School ID required (X-School-ID header)"})
+            raise serializers.ValidationError({"error": "Could not resolve your school"})
 
         try:
-            school = School.objects.get(id=int(school_id))
+            school = School.objects.get(id=school_id)
             serializer.save(school=school)
             print(f"📚 Created academic year for school: {school.name}")
         except School.DoesNotExist:
             raise serializers.ValidationError({"error": "School not found"})
-        except ValueError:
-            raise serializers.ValidationError({"error": "Invalid school ID"})
 
     @action(detail=False, methods=['get'], url_path='current')
     def current(self, request):
         """Get the current academic year for the school"""
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
 
         current_year = None
         if school_id:
-            try:
-                current_year = AcademicYear.objects.filter(
-                    school_id=int(school_id),
-                    is_current=True
-                ).first()
-            except ValueError:
-                pass
+            current_year = AcademicYear.objects.filter(
+                school_id=school_id,
+                is_current=True
+            ).first()
 
         if not current_year:
             # Try to get any year for this school as fallback
             if school_id:
-                try:
-                    current_year = AcademicYear.objects.filter(
-                        school_id=int(school_id)
-                    ).order_by('-year_ec').first()
-                except ValueError:
-                    pass
+                current_year = AcademicYear.objects.filter(
+                    school_id=school_id
+                ).order_by('-year_ec').first()
 
         if current_year:
             serializer = self.get_serializer(current_year)
@@ -186,13 +179,13 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='create_next_year')
     def create_next_year(self, request):
         """Create the next academic year for the school"""
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
         if not school_id:
-            return Response({'error': 'School ID required'}, status=400)
+            return Response({'error': 'Could not resolve your school'}, status=400)
 
         try:
-            school = School.objects.get(id=int(school_id))
-        except (ValueError, School.DoesNotExist):
+            school = School.objects.get(id=school_id)
+        except School.DoesNotExist:
             return Response({'error': 'School not found'}, status=404)
 
         # Get current academic year for this school
@@ -254,13 +247,85 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='archived')
     def get_archived(self, request):
         """Get all archived academic years for the school"""
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
         if not school_id:
             return Response([], status=200)
 
         archived = AcademicYear.objects.filter(
-            school_id=int(school_id),
+            school_id=school_id,
             is_archived=True
         )
         serializer = self.get_serializer(archived, many=True)
         return Response(serializer.data)
+
+
+class SubjectViewSet(viewsets.ModelViewSet):
+    """
+    Subject registration — each school builds its own subject list
+    (English, Math, Physics...). No hardcoded subjects anywhere.
+    """
+    serializer_class = SubjectSerializer
+    permission_classes = [IsAuthenticated, CanManageAcademics]
+
+    def get_queryset(self):
+        school_id = get_verified_school_id(self.request)
+        if not school_id:
+            return Subject.objects.none()
+        return Subject.objects.filter(school_id=school_id, is_active=True)
+
+    def perform_create(self, serializer):
+        school_id = get_verified_school_id(self.request)
+        if not school_id:
+            raise serializers.ValidationError({"error": "Could not resolve your school"})
+        serializer.save(school_id=school_id)
+
+    def destroy(self, request, *args, **kwargs):
+        """Soft delete — subjects may be referenced by past marks/assignments."""
+        subject = self.get_object()
+        subject.is_active = False
+        subject.save(update_fields=['is_active'])
+        return Response({'success': True, 'message': f'{subject.name} removed'})
+
+
+class HomeroomAssignmentViewSet(viewsets.ModelViewSet):
+    """
+    The homeroom (class) teacher for each grade+section, per academic year.
+    """
+    serializer_class = HomeroomAssignmentSerializer
+    permission_classes = [IsAuthenticated, CanManageAcademics]
+
+    def get_queryset(self):
+        school_id = get_verified_school_id(self.request)
+        if not school_id:
+            return HomeroomAssignment.objects.none()
+
+        queryset = HomeroomAssignment.objects.filter(school_id=school_id).select_related(
+            'section', 'teacher', 'academic_year'
+        )
+
+        year_id = self.request.query_params.get('academic_year_id')
+        if year_id:
+            queryset = queryset.filter(academic_year_id=year_id)
+
+        grade = self.request.query_params.get('grade')
+        if grade:
+            queryset = queryset.filter(grade=grade)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        school_id = get_verified_school_id(self.request)
+        if not school_id:
+            raise serializers.ValidationError({"error": "Could not resolve your school"})
+
+        section = serializer.validated_data.get('section')
+        if section and section.school_id != school_id:
+            raise serializers.ValidationError({"error": "Section does not belong to your school"})
+
+        teacher = serializer.validated_data.get('teacher')
+        if teacher and teacher.school_id != school_id:
+            raise serializers.ValidationError({"error": "Teacher does not belong to your school"})
+        if teacher and teacher.role != 'teacher':
+            raise serializers.ValidationError({"error": "Selected staff member is not marked as a teacher"})
+
+        serializer.save(school_id=school_id)

@@ -6,6 +6,29 @@ class School(models.Model):
     address = models.TextField()
     phone = models.CharField(max_length=20)
     email = models.EmailField(blank=True)
+
+    # ✅ Grading system — the School Settings page already had a working
+    # UI (percentage / letter_grade / both) that PATCHed these fields.
+    # A previous session had already migrated them into the database
+    # (migration 0011) but the model definition got reverted afterward,
+    # so every save was silently doing nothing. Restored to match what's
+    # already migrated, so no destructive column drop is needed.
+    GRADING_SYSTEM_CHOICES = [
+        ('percentage', 'Percentage (out of 100)'),
+        ('letter_grade', 'Letter Grade (A, B, C...)'),
+        ('both', 'Both (show percentage and letter grade)'),
+    ]
+    grading_system = models.CharField(
+        max_length=20,
+        choices=GRADING_SYSTEM_CHOICES,
+        default='percentage',
+        help_text='How this school grades and displays exam results',
+    )
+    grade_scale = models.JSONField(
+        blank=True,
+        default=list,
+        help_text="Letter grade boundaries, e.g. [{'min': 90, 'max': 100, 'grade': 'A'}, ...]. Ignored if grading_system is 'percentage'.",
+    )
     
     # ✅ Add logo field
     logo = models.ImageField(upload_to='school_logos/', blank=True, null=True, help_text="School logo (JPG, PNG)")

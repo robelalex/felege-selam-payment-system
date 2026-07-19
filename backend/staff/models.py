@@ -121,12 +121,6 @@ class StaffMember(models.Model):
 class TeacherClassAssignment(models.Model):
     """
     Which teacher teaches which grade/section/subject.
-
-    subject_name is a plain CharField for now (not a FK) because the exams
-    app — which will own a proper Subject model — hasn't been built yet.
-    This keeps attendance/exams unblocked; when Subject exists, a migration
-    can swap subject_name for a subject FK without changing this model's
-    overall shape or the API contract much.
     """
     staff = models.ForeignKey(StaffMember, on_delete=models.CASCADE, related_name='class_assignments')
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='class_assignments')
@@ -135,15 +129,25 @@ class TeacherClassAssignment(models.Model):
         max_length=10, blank=True,
         help_text="e.g. 'A' — leave blank if this teacher covers the whole grade regardless of section"
     )
-    subject_name = models.CharField(max_length=100)
+    # ✅ Now a real FK to academics.Subject (each school's own registered
+    # subject list) instead of a free-text CharField — exactly the swap
+    # this model's original docstring planned for once Subject existed.
+    # Nullable at the DB level as a safety net for any pre-existing rows
+    # from before this field existed (this table had zero real usage from
+    # the frontend, but better safe than dropping data on migrate). The
+    # API layer (serializer) still requires it for all new records.
+    subject = models.ForeignKey(
+        'academics.Subject', on_delete=models.CASCADE, related_name='teacher_assignments',
+        null=True, blank=True,
+    )
     academic_year = models.CharField(max_length=20, blank=True, help_text="e.g. '2018 E.C.'")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['grade', 'section', 'subject_name']
-        unique_together = ['staff', 'grade', 'section', 'subject_name', 'academic_year']
+        ordering = ['grade', 'section', 'subject__name']
+        unique_together = ['staff', 'grade', 'section', 'subject', 'academic_year']
 
     def __str__(self):
         section_label = f" Sec {self.section}" if self.section else ""
-        return f"{self.staff.full_name} - Grade {self.grade}{section_label} - {self.subject_name}"
+        return f"{self.staff.full_name} - Grade {self.grade}{section_label} - {self.subject.name}"

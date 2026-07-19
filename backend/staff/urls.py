@@ -1,7 +1,7 @@
 # staff/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import StaffMemberViewSet, TeacherClassAssignmentViewSet
+from .views import StaffMemberViewSet, TeacherClassAssignmentViewSet, my_assignments
 
 router = DefaultRouter()
 # ✅ NOTE: intentionally "staff-members", NOT "staff" — the authentication
@@ -14,4 +14,5 @@ router.register(r'class-assignments', TeacherClassAssignmentViewSet, basename='c
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('teacher/my-assignments/', my_assignments, name='teacher-my-assignments'),
 ]

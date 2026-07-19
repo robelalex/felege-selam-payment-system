@@ -31,6 +31,21 @@ class CanManageStudents(HasRole):
     allowed_roles = ['registrar']
 
 
+class CanManageAcademics(HasRole):
+    """school_admin + registrar can register subjects and assign teachers
+    to classes/subjects/homerooms. Teachers themselves use separate
+    teacher-facing endpoints (marks/attendance entry), not this one."""
+    allowed_roles = ['registrar']
+
+
+class IsTeacherOrAdmin(HasRole):
+    """Teachers can enter marks/attendance for their own assigned classes;
+    school_admin/super_admin get full oversight automatically via HasRole.
+    View-level code still scopes teachers to only their own assignments —
+    this permission class only gates "can you reach this endpoint at all"."""
+    allowed_roles = ['teacher']
+
+
 class CanManagePayments(HasRole):
     """school_admin + accountant can create/edit/delete/verify payments."""
     allowed_roles = ['accountant']

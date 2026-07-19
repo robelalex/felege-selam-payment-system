@@ -1,7 +1,7 @@
 # academics/serializers.py
 from rest_framework import serializers
 from django.db import models
-from .models import AcademicYear, YearPromotionLog
+from .models import AcademicYear, YearPromotionLog, Subject, HomeroomAssignment
 
 
 class AcademicYearSerializer(serializers.ModelSerializer):
@@ -51,3 +51,25 @@ class YearPromotionLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = YearPromotionLog
         fields = '__all__'
+
+
+class SubjectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Subject
+        fields = ['id', 'school', 'name', 'code', 'is_active', 'created_at']
+        read_only_fields = ['school']
+
+
+class HomeroomAssignmentSerializer(serializers.ModelSerializer):
+    teacher_name = serializers.CharField(source='teacher.full_name', read_only=True)
+    section_name = serializers.CharField(source='section.name', read_only=True)
+    academic_year_name = serializers.CharField(source='academic_year.name', read_only=True)
+
+    class Meta:
+        model = HomeroomAssignment
+        fields = [
+            'id', 'school', 'academic_year', 'academic_year_name',
+            'grade', 'section', 'section_name', 'teacher', 'teacher_name',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['school']

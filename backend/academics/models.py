@@ -2,6 +2,11 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from datetime import date
 from schools.models import School
+# ✅ Single source of truth for the graduation threshold (currently 12).
+# promote_students() below used to hardcode 8, so grades 9-12 students
+# never promoted or graduated when "Promote" was clicked — they just sat
+# there untouched every year. Now it actually uses the real value.
+from students.models import GRADUATION_GRADE
 
 class AcademicYear(models.Model):
     """Academic Year Management"""
@@ -89,7 +94,7 @@ class AcademicYear(models.Model):
         graduated_count = 0
         
         for student in students:
-            if student.grade < 8:
+            if student.grade < GRADUATION_GRADE:
                 student.grade += 1
                 
                 # ✅ FIX: ONLY update fee if student has NO existing monthly_fee
@@ -100,7 +105,7 @@ class AcademicYear(models.Model):
                 
                 student.save()
                 promoted_count += 1
-            elif student.grade == 8:
+            elif student.grade == GRADUATION_GRADE:
                 student.status = 'graduated'
                 student.save()
                 graduated_count += 1
@@ -134,7 +139,8 @@ class AcademicYear(models.Model):
         # Default fallback amounts
         DEFAULT_FEES = {
             1: 500, 2: 550, 3: 600, 4: 650,
-            5: 700, 6: 750, 7: 800, 8: 850
+            5: 700, 6: 750, 7: 800, 8: 850,
+            9: 900, 10: 950, 11: 1000, 12: 1050
         }
         return DEFAULT_FEES.get(grade, 500)
     
@@ -205,3 +211,63 @@ class YearPromotionLog(models.Model):
     
     def __str__(self):
         return f"Promotion: {self.from_year} → {self.to_year}"
+
+
+class Subject(models.Model):
+    """
+    A subject a school teaches — English, Math, Physics, etc. Deliberately
+    NOT hardcoded: every school registers its own subject list here, since
+    different schools (and elementary vs. high school within the same
+    school) teach different things.
+
+    Who-teaches-what-to-whom lives on staff.TeacherClassAssignment (its
+    `subject` FK points here) — no separate assignment model needed here.
+    """
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, related_name='subjects'
+    )
+    name = models.CharField(max_length=100, help_text="e.g., English, Mathematics, Physics")
+    code = models.CharField(
+        max_length=20, blank=True,
+        help_text="Optional short code, e.g., ENG, MATH, PHY"
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+        unique_together = ['school', 'name']
+
+    def __str__(self):
+        return f"{self.school.name} - {self.name}"
+
+
+class HomeroomAssignment(models.Model):
+    """
+    The homeroom (class) teacher for one grade+section, for a given
+    academic year. The homeroom teacher owns daily attendance for their
+    class and reviews/accepts subject-teacher marks for their students.
+    """
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, related_name='homeroom_assignments'
+    )
+    academic_year = models.ForeignKey(
+        AcademicYear, on_delete=models.CASCADE, related_name='homeroom_assignments'
+    )
+    grade = models.IntegerField()
+    section = models.ForeignKey(
+        'students.Section', on_delete=models.CASCADE, related_name='homeroom_assignments'
+    )
+    teacher = models.ForeignKey(
+        'staff.StaffMember', on_delete=models.CASCADE, related_name='homeroom_assignments',
+        limit_choices_to={'role': 'teacher'}
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['grade', 'section__name']
+        unique_together = ['school', 'academic_year', 'grade', 'section']
+
+    def __str__(self):
+        return f"Grade {self.grade} Section {self.section.name} homeroom - {self.teacher.full_name}"

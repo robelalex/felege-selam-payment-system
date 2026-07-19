@@ -18,13 +18,19 @@ from reports.views import dashboard_stats as reports_dashboard_stats, pending_pa
 from authentication.views import change_password
 from authentication import views as auth_views
 from rest_framework_simplejwt.views import TokenRefreshView
-from academics.views import AcademicYearViewSet
+from academics.views import AcademicYearViewSet, SubjectViewSet, HomeroomAssignmentViewSet
+from exams.views import AssessmentTypeViewSet, MarkViewSet, DailyAttendanceViewSet
 
 # ✅ SchoolViewSet is REMOVED from this router — it lives in schools/urls.py now
 router = DefaultRouter()
 router.register(r'students', StudentViewSet, basename='student')
 router.register(r'sections', SectionViewSet, basename='section')
 router.register(r'academic-years', AcademicYearViewSet, basename='academic-year')
+router.register(r'subjects', SubjectViewSet, basename='subject')
+router.register(r'homeroom-assignments', HomeroomAssignmentViewSet, basename='homeroom-assignment')
+router.register(r'assessment-types', AssessmentTypeViewSet, basename='assessment-type')
+router.register(r'marks', MarkViewSet, basename='mark')
+router.register(r'attendance', DailyAttendanceViewSet, basename='attendance')
 
 urlpatterns = [
     path('health/', health_check, name='health_check'),

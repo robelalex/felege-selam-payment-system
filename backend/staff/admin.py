@@ -11,5 +11,5 @@ class StaffMemberAdmin(admin.ModelAdmin):
 
 @admin.register(TeacherClassAssignment)
 class TeacherClassAssignmentAdmin(admin.ModelAdmin):
-    list_display = ['staff', 'grade', 'section', 'subject_name', 'school', 'academic_year', 'is_active']
+    list_display = ['staff', 'grade', 'section', 'subject', 'school', 'academic_year', 'is_active']
     list_filter = ['grade', 'school', 'is_active']

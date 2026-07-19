@@ -199,7 +199,14 @@ def admin_login_step2(request):
         pass
     
     refresh = RefreshToken.for_user(user)
-    
+
+    # ✅ Same fix as get_current_user: profile.role is always 'staff' for
+    # any StaffMemberViewSet.create_login account (teacher, registrar,
+    # accountant...) — resolve the real granular role instead, so a
+    # teacher logging in gets 'teacher' back, not the generic 'staff'.
+    from common.utils import get_effective_role
+    effective_role = get_effective_role(user) or profile.role
+
     return Response({
         'success': True,
         'message': 'Login successful',
@@ -211,9 +218,9 @@ def admin_login_step2(request):
             'username': user.username,
             'first_name': user.first_name,
             'last_name': user.last_name,
-            'role': profile.role,
-            'is_super_admin': profile.is_super_admin,
-            'is_school_admin': profile.is_school_admin,
+            'role': effective_role,
+            'is_super_admin': effective_role == 'super_admin',
+            'is_school_admin': effective_role == 'school_admin',
             'school': school_info
         }
     })
@@ -634,6 +641,22 @@ def get_current_user(request):
                     'code': school.code,
                     'logo': school.logo.url if school.logo else None
                 }
+            else:
+                # ✅ FIX: school_info was only ever resolved for
+                # SchoolAdminProfile — every StaffMember-linked account
+                # (teacher, registrar, accountant...) got school=None here,
+                # even though get_verified_school_id() elsewhere correctly
+                # resolves their school from StaffMember.school. Same fix,
+                # applied to this response too.
+                staff_profile = getattr(user, 'staff_profile', None)
+                if staff_profile and staff_profile.school_id:
+                    school = staff_profile.school
+                    school_info = {
+                        'id': school.id,
+                        'name': school.name,
+                        'code': school.code,
+                        'logo': school.logo.url if school.logo else None
+                    }
         except Exception as e:
             print(f"Error getting school info: {e}")
         
@@ -658,6 +681,7 @@ def get_current_user(request):
                 'role': role,
                 'is_super_admin': is_super_admin,
                 'is_school_admin': is_school_admin,
+                'staff_id': getattr(getattr(user, 'staff_profile', None), 'id', None),
                 'school': school_info
             }
         })

@@ -5,7 +5,7 @@ from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import User
 from rest_framework import viewsets, status
 from rest_framework import serializers as drf_serializers
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -15,6 +15,52 @@ from schools.models import School
 from common.utils import get_verified_school_id, is_super_admin, log_action
 from authentication.models import UserProfile
 from authentication.permissions import CanManageStaff
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def my_assignments(request):
+    """
+    Called right after a teacher logs into the mobile app: 'what are my
+    classes'. Combines their homeroom assignment (if any) and their
+    subject-teaching assignments in one call, so the app can build its
+    home screen without five separate requests.
+    """
+    staff = getattr(request.user, 'staff_profile', None)
+    if not staff or staff.role != 'teacher':
+        return Response({'error': 'This account is not set up as a teacher'}, status=403)
+
+    from academics.models import HomeroomAssignment, AcademicYear
+
+    current_year = AcademicYear.objects.filter(school_id=staff.school_id, is_current=True).first()
+
+    homeroom = None
+    if current_year:
+        homeroom_assignment = HomeroomAssignment.objects.filter(
+            teacher=staff, academic_year=current_year
+        ).select_related('section').first()
+        if homeroom_assignment:
+            homeroom = {
+                'grade': homeroom_assignment.grade,
+                'section': homeroom_assignment.section.name,
+                'academic_year': current_year.name,
+            }
+
+    subject_assignments = TeacherClassAssignment.objects.filter(
+        staff=staff, is_active=True,
+        academic_year=current_year.name if current_year else None,
+    ).select_related('subject').values(
+        'id', 'grade', 'section', 'subject_id', 'subject__name'
+    )
+
+    return Response({
+        'teacher_name': staff.full_name,
+        'is_homeroom_teacher': homeroom is not None,
+        'homeroom': homeroom,
+        'subject_assignments': list(subject_assignments),
+        'current_academic_year': current_year.name if current_year else None,
+        'current_academic_year_id': current_year.id if current_year else None,
+    })
 
 
 def _generate_temp_password(length=10):
@@ -252,6 +298,18 @@ class TeacherClassAssignmentViewSet(viewsets.ModelViewSet):
         if staff and staff.school_id != school.id:
             raise drf_serializers.ValidationError({
                 "error": "That staff member does not belong to your school."
+            })
+        if staff and staff.role != 'teacher':
+            raise drf_serializers.ValidationError({
+                "error": "Selected staff member is not marked as a teacher."
+            })
+
+        # ✅ Same check for the subject being assigned — it must belong to
+        # this school too, not another tenant's subject list.
+        subject = serializer.validated_data.get('subject')
+        if subject and subject.school_id != school.id:
+            raise drf_serializers.ValidationError({
+                "error": "That subject does not belong to your school."
             })
 
         serializer.save(school=school)

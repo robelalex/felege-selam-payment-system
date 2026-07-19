@@ -1,10 +1,15 @@
 # staff/serializers.py
 from rest_framework import serializers
 from .models import StaffMember, TeacherClassAssignment
+from academics.models import Subject
 
 
 class TeacherClassAssignmentSerializer(serializers.ModelSerializer):
     staff_name = serializers.CharField(source='staff.full_name', read_only=True)
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
+    # ✅ Required at the API layer even though the DB column is nullable
+    # (nullable only as a safety net for migration purposes).
+    subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.all(), required=True)
 
     class Meta:
         model = TeacherClassAssignment

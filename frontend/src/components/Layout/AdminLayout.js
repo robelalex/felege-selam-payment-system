@@ -23,6 +23,7 @@ import {
   Grid,
   History,
   ChevronDown,
+  BookOpen,
   Users as UsersIcon
 } from 'lucide-react';
 import api from '../../services/api';
@@ -206,6 +207,7 @@ const getLogoUrl = () => {
       items: [
         { path: '/admin/students', label: t('nav_students'), icon: Users },
         { path: '/admin/sections', label: t('nav_sections'), icon: Grid },
+        { path: '/admin/academics-setup', label: t('nav_academics_setup'), icon: BookOpen },
         { path: '/admin/academic-years', label: t('nav_academic_years'), icon: Calendar },
         { path: '/admin/staff', label: t('nav_staff'), icon: UsersIcon },
       ],
