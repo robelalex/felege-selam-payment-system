@@ -44,9 +44,15 @@ def _teacher_owns_homeroom(staff, grade, section, academic_year_id):
 
 class AssessmentTypeViewSet(viewsets.ModelViewSet):
     """School-defined gradable events (Mid Term, Final, Quiz 1...).
-    Admin/registrar managed, like Subject."""
+    Admin/registrar manage the list; teachers need read access too,
+    since picking an assessment type is the first step of entering marks."""
     serializer_class = AssessmentTypeSerializer
-    permission_classes = [IsAuthenticated, CanManageAcademics]
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            return [IsAuthenticated(), CanManageAcademics()]
+        return [IsAuthenticated()]
 
     def get_queryset(self):
         school_id = get_verified_school_id(self.request)

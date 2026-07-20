@@ -308,11 +308,23 @@ def parent_login_step2(request):
     profile.save()
     
     auth_login(request, user)
-    
+
+    # ✅ FIX: this endpoint only ever did session-based login (auth_login),
+    # never issued a token. That's fine for the web app (browsers carry
+    # session cookies automatically) but Flutter's native HTTP client
+    # doesn't persist cookies the same way, so every subsequent mobile
+    # request looked anonymous — "Authentication credentials were not
+    # provided". The mobile app already expects a field called 'token'
+    # (see ApiService.verifyOtp), so we now actually send one — a real
+    # JWT — without touching the session-cookie behavior the web app uses.
+    refresh = RefreshToken.for_user(user)
+
     return Response({
         'success': True,
         'message': 'OTP verified successfully. Please enter your student ID.',
-        'user_id': user.id
+        'user_id': user.id,
+        'token': str(refresh.access_token),
+        'refresh': str(refresh),
     })
 
 
