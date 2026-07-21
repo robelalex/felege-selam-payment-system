@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Plus, Trash2, RefreshCw, BookOpen, Users, Home,
+  Plus, Trash2, RefreshCw, BookOpen, Users, Home, ClipboardList,
   AlertCircle, CheckCircle, X, Loader
 } from 'lucide-react';
 import api from '../services/api';
@@ -13,6 +13,7 @@ const TABS = [
   { id: 'subjects', label: 'Subjects', icon: BookOpen },
   { id: 'teachers', label: 'Subject Teachers', icon: Users },
   { id: 'homeroom', label: 'Homeroom Teachers', icon: Home },
+  { id: 'assessments', label: 'Assessments', icon: ClipboardList },
 ];
 
 function AcademicsSetup() {
@@ -41,6 +42,11 @@ function AcademicsSetup() {
   const [homeSection, setHomeSection] = useState('');
   const [homeTeacher, setHomeTeacher] = useState('');
 
+  const [assessmentTypes, setAssessmentTypes] = useState([]);
+  const [newAssessmentName, setNewAssessmentName] = useState('');
+  const [newAssessmentMaxScore, setNewAssessmentMaxScore] = useState(100);
+  const [newAssessmentWeight, setNewAssessmentWeight] = useState('');
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -57,12 +63,14 @@ function AcademicsSetup() {
       setCurrentYear(yearRes.data);
 
       if (yearRes.data?.id) {
-        const [assignRes, homeRes] = await Promise.all([
+        const [assignRes, homeRes, assessRes] = await Promise.all([
           api.get(`/class-assignments/?academic_year_id=${yearRes.data.id}`).catch(() => ({ data: [] })),
           api.get(`/homeroom-assignments/?academic_year_id=${yearRes.data.id}`),
+          api.get(`/assessment-types/?academic_year_id=${yearRes.data.id}`).catch(() => ({ data: [] })),
         ]);
         setAssignments(assignRes.data);
         setHomerooms(homeRes.data);
+        setAssessmentTypes(assessRes.data);
       }
     } catch (err) {
       console.error('Error loading academics setup:', err);
@@ -180,6 +188,42 @@ function AcademicsSetup() {
       fetchAll();
     } catch (err) {
       setError('Failed to remove homeroom assignment');
+    }
+  };
+
+  // ===== Assessment Types =====
+  const handleCreateAssessment = async (e) => {
+    e.preventDefault();
+    if (!newAssessmentName.trim() || !currentYear?.id) return;
+    setSaving(true);
+    setError('');
+    try {
+      await api.post('/assessment-types/', {
+        academic_year: currentYear.id,
+        name: newAssessmentName.trim(),
+        max_score: newAssessmentMaxScore,
+        weight_percent: newAssessmentWeight === '' ? null : newAssessmentWeight,
+      });
+      setSuccess(`"${newAssessmentName}" added`);
+      setNewAssessmentName('');
+      setNewAssessmentMaxScore(100);
+      setNewAssessmentWeight('');
+      fetchAll();
+    } catch (err) {
+      setError(err.response?.data?.name?.[0] || err.response?.data?.error || 'Failed to add assessment');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteAssessment = async (id, name) => {
+    if (!window.confirm(`Remove "${name}"? Marks already entered for it are kept, but teachers won't be able to grade new ones under it.`)) return;
+    try {
+      await api.delete(`/assessment-types/${id}/`);
+      setSuccess(`"${name}" removed`);
+      fetchAll();
+    } catch (err) {
+      setError('Failed to remove assessment');
     }
   };
 
@@ -461,6 +505,84 @@ function AcademicsSetup() {
                         <td className="px-4 py-3 font-medium text-gray-800">{h.teacher_name}</td>
                         <td className="px-4 py-3 text-right">
                           <button onClick={() => handleDeleteHomeroom(h.id)} className="text-red-500 hover:text-red-700">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ===== ASSESSMENTS TAB ===== */}
+          {activeTab === 'assessments' && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                  <Plus className="h-5 w-5 text-primary-600" />
+                  Create an Assessment
+                </h2>
+                <p className="text-sm text-gray-500 mb-4">
+                  This is what teachers pick from when entering marks — e.g. "Mid Term Exam", "Final Exam", "Quiz 1".
+                  Nothing shows up for teachers to grade until at least one exists here.
+                </p>
+                <form onSubmit={handleCreateAssessment} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                    <input
+                      type="text" value={newAssessmentName} onChange={(e) => setNewAssessmentName(e.target.value)}
+                      className="input-field" placeholder="e.g., Mid Term Exam" required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Out of</label>
+                    <input
+                      type="number" min="1" value={newAssessmentMaxScore}
+                      onChange={(e) => setNewAssessmentMaxScore(e.target.value)}
+                      className="input-field" required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Weight % (optional)</label>
+                    <input
+                      type="number" min="0" max="100" value={newAssessmentWeight}
+                      onChange={(e) => setNewAssessmentWeight(e.target.value)}
+                      className="input-field" placeholder="e.g., 40"
+                    />
+                  </div>
+                  <button type="submit" disabled={saving || !currentYear} className="btn-primary flex items-center justify-center gap-2 tap-target sm:col-span-4">
+                    {saving ? <Loader className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    Add Assessment
+                  </button>
+                </form>
+                {!currentYear && (
+                  <p className="text-sm text-amber-600 mt-3">Set an academic year first (Academic Years) before adding assessments.</p>
+                )}
+              </div>
+
+              <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
+                    <tr>
+                      <th className="text-left px-4 py-3">Name</th>
+                      <th className="text-left px-4 py-3">Out of</th>
+                      <th className="text-left px-4 py-3">Weight</th>
+                      <th className="text-right px-4 py-3">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {assessmentTypes.length === 0 && (
+                      <tr><td colSpan={4} className="text-center text-gray-400 py-8">No assessments yet — add your first one above.</td></tr>
+                    )}
+                    {assessmentTypes.map((a) => (
+                      <tr key={a.id}>
+                        <td className="px-4 py-3 font-medium text-gray-800">{a.name}</td>
+                        <td className="px-4 py-3 text-gray-500">{a.max_score}</td>
+                        <td className="px-4 py-3 text-gray-500">{a.weight_percent ? `${a.weight_percent}%` : '—'}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button onClick={() => handleDeleteAssessment(a.id, a.name)} className="text-red-500 hover:text-red-700">
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </td>
