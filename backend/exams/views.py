@@ -270,8 +270,12 @@ class MarkViewSet(viewsets.ModelViewSet):
 
         staff = _get_staff_profile(request)
         if not _is_admin(request):
-            year = Mark.objects.filter(school_id=school_id).first()
-            year_id = year.academic_year_id if year else None
+            # Was: Mark.objects.filter(school_id=school_id).first() — an
+            # arbitrary row, None whenever no marks exist yet for this
+            # school, which broke the homeroom-ownership check below with
+            # a spurious 403 even for a legitimate homeroom teacher.
+            current_year = AcademicYear.objects.filter(school_id=school_id, is_current=True).first()
+            year_id = current_year.id if current_year else None
             if not staff or not _teacher_owns_homeroom(staff, int(grade), section, year_id):
                 return Response({'error': 'You are not the homeroom teacher for this class'}, status=403)
 
@@ -301,8 +305,8 @@ class MarkViewSet(viewsets.ModelViewSet):
 
         staff = _get_staff_profile(request)
         if not _is_admin(request):
-            qs = Mark.objects.filter(school_id=school_id, subject_id=subject_id, grade=grade)
-            year_id = qs.first().academic_year_id if qs.exists() else None
+            current_year = AcademicYear.objects.filter(school_id=school_id, is_current=True).first()
+            year_id = current_year.id if current_year else None
             if not staff or not _teacher_owns_homeroom(staff, int(grade), section, year_id):
                 return Response({'error': 'You are not the homeroom teacher for this class'}, status=403)
 
