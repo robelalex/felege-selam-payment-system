@@ -35,5 +35,4 @@ urlpatterns = [
     path('staff/delete/<int:user_id>/', views.delete_staff, name='delete-staff'),
 
     # Super Admin Panel (working)
-    path('super-admin-panel/', views.super_admin_panel, name='super-admin-panel'),
 ]

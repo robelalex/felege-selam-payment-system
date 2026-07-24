@@ -376,7 +376,8 @@ def register(request):
             bank_name='',
             bank_account_number='',
             bank_account_holder='',
-            subscription_active=False
+            subscription_active=False,
+            subscription_status='pending'
         )
         print(f"✅ School created: {school.name} (Code: {school.code}) - ID: {school.id}")
         
@@ -810,71 +811,3 @@ def delete_staff(request, user_id):
     except Exception as e:
         print(f"Error in delete_staff: {e}")
         return Response({'error': str(e)}, status=500)
-
-
-@csrf_exempt
-def super_admin_panel(request):
-    try:
-        if request.method == 'POST':
-            user_id = request.POST.get('user_id')
-            action = request.POST.get('action')
-            if user_id and action:
-                try:
-                    user = User.objects.get(id=user_id)
-                    if action == 'approve':
-                        user.is_active = True
-                        user.is_staff = True
-                        user.save()
-                        if hasattr(user, 'profile'):
-                            user.profile.is_email_verified = True
-                            user.profile.role = 'school_admin'
-                            user.profile.save()
-                        return HttpResponse('<h2>✅ User approved!</h2><a href="/api/super-admin-panel/">Back</a>')
-                    elif action == 'delete':
-                        user.delete()
-                        return HttpResponse('<h2>🗑️ User deleted!</h2><a href="/api/super-admin-panel/">Back</a>')
-                except User.DoesNotExist:
-                    return HttpResponse('<h2>❌ User not found</h2><a href="/api/super-admin-panel/">Back</a>')
-        
-        pending_users = User.objects.filter(is_active=False, profile__role='school_admin')
-        html = '<html><body><h1>Super Admin Panel</h1><h2>Pending School Approvals</h2>'
-        if not pending_users.exists():
-            html += '<p>✅ No pending approvals. All schools are approved!</p>'
-        else:
-            html += '<table border="1" cellpadding="10"><tr><th>ID</th><th>Email</th><th>Username</th><th>School Name</th><th>Action</th></tr>'
-            for user in pending_users:
-                school_name = 'N/A'
-                if hasattr(user, 'profile') and user.profile.school_id:
-                    try:
-                        from schools.models import School
-                        school = School.objects.get(id=user.profile.school_id)
-                        school_name = school.name
-                    except:
-                        school_name = f'ID: {user.profile.school_id}'
-                html += f'''
-                <tr>
-                    <td>{user.id}</td>
-                    <td>{user.email}</td>
-                    <td>{user.username}</td>
-                    <td>{school_name}</td>
-                    <td>
-                        <form method="post" style="display:inline;">
-                            <input type="hidden" name="user_id" value="{user.id}">
-                            <input type="hidden" name="action" value="approve">
-                            <button type="submit">✅ Approve</button>
-                        </form>
-                        <form method="post" style="display:inline;">
-                            <input type="hidden" name="user_id" value="{user.id}">
-                            <input type="hidden" name="action" value="delete">
-                            <button type="submit" onclick="return confirm(\'Delete this user?\')">🗑️ Delete</button>
-                        </form>
-                    </td>
-                </tr>
-                '''
-            html += '</table>'
-        html += '</body></html>'
-        return HttpResponse(html)
-    except Exception as e:
-        import traceback
-        error_msg = str(e)
-        return HttpResponse(f'<h2>Error: {error_msg}</h2><pre>{traceback.format_exc()}</pre>')

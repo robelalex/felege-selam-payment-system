@@ -1,17 +1,35 @@
 # backend/payments/views/views.py
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from django.utils import timezone
 from payments.models import Payment, PaymentDeadline
 from students.models import Student
 from payments.serializers import PaymentSerializer, PaymentDeadlineSerializer
 from academics.models import AcademicYear
+from authentication.permissions import CanManagePayments
 
 
 class PaymentViewSet(viewsets.ModelViewSet):
+    """
+    ✅ SECURITY FIX: this had no permission_classes at all, which meant it
+    inherited the project-wide default of AllowAny. That left every action
+    below — including verify_payment, permanent_delete, bulk_reject, and
+    bulk_delete_pending — reachable by anyone on the internet with no
+    login and no X-School-ID needed for some actions. Only initiate_payment
+    stays open, since that's the "parent pays without an account" flow;
+    everything else now requires a logged-in staff member who can manage
+    payments for that school.
+    """
     queryset = Payment.objects.all()
     serializer_class = PaymentSerializer
+    permission_classes = [IsAuthenticated, CanManagePayments]
+
+    def get_permissions(self):
+        if self.action == 'initiate_payment':
+            return [AllowAny()]
+        return [IsAuthenticated(), CanManagePayments()]
 
     def get_queryset(self):
         """
@@ -301,8 +319,20 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
 
 class PaymentDeadlineViewSet(viewsets.ModelViewSet):
+    """
+    ✅ SECURITY FIX: same issue as PaymentViewSet — no permission_classes
+    meant this was AllowAny. Fee deadlines are school business data;
+    viewing/creating/editing them now requires an authenticated staff
+    member, with create/update/delete further limited to payment managers.
+    """
     queryset = PaymentDeadline.objects.all()
     serializer_class = PaymentDeadlineSerializer
+    permission_classes = [IsAuthenticated, CanManagePayments]
+
+    def get_permissions(self):
+        if self.action in ('list', 'retrieve', 'active_deadlines'):
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), CanManagePayments()]
 
     def get_queryset(self):
         """Filter deadlines by school from header, optionally by academic year"""

@@ -34,6 +34,20 @@ class School(models.Model):
     logo = models.ImageField(upload_to='school_logos/', blank=True, null=True, help_text="School logo (JPG, PNG)")
     
     # Subscription information
+    SUBSCRIPTION_STATUS_CHOICES = [
+        ('pending', 'Pending Approval'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+        ('suspended', 'Suspended'),
+    ]
+    # ✅ NEW: explicit status alongside the existing boolean. subscription_active
+    # keeps working exactly as before (nothing that reads it needs to change),
+    # this just gives Robel's approval screen a clearer state than a single
+    # True/False — e.g. distinguishing "never approved" from "approved, then
+    # suspended for non-payment".
+    subscription_status = models.CharField(
+        max_length=20, choices=SUBSCRIPTION_STATUS_CHOICES, default='approved'
+    )
     subscription_active = models.BooleanField(default=True)
     subscription_expiry = models.DateField(null=True, blank=True)
     

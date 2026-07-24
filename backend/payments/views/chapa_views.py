@@ -211,18 +211,33 @@ def chapa_webhook(request):
         school = payment.student.school
         
         # ── Verify signature using school's webhook secret ──────────────────
+        # ✅ SECURITY FIX: this used to only verify when BOTH a secret was
+        # configured AND a Chapa-Signature header was present. That meant an
+        # attacker could just omit the header (or target a school that
+        # hadn't set a webhook secret yet) and the check was skipped
+        # entirely — a payment could be marked "verified" by posting a fake
+        # {"tx_ref": ..., "status": "success"} with no signature at all.
+        # Verification must fail CLOSED: no secret configured, or no/invalid
+        # signature, both now reject the webhook instead of silently passing.
         chapa_secret = school.chapa_webhook_secret or school.chapa_api_key
         signature    = request.headers.get('Chapa-Signature', '')
 
-        if chapa_secret and signature:
-            expected = hmac.new(
-                chapa_secret.encode('utf-8'),
-                raw_body,
-                hashlib.sha256
-            ).hexdigest()
-            if not hmac.compare_digest(expected, signature):
-                logger.warning("❌ Webhook signature mismatch")
-                return JsonResponse({'error': 'Invalid signature'}, status=401)
+        if not chapa_secret:
+            logger.error(f"❌ Webhook rejected: school {school.id} has no Chapa webhook secret configured")
+            return JsonResponse({'error': 'Webhook not configured for this school'}, status=401)
+
+        if not signature:
+            logger.warning("❌ Webhook rejected: missing Chapa-Signature header")
+            return JsonResponse({'error': 'Missing signature'}, status=401)
+
+        expected = hmac.new(
+            chapa_secret.encode('utf-8'),
+            raw_body,
+            hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            logger.warning("❌ Webhook signature mismatch")
+            return JsonResponse({'error': 'Invalid signature'}, status=401)
 
         # ── Find payment (already found above) ─────────────────────────────
         if not payment:

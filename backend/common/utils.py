@@ -13,8 +13,18 @@ def get_user_school(user):
     return None
 
 def is_super_admin(user):
-    """Check if user is super admin"""
-    return user.is_superuser or user.is_staff
+    """
+    Check if user is super admin.
+
+    ✅ SECURITY FIX: previously this also returned True for is_staff. That
+    flag was being granted to ordinary school admins during approval (in
+    admin_dashboard/views.py and a now-removed backdoor endpoint), which
+    meant approved school admins were being treated as super admins
+    throughout the codebase — e.g. get_user_school() returns None for
+    "super admins", so their requests would silently skip school-scoping.
+    is_superuser is reserved for Robel's one platform-owner account only.
+    """
+    return user.is_superuser
 
 def get_school_id_from_request(request):
     """Get school ID from request header or user profile"""

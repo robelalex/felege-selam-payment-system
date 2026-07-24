@@ -1,10 +1,10 @@
 # backend/admin_dashboard/views.py
+from functools import wraps
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.models import User
 from django.http import HttpResponse
 from django.contrib.auth.hashers import make_password
 from django.utils import timezone
-from django.contrib.auth import login
 import json
 
 from schools.models import School, SchoolAdminProfile
@@ -13,50 +13,31 @@ from payments.models import Payment, PaymentDeadline, PaymentSlip
 from academics.models import AcademicYear, YearPromotionLog
 from authentication.models import UserProfile
 
+
+def superuser_required(view_func):
+    """
+    ✅ SECURITY FIX: every view below manages schools/users/subscriptions —
+    this entire app previously had NO auth check on most views (and the one
+    check that existed only tested is_authenticated, not is_superuser, which
+    would have let any logged-in school admin reach these pages). Only
+    Robel's real Django superuser account may pass this point now.
+    """
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not (request.user.is_authenticated and request.user.is_superuser):
+            return redirect('/admin-dashboard/login/')
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
 def custom_login(request):
     """Custom professional login page"""
     return render(request, 'admin_dashboard/login.html')
-# ===== DIRECT ACCESS - NO LOGIN REQUIRED =====
-def auto_login_and_redirect(request):
-    """Direct access to dashboard - creates user and profile if needed"""
-    from authentication.models import UserProfile
-    
-    # Get or create user
-    user, created = User.objects.get_or_create(
-        username='robelalex',
-        defaults={
-            'email': 'robelalex95@gmail.com',
-            'is_superuser': True,
-            'is_staff': True,
-            'is_active': True
-        }
-    )
-    
-    if created:
-        user.set_password('Ru1744/15robel')
-        user.save()
-    
-    # ✅ CRITICAL: Create or get UserProfile
-    profile, profile_created = UserProfile.objects.get_or_create(
-        user=user,
-        defaults={
-            'role': 'super_admin',
-            'is_email_verified': True
-        }
-    )
-    
-    if profile_created:
-        print(f"✅ Created UserProfile for {user.username}")
-    
-    # Force login
-    login(request, user)
-    return redirect('/admin-dashboard/dashboard/')
+
+
 # ===== DASHBOARD - SIMPLIFIED FOR SUPER ADMIN =====
+@superuser_required
 def dashboard(request):
-    # ✅ CHECK IF USER IS LOGGED IN FIRST
-    if not request.user.is_authenticated:
-        return redirect('/admin-dashboard/login/')
-    
     # Handle POST actions (approve/reject)
     if request.method == 'POST':
         action = request.POST.get('action')
@@ -66,7 +47,10 @@ def dashboard(request):
             try:
                 user = User.objects.get(id=user_id)
                 user.is_active = True
-                user.is_staff = True
+                # ✅ SECURITY FIX: this used to also set is_staff=True, which
+                # this codebase's is_super_admin() helper treats as equivalent
+                # to super admin. A school admin should never be granted
+                # is_staff — that flag is reserved for Robel's account only.
                 user.save()
                 if hasattr(user, 'profile'):
                     user.profile.is_email_verified = True
@@ -137,6 +121,7 @@ def dashboard(request):
     return render(request, 'admin_dashboard/dashboard.html', context)
 
 # ===== USER MANAGEMENT (KEPT FOR REFERENCE - YOU MAY NOT NEED) =====
+@superuser_required
 def users_list(request):
     # Only show users with role 'school_admin' (school administrators)
     # Exclude parents, staff, and super admins
@@ -146,6 +131,7 @@ def users_list(request):
     ).select_related('profile').order_by('-date_joined')
     return render(request, 'admin_dashboard/users.html', {'users': users})
 
+@superuser_required
 def user_edit(request, user_id):
     user = get_object_or_404(User, id=user_id)
     
@@ -173,6 +159,7 @@ def user_edit(request, user_id):
     
     return render(request, 'admin_dashboard/user_edit.html', {'user': user})
 
+@superuser_required
 def user_delete(request, user_id):
     user = get_object_or_404(User, id=user_id)
     if request.method == 'POST':
@@ -182,10 +169,12 @@ def user_delete(request, user_id):
     return render(request, 'admin_dashboard/user_delete.html', {'user': user})
 
 # ===== SCHOOL MANAGEMENT (FOR APPROVED SCHOOLS - LIMITED ACCESS) =====
+@superuser_required
 def schools_list(request):
     schools = School.objects.all().order_by('-created_at')
     return render(request, 'admin_dashboard/schools.html', {'schools': schools})
 
+@superuser_required
 def school_edit(request, school_id):
     school = get_object_or_404(School, id=school_id)
     
@@ -205,6 +194,7 @@ def school_edit(request, school_id):
     
     return render(request, 'admin_dashboard/school_edit.html', {'school': school})
 
+@superuser_required
 def school_delete(request, school_id):
     school = get_object_or_404(School, id=school_id)
     if request.method == 'POST':
@@ -213,6 +203,7 @@ def school_delete(request, school_id):
         return redirect('admin-schools')
     return render(request, 'admin_dashboard/school_delete.html', {'school': school})
 
+@superuser_required
 def school_create(request):
     if request.method == 'POST':
         school = School.objects.create(
