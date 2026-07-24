@@ -13,6 +13,31 @@ from schools.models import School
 from academics.models import AcademicYear, Subject
 
 
+class Term(models.Model):
+    """
+    A grading period within an academic year — Semester 1, Semester 2,
+    Trimester 1/2/3, whatever a school actually uses. Each school defines
+    its own terms per academic year — nothing hardcoded, since schools
+    split their year differently (some do 2 semesters, some do 3 terms).
+    Assessment types (Mid Term, Final, Quiz...) belong to a term, so
+    marks can be grouped and totaled per-term instead of dumped into one
+    flat list for the whole year.
+    """
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='terms')
+    academic_year = models.ForeignKey(AcademicYear, on_delete=models.CASCADE, related_name='terms')
+    name = models.CharField(max_length=50, help_text="e.g., Semester 1, Semester 2, Trimester 1")
+    order = models.IntegerField(default=0, help_text="Controls display order — 1st term, 2nd term...")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', 'name']
+        unique_together = ['school', 'academic_year', 'name']
+
+    def __str__(self):
+        return f"{self.name} ({self.academic_year.name}) - {self.school.name}"
+
+
 class AssessmentType(models.Model):
     """
     A gradable event a school defines for itself — 'Mid Term Exam',
@@ -22,6 +47,15 @@ class AssessmentType(models.Model):
     """
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='assessment_types')
     academic_year = models.ForeignKey(AcademicYear, on_delete=models.CASCADE, related_name='assessment_types')
+    # ✅ Nullable for backward compatibility — assessment types created
+    # before Term existed (e.g. "Assignment", "Quiz" from earlier testing)
+    # keep working ungrouped rather than breaking. New ones should always
+    # set this from the admin UI going forward.
+    term = models.ForeignKey(
+        Term, on_delete=models.CASCADE, related_name='assessment_types',
+        null=True, blank=True,
+        help_text="Which term this belongs to, e.g. Semester 1"
+    )
     name = models.CharField(max_length=100, help_text="e.g., Mid Term Exam, Final Exam, Quiz 1")
     max_score = models.DecimalField(
         max_digits=6, decimal_places=2, default=100,
@@ -150,3 +184,50 @@ class DailyAttendance(models.Model):
 
     def __str__(self):
         return f"{self.student} - {self.date} - {self.get_status_display()}"
+
+
+class SubjectAttendance(models.Model):
+    """
+    One student's attendance for one SUBJECT PERIOD on one day — 'was
+    this student in today's Math class' — entered by the subject teacher.
+
+    Deliberately a separate model from DailyAttendance (homeroom's daily
+    attendance = 'was this student in school today at all'). They answer
+    different questions and are owned by different people, so they don't
+    share a table — a student can be marked present for homeroom but
+    absent from a specific period, or vice versa.
+    """
+    STATUS_CHOICES = [
+        ('present', 'Present'),
+        ('absent', 'Absent'),
+        ('late', 'Late'),
+        ('excused', 'Excused'),
+    ]
+
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='subject_attendance_records')
+    academic_year = models.ForeignKey(AcademicYear, on_delete=models.CASCADE, related_name='subject_attendance_records')
+    student = models.ForeignKey('students.Student', on_delete=models.CASCADE, related_name='subject_attendance_records')
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='attendance_records')
+    grade = models.IntegerField()
+    section = models.CharField(max_length=10, blank=True)
+
+    date = models.DateField()
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='present')
+
+    recorded_by = models.ForeignKey(
+        'staff.StaffMember', on_delete=models.SET_NULL, null=True, related_name='subject_attendance_recorded',
+        limit_choices_to={'role': 'teacher'}
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', 'student__first_name']
+        unique_together = ['student', 'subject', 'date']
+        indexes = [
+            models.Index(fields=['school', 'academic_year', 'subject', 'grade', 'section', 'date']),
+        ]
+
+    def __str__(self):
+        return f"{self.student} - {self.subject.name} - {self.date} - {self.get_status_display()}"

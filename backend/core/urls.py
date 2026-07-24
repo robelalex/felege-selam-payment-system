@@ -19,7 +19,9 @@ from authentication.views import change_password
 from authentication import views as auth_views
 from rest_framework_simplejwt.views import TokenRefreshView
 from academics.views import AcademicYearViewSet, SubjectViewSet, HomeroomAssignmentViewSet
-from exams.views import AssessmentTypeViewSet, MarkViewSet, DailyAttendanceViewSet
+from exams.views import (
+    TermViewSet, AssessmentTypeViewSet, MarkViewSet, DailyAttendanceViewSet, SubjectAttendanceViewSet
+)
 
 # ✅ SchoolViewSet is REMOVED from this router — it lives in schools/urls.py now
 router = DefaultRouter()
@@ -29,8 +31,10 @@ router.register(r'academic-years', AcademicYearViewSet, basename='academic-year'
 router.register(r'subjects', SubjectViewSet, basename='subject')
 router.register(r'homeroom-assignments', HomeroomAssignmentViewSet, basename='homeroom-assignment')
 router.register(r'assessment-types', AssessmentTypeViewSet, basename='assessment-type')
+router.register(r'terms', TermViewSet, basename='term')
 router.register(r'marks', MarkViewSet, basename='mark')
 router.register(r'attendance', DailyAttendanceViewSet, basename='attendance')
+router.register(r'subject-attendance', SubjectAttendanceViewSet, basename='subject-attendance')
 
 urlpatterns = [
     path('health/', health_check, name='health_check'),
