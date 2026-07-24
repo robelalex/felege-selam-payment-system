@@ -24,3 +24,5 @@ frontend/.env.local
 Thumbs.dbfrontend/.env.local
 backend/.env
 .env
+
+backend/data.json
