@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Plus, Trash2, RefreshCw, BookOpen, Users, Home, ClipboardList,
+  Plus, Trash2, RefreshCw, BookOpen, Users, Home, ClipboardList, Calendar,
   AlertCircle, CheckCircle, X, Loader
 } from 'lucide-react';
 import api from '../services/api';
@@ -13,6 +13,7 @@ const TABS = [
   { id: 'subjects', label: 'Subjects', icon: BookOpen },
   { id: 'teachers', label: 'Subject Teachers', icon: Users },
   { id: 'homeroom', label: 'Homeroom Teachers', icon: Home },
+  { id: 'terms', label: 'Terms', icon: Calendar },
   { id: 'assessments', label: 'Assessments', icon: ClipboardList },
 ];
 
@@ -46,6 +47,11 @@ function AcademicsSetup() {
   const [newAssessmentName, setNewAssessmentName] = useState('');
   const [newAssessmentMaxScore, setNewAssessmentMaxScore] = useState(100);
   const [newAssessmentWeight, setNewAssessmentWeight] = useState('');
+  const [newAssessmentTerm, setNewAssessmentTerm] = useState('');
+
+  const [terms, setTerms] = useState([]);
+  const [newTermName, setNewTermName] = useState('');
+  const [newTermOrder, setNewTermOrder] = useState(1);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -63,13 +69,15 @@ function AcademicsSetup() {
       setCurrentYear(yearRes.data);
 
       if (yearRes.data?.id) {
-        const [assignRes, homeRes, assessRes] = await Promise.all([
+        const [assignRes, homeRes, termsRes, assessRes] = await Promise.all([
           api.get(`/class-assignments/?academic_year_id=${yearRes.data.id}`).catch(() => ({ data: [] })),
           api.get(`/homeroom-assignments/?academic_year_id=${yearRes.data.id}`),
+          api.get(`/terms/?academic_year_id=${yearRes.data.id}`).catch(() => ({ data: [] })),
           api.get(`/assessment-types/?academic_year_id=${yearRes.data.id}`).catch(() => ({ data: [] })),
         ]);
         setAssignments(assignRes.data);
         setHomerooms(homeRes.data);
+        setTerms(termsRes.data);
         setAssessmentTypes(assessRes.data);
       }
     } catch (err) {
@@ -191,6 +199,40 @@ function AcademicsSetup() {
     }
   };
 
+  // ===== Terms =====
+  const handleCreateTerm = async (e) => {
+    e.preventDefault();
+    if (!newTermName.trim() || !currentYear?.id) return;
+    setSaving(true);
+    setError('');
+    try {
+      await api.post('/terms/', {
+        academic_year: currentYear.id,
+        name: newTermName.trim(),
+        order: newTermOrder,
+      });
+      setSuccess(`"${newTermName}" added`);
+      setNewTermName('');
+      setNewTermOrder((prev) => prev + 1);
+      fetchAll();
+    } catch (err) {
+      setError(err.response?.data?.name?.[0] || err.response?.data?.error || 'Failed to add term');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteTerm = async (id, name) => {
+    if (!window.confirm(`Remove "${name}"? Assessments already created under it are kept, but it won't be selectable for new ones.`)) return;
+    try {
+      await api.delete(`/terms/${id}/`);
+      setSuccess(`"${name}" removed`);
+      fetchAll();
+    } catch (err) {
+      setError('Failed to remove term');
+    }
+  };
+
   // ===== Assessment Types =====
   const handleCreateAssessment = async (e) => {
     e.preventDefault();
@@ -200,6 +242,7 @@ function AcademicsSetup() {
     try {
       await api.post('/assessment-types/', {
         academic_year: currentYear.id,
+        term: newAssessmentTerm || null,
         name: newAssessmentName.trim(),
         max_score: newAssessmentMaxScore,
         weight_percent: newAssessmentWeight === '' ? null : newAssessmentWeight,
@@ -528,13 +571,20 @@ function AcademicsSetup() {
                   This is what teachers pick from when entering marks — e.g. "Mid Term Exam", "Final Exam", "Quiz 1".
                   Nothing shows up for teachers to grade until at least one exists here.
                 </p>
-                <form onSubmit={handleCreateAssessment} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                <form onSubmit={handleCreateAssessment} className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
                   <div className="sm:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
                     <input
                       type="text" value={newAssessmentName} onChange={(e) => setNewAssessmentName(e.target.value)}
                       className="input-field" placeholder="e.g., Mid Term Exam" required
                     />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Term</label>
+                    <select value={newAssessmentTerm} onChange={(e) => setNewAssessmentTerm(e.target.value)} className="input-field">
+                      <option value="">No term (ungrouped)</option>
+                      {terms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Out of</label>
@@ -552,7 +602,7 @@ function AcademicsSetup() {
                       className="input-field" placeholder="e.g., 40"
                     />
                   </div>
-                  <button type="submit" disabled={saving || !currentYear} className="btn-primary flex items-center justify-center gap-2 tap-target sm:col-span-4">
+                  <button type="submit" disabled={saving || !currentYear} className="btn-primary flex items-center justify-center gap-2 tap-target sm:col-span-5">
                     {saving ? <Loader className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                     Add Assessment
                   </button>
@@ -567,6 +617,7 @@ function AcademicsSetup() {
                   <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
                     <tr>
                       <th className="text-left px-4 py-3">Name</th>
+                      <th className="text-left px-4 py-3">Term</th>
                       <th className="text-left px-4 py-3">Out of</th>
                       <th className="text-left px-4 py-3">Weight</th>
                       <th className="text-right px-4 py-3">Action</th>
@@ -574,15 +625,84 @@ function AcademicsSetup() {
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {assessmentTypes.length === 0 && (
-                      <tr><td colSpan={4} className="text-center text-gray-400 py-8">No assessments yet — add your first one above.</td></tr>
+                      <tr><td colSpan={5} className="text-center text-gray-400 py-8">No assessments yet — add your first one above.</td></tr>
                     )}
                     {assessmentTypes.map((a) => (
                       <tr key={a.id}>
                         <td className="px-4 py-3 font-medium text-gray-800">{a.name}</td>
+                        <td className="px-4 py-3 text-gray-500">{a.term_name || 'Ungrouped'}</td>
                         <td className="px-4 py-3 text-gray-500">{a.max_score}</td>
                         <td className="px-4 py-3 text-gray-500">{a.weight_percent ? `${a.weight_percent}%` : '—'}</td>
                         <td className="px-4 py-3 text-right">
                           <button onClick={() => handleDeleteAssessment(a.id, a.name)} className="text-red-500 hover:text-red-700">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ===== TERMS TAB ===== */}
+          {activeTab === 'terms' && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                  <Plus className="h-5 w-5 text-primary-600" />
+                  Create a Term
+                </h2>
+                <p className="text-sm text-gray-500 mb-4">
+                  Grading periods for the current academic year — Semester 1, Semester 2, or however your school splits the year.
+                  Assessments (Mid Term, Final...) belong to one of these, so marks can be totaled per term instead of the whole year at once.
+                </p>
+                <form onSubmit={handleCreateTerm} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                    <input
+                      type="text" value={newTermName} onChange={(e) => setNewTermName(e.target.value)}
+                      className="input-field" placeholder="e.g., Semester 1" required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Order</label>
+                    <input
+                      type="number" min="1" value={newTermOrder}
+                      onChange={(e) => setNewTermOrder(e.target.value)}
+                      className="input-field" required
+                    />
+                  </div>
+                  <button type="submit" disabled={saving || !currentYear} className="btn-primary flex items-center justify-center gap-2 tap-target">
+                    {saving ? <Loader className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    Add Term
+                  </button>
+                </form>
+                {!currentYear && (
+                  <p className="text-sm text-amber-600 mt-3">Set an academic year first (Academic Years) before adding terms.</p>
+                )}
+              </div>
+
+              <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
+                    <tr>
+                      <th className="text-left px-4 py-3">Order</th>
+                      <th className="text-left px-4 py-3">Name</th>
+                      <th className="text-right px-4 py-3">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {terms.length === 0 && (
+                      <tr><td colSpan={3} className="text-center text-gray-400 py-8">No terms yet — add your first one above.</td></tr>
+                    )}
+                    {terms.map((t) => (
+                      <tr key={t.id}>
+                        <td className="px-4 py-3 text-gray-500">{t.order}</td>
+                        <td className="px-4 py-3 font-medium text-gray-800">{t.name}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button onClick={() => handleDeleteTerm(t.id, t.name)} className="text-red-500 hover:text-red-700">
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </td>
