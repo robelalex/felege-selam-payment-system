@@ -35,15 +35,11 @@ function TeacherSubjectAttendance() {
     setError('');
     try {
       const response = await getSubjectAttendanceRoster({ subjectId, grade, section, date });
-      if (response.data.success) {
-        const studs = response.data.students || [];
-        const next = {};
-        for (const s of studs) next[s.student_id] = s.status;
-        setStudents(studs);
-        setStatuses(next);
-      } else {
-        setError(response.data.error || 'Failed to load attendance');
-      }
+      const studs = response.data.students || [];
+      const next = {};
+      for (const s of studs) next[s.student_id] = s.status;
+      setStudents(studs);
+      setStatuses(next);
     } catch (err) {
       setError(extractError(err, 'Failed to load attendance'));
     } finally {
@@ -58,8 +54,7 @@ function TeacherSubjectAttendance() {
     setError('');
     try {
       const entries = students.map((s) => ({ student_id: s.student_id, status: statuses[s.student_id] || 'present' }));
-      const response = await saveSubjectAttendance({ subjectId, grade, section, date, entries });
-      if (!response.data.success) setError(response.data.error || 'Failed to save attendance');
+      await saveSubjectAttendance({ subjectId, grade, section, date, entries });
     } catch (err) {
       setError(extractError(err, 'Failed to save attendance'));
     } finally {

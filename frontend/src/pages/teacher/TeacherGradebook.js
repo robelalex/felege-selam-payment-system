@@ -45,22 +45,18 @@ function TeacherGradebook() {
     setError('');
     try {
       const response = await getGradebook({ subjectId, termId, grade, section });
-      if (response.data.success) {
-        const types = response.data.assessment_types || [];
-        const studs = response.data.students || [];
-        const nextScores = {};
-        for (const s of studs) {
-          for (const a of types) {
-            const col = s.columns?.[a.id] ?? s.columns?.[String(a.id)];
-            nextScores[`${s.student_id}:${a.id}`] = col?.score != null ? String(col.score) : '';
-          }
+      const types = response.data.assessment_types || [];
+      const studs = response.data.students || [];
+      const nextScores = {};
+      for (const s of studs) {
+        for (const a of types) {
+          const col = s.columns?.[a.id] ?? s.columns?.[String(a.id)];
+          nextScores[`${s.student_id}:${a.id}`] = col?.score != null ? String(col.score) : '';
         }
-        setAssessmentTypes(types);
-        setStudents(studs);
-        setScores(nextScores);
-      } else {
-        setError(response.data.error || 'Failed to load gradebook');
       }
+      setAssessmentTypes(types);
+      setStudents(studs);
+      setScores(nextScores);
     } catch (err) {
       setError(extractError(err, 'Failed to load gradebook'));
     } finally {
@@ -79,15 +75,11 @@ function TeacherGradebook() {
       setError('');
       try {
         const response = await getTerms(academicYearId);
-        if (response.data.success) {
-          const list = response.data.data || [];
-          setTerms(list);
-          if (list.length > 0) {
-            setSelectedTermId(list[0].id);
-            await loadGradebook(list[0].id);
-          }
-        } else {
-          setError(response.data.error || 'Failed to load terms');
+        const list = response.data || [];
+        setTerms(list);
+        if (list.length > 0) {
+          setSelectedTermId(list[0].id);
+          await loadGradebook(list[0].id);
         }
       } catch (err) {
         setError(extractError(err, 'Failed to load terms'));
@@ -133,8 +125,7 @@ function TeacherGradebook() {
           entries: [{ student_id: studentId, score: text === '' ? null : Number(text) }],
         });
       }
-      const response = await submitStudent({ subjectId, termId: selectedTermId, grade, section, studentId });
-      if (!response.data.success) setError(response.data.error || 'Failed to send');
+      await submitStudent({ subjectId, termId: selectedTermId, grade, section, studentId });
       await loadGradebook(selectedTermId);
     } catch (err) {
       setError(extractError(err, 'Could not send.'));

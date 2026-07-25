@@ -18,11 +18,7 @@ function TeacherDashboard() {
     setError('');
     try {
       const response = await getMyAssignments();
-      if (response.data.success) {
-        setData(response.data);
-      } else {
-        setError(response.data.error || 'Failed to load your classes');
-      }
+      setData(response.data);
     } catch (err) {
       setError(extractError(err, 'Failed to load your classes'));
     } finally {
@@ -38,11 +34,7 @@ function TeacherDashboard() {
   const pickSubjectForReview = async (grade, section) => {
     try {
       const response = await getClassAssignments(grade);
-      if (!response.data.success) {
-        alert(response.data.error || 'Failed to load subjects');
-        return;
-      }
-      const all = response.data.data || [];
+      const all = response.data || [];
       const relevant = all.filter((a) => !a.section || a.section === section);
       const seen = new Set();
       const subjects = [];
