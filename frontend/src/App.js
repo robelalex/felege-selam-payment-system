@@ -55,6 +55,12 @@ import AcademicsSetup from './pages/AcademicsSetup';
 import AdminStaff from './pages/AdminStaff';
 import AdminActivityLog from './pages/AdminActivityLog';
 import ReceiptPage from './pages/ReceiptPage';
+// Teacher Portal — hidden routes, not linked from any nav/menu
+import TeacherLogin from './pages/teacher/TeacherLogin';
+import TeacherDashboard from './pages/teacher/TeacherDashboard';
+import TeacherGradebook from './pages/teacher/TeacherGradebook';
+import TeacherAttendance from './pages/teacher/TeacherAttendance';
+import TeacherSubjectAttendance from './pages/teacher/TeacherSubjectAttendance';
 // Styles
 import './index.css';
 
@@ -72,6 +78,13 @@ const ProtectedRoute = ({ children }) => {
   const isAdmin = localStorage.getItem('isAdmin') === 'true';
   const token = localStorage.getItem('access_token');
   return (isAdmin || token) ? children : <Navigate to="/admin/login" />;
+};
+
+// Guards teacher-only routes using the teacher's own token (kept separate
+// from the admin's 'access_token' — see services/teacherApi.js).
+const TeacherProtectedRoute = ({ children }) => {
+  const token = localStorage.getItem('teacher_access_token');
+  return token ? children : <Navigate to="/teacher-login" />;
 };
 
 function App() {
@@ -416,6 +429,25 @@ function App() {
         </ProtectedRoute>
     }
 />
+
+              {/* ========== TEACHER PORTAL — hidden, not linked from any nav ========== */}
+              <Route path="/teacher-login" element={<TeacherLogin />} />
+              <Route
+                path="/teacher/dashboard"
+                element={<TeacherProtectedRoute><TeacherDashboard /></TeacherProtectedRoute>}
+              />
+              <Route
+                path="/teacher/gradebook/:subjectId"
+                element={<TeacherProtectedRoute><TeacherGradebook /></TeacherProtectedRoute>}
+              />
+              <Route
+                path="/teacher/attendance"
+                element={<TeacherProtectedRoute><TeacherAttendance /></TeacherProtectedRoute>}
+              />
+              <Route
+                path="/teacher/subject-attendance/:subjectId"
+                element={<TeacherProtectedRoute><TeacherSubjectAttendance /></TeacherProtectedRoute>}
+              />
 
             </Routes>
           </Router>
