@@ -1,6 +1,6 @@
 # students/dashboard.py
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db.models import Sum, Count, Q
 from django.utils import timezone
@@ -8,6 +8,14 @@ from datetime import datetime, timedelta, date
 from students.models import Student
 from payments.models import Payment, PaymentDeadline
 from academics.models import AcademicYear
+from authentication.permissions import CanViewReports
+from common.utils import get_verified_school_id
+
+# ✅ SECURITY FIX: all 4 endpoints below were AllowAny and resolved the
+# school from the client-supplied X-School-ID header — anyone on the
+# internet, no login, could pull another school's dashboard/financial
+# stats. Now requires login + report access, school resolved from the
+# caller's real account.
 
 
 def get_date_range_for_period(period, academic_year=None):
@@ -42,10 +50,10 @@ def get_date_range_for_period(period, academic_year=None):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanViewReports])
 def dashboard_stats(request):
     """Get dashboard statistics"""
-    school_id = request.headers.get('X-School-ID')
+    school_id = get_verified_school_id(request)
 
     year_id = request.GET.get('academic_year_id')
     period = request.GET.get('period', 'year')
@@ -120,10 +128,10 @@ def dashboard_stats(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanViewReports])
 def grade_overview(request):
     """Get overview by grade - ALWAYS shows total students per grade"""
-    school_id = request.headers.get('X-School-ID')
+    school_id = get_verified_school_id(request)
 
     year_id = request.GET.get('academic_year_id')
     period = request.GET.get('period', 'year')
@@ -206,10 +214,10 @@ def grade_overview(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanViewReports])
 def pending_payments(request):
     """Get students with pending payments for the selected period"""
-    school_id = request.headers.get('X-School-ID')
+    school_id = get_verified_school_id(request)
 
     year_id = request.GET.get('academic_year_id')
     period = request.GET.get('period', 'year')
@@ -282,20 +290,20 @@ def pending_payments(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanViewReports])
 def monthly_report_filtered(request):
     """Get monthly report filtered by academic year AND school"""
     from django.db.models import Sum
 
     year_id = request.query_params.get('academic_year_id')
     month = request.query_params.get('month')
-    school_id = request.headers.get('X-School-ID')
+    school_id = get_verified_school_id(request)
 
     if not year_id:
         return Response({'error': 'academic_year_id required'}, status=400)
 
     if not school_id:
-        return Response({'error': 'School ID required'}, status=400)
+        return Response({'error': 'No school associated with this account'}, status=400)
 
     try:
         school_id = int(school_id)

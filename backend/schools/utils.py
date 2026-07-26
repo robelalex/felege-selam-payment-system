@@ -6,6 +6,19 @@ def get_school_for_user(request):
     """
     Resolves the school for a request, supporting both profile models.
     Returns a School instance or raises ObjectDoesNotExist.
+
+    ✅ SECURITY FIX: this used to fall back to trusting a client-supplied
+    X-School-ID header for any user without a SchoolAdminProfile or
+    UserProfile.school_id. That header is set by the caller, not verified
+    against anything — any authenticated account without a proper school
+    link (e.g. a super-admin login, or a staff account mid-onboarding)
+    could send X-School-ID for a DIFFERENT school and be treated as that
+    school's admin. This function feeds SchoolChapaConfigView, SMS/email
+    credential views, and bank-detail views — trusting the header there
+    meant an attacker could overwrite another school's Chapa API key and
+    redirect that school's payments to their own account.
+    is_authenticated users with no real school link now correctly get
+    "no school association" instead of being able to pick one.
     """
     user = request.user
 
@@ -24,16 +37,9 @@ def get_school_for_user(request):
     except ObjectDoesNotExist:
         pass
 
-    # 3. Fall back to X-School-ID header (last resort)
-    school_id = request.headers.get('X-School-ID') or request.META.get('HTTP_X_SCHOOL_ID')
-    if school_id:
-        from schools.models import School
-        try:
-            return School.objects.get(pk=school_id)
-        except School.DoesNotExist:
-            pass
-
     raise ObjectDoesNotExist(
         f"No school association found for user {user.id}. "
-        f"Checked: school_profile, userprofile, X-School-ID header."
+        f"Checked: school_profile, userprofile. This endpoint is for a "
+        f"school's own admin account — a super-admin account isn't "
+        f"expected to have one school's settings to view."
     )

@@ -2,7 +2,7 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from ..services.reminder_service import ReminderService
 from academics.models import AcademicYear
 from students.models import Student
@@ -11,16 +11,28 @@ from ..models import Payment, PaymentDeadline
 from django.db import models
 from schools.models import SchoolAdminProfile
 from datetime import date
+from authentication.permissions import CanManagePayments
+from common.utils import get_verified_school_id
 
 class ReminderViewSet(viewsets.ViewSet):
-    """ViewSet for handling payment reminders with school filtering"""
-    
+    """
+    ViewSet for handling payment reminders with school filtering
+
+    ✅ SECURITY FIX: this class had no permission_classes at all, which
+    meant it inherited the project-wide default of AllowAny. `send` and
+    `send_email_reminders` both accept a caller-controlled `message` field
+    — anyone on the internet, no login, could have sent arbitrary text
+    through the school's real SMS/email sender to real parents' phones
+    and inboxes. Now requires a logged-in staff member who can manage
+    payments, and the school is resolved from their real account.
+    """
+    permission_classes = [IsAuthenticated, CanManagePayments]
+
     @action(detail=False, methods=['get'])
     def pending(self, request):
         """Get all students with pending payments for the selected academic year"""
         
-        # ✅ Get school from header
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
         year_id = request.query_params.get('academic_year_id')
         year_param = request.query_params.get('academic_year')
         year_alt = request.query_params.get('year')
@@ -28,12 +40,8 @@ class ReminderViewSet(viewsets.ViewSet):
         grade = request.query_params.get('grade')
         student_search = request.query_params.get('student_search')
         
-        print(f"📱 ReminderViewSet.pending - school_id: {school_id}")
-        print(f"📱 ReminderViewSet.pending - year_id: {year_id}")
-        print(f"📱 ReminderViewSet.pending - student_search: {student_search}")
-        
         if not school_id:
-            return Response({'error': 'School ID required'}, status=400)
+            return Response({'error': 'No school associated with this account'}, status=400)
         
         # Determine academic year
         academic_year = None
@@ -74,21 +82,20 @@ class ReminderViewSet(viewsets.ViewSet):
     def send(self, request):
         """Send SMS reminders to selected students"""
         
-        # ✅ Get school from header
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
         student_ids = request.data.get('student_ids', [])
         month = request.data.get('month')
         custom_message = request.data.get('message', '')
         academic_year = request.data.get('academic_year')
         
         if not school_id:
-            return Response({'error': 'School ID required'}, status=400)
+            return Response({'error': 'No school associated with this account'}, status=400)
         
         if not student_ids:
             return Response({'error': 'No students selected'}, status=status.HTTP_400_BAD_REQUEST)
         
         # ✅ Verify all students belong to this school
-        students = Student.objects.filter(student_id__in=student_ids, school_id=int(school_id))
+        students = Student.objects.filter(student_id__in=student_ids, school_id=school_id)
         if students.count() != len(student_ids):
             return Response({'error': 'Some students do not belong to your school'}, status=403)
         
@@ -112,21 +119,21 @@ class ReminderViewSet(viewsets.ViewSet):
     def send_email_reminders(self, request):
         """Send EMAIL reminders using SCHOOL'S OWN BREVO ACCOUNT"""
         
-        school_id = request.headers.get('X-School-ID')
+        school_id = get_verified_school_id(request)
         student_ids = request.data.get('student_ids', [])
         month = request.data.get('month')
         custom_message = request.data.get('message', '')
         academic_year_param = request.data.get('academic_year')
         
         if not school_id:
-            return Response({'error': 'School ID required'}, status=400)
+            return Response({'error': 'No school associated with this account'}, status=400)
         
         if not student_ids:
             return Response({'error': 'No students selected'}, status=status.HTTP_400_BAD_REQUEST)
         
         try:
             from schools.models import School
-            school = School.objects.get(id=int(school_id))
+            school = School.objects.get(id=school_id)
         except School.DoesNotExist:
             return Response({'error': 'School not found'}, status=404)
         
@@ -137,14 +144,14 @@ class ReminderViewSet(viewsets.ViewSet):
                 # Try to fetch by name first (e.g., "2018 E.C.")
                 academic_year_obj = AcademicYear.objects.get(
                     name=str(academic_year_param), 
-                    school_id=int(school_id)
+                    school_id=school_id
                 )
             except AcademicYear.DoesNotExist:
                 try:
                     # Fallback: try to parse as integer ID
                     academic_year_obj = AcademicYear.objects.get(
                         id=int(academic_year_param), 
-                        school_id=int(school_id)
+                        school_id=school_id
                     )
                 except (ValueError, AcademicYear.DoesNotExist):
                     pass
@@ -152,7 +159,7 @@ class ReminderViewSet(viewsets.ViewSet):
         # If no param provided or lookup failed, use current year
         if not academic_year_obj:
             academic_year_obj = AcademicYear.objects.filter(
-                school_id=int(school_id), 
+                school_id=school_id, 
                 is_current=True
             ).first()
             
@@ -165,7 +172,7 @@ class ReminderViewSet(viewsets.ViewSet):
             })
 
         # Verify all students belong to this school
-        students = Student.objects.filter(student_id__in=student_ids, school_id=int(school_id))
+        students = Student.objects.filter(student_id__in=student_ids, school_id=school_id)
         
         results = []
         
@@ -191,7 +198,7 @@ class ReminderViewSet(viewsets.ViewSet):
             deadlines = PaymentDeadline.objects.filter(
                 academic_year=academic_year_obj,  # <-- Changed from year_name
                 is_active=True,
-                school_id=int(school_id)
+                school_id=school_id
             )
             
             if month and month != 'all' and month != 'None':
@@ -327,15 +334,25 @@ class ReminderViewSet(viewsets.ViewSet):
 
 # ✅ Helper functions
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanManagePayments])
 def send_reminders(request):
-    """Legacy function for sending reminders"""
-    
-    # ✅ Get school from header
-    school_id = request.headers.get('X-School-ID')
-    
+    """
+    Legacy function for sending reminders
+
+    ✅ SECURITY FIX: this was AllowAny — anyone on the internet, no login
+    at all, could POST a custom `message` and school_id and have the
+    system send THEIR text through the school's real, trusted SMS/email
+    sender to real parents (not a lookalike message — the actual sender).
+    Combined with real tokenized payment links going out to real phone
+    numbers on the attacker's command, this was the most direct path to
+    real financial/social-engineering harm in the whole system. Now
+    requires a logged-in staff member who can manage payments, and the
+    school is resolved from their real account, not a header.
+    """
+    school_id = get_verified_school_id(request)
+
     if not school_id:
-        return Response({'error': 'School ID required'}, status=400)
+        return Response({'error': 'No school associated with this account'}, status=400)
     
     service = ReminderService()
     student_ids = request.data.get('student_ids', [])
@@ -360,34 +377,39 @@ def send_reminders(request):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanManagePayments])
 def send_payment_confirmation(request, payment_id):
-    """Send payment confirmation SMS"""
+    """
+    Send payment confirmation SMS
+
+    ✅ SECURITY FIX: was AllowAny — anyone could trigger a confirmation
+    send for any payment_id with no login, spamming a real parent's phone
+    and enumerating valid payment IDs by response code. Now requires a
+    logged-in staff member who can manage payments.
+    """
     from .sms_views import send_payment_confirmation as sms_confirmation
     return sms_confirmation(request, payment_id)
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def pending_reminders_filtered(request):
-    """Get pending reminders filtered by academic year - with school filtering and GRADE-SPECIFIC deadlines"""
-    
-    # ✅ Get school from header
-    school_id = request.headers.get('X-School-ID')
+    """
+    Get pending reminders filtered by academic year - with school filtering and GRADE-SPECIFIC deadlines
+
+    ✅ SECURITY FIX: was AllowAny and trusted the raw X-School-ID header —
+    anyone, no login, could pull student names, parent phone numbers, and
+    payment status for any school. Now requires login and resolves the
+    school from the caller's real account.
+    """
+    school_id = get_verified_school_id(request)
     year_id = request.query_params.get('academic_year_id')
     month = request.query_params.get('month')
     grade = request.query_params.get('grade')
     student_search = request.query_params.get('student_search')
-    
-    print(f"📱 ===== STANDALONE REMINDER FUNCTION CALLED =====")
-    print(f"📱 school_id: {school_id}")
-    print(f"📱 year_id: {year_id}")
-    print(f"📱 month: {month}")
-    print(f"📱 grade: {grade}")
-    print(f"📱 student_search: {student_search}")
-    
+
     if not school_id:
-        return Response({'error': 'School ID required'}, status=400)
+        return Response({'error': 'No school associated with this account'}, status=400)
     
     if not year_id:
         return Response({'error': 'academic_year_id required'}, status=400)

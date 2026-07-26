@@ -1,6 +1,6 @@
 # backend/reports/views.py
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from students.models import Student
 from payments.models import Payment, PaymentDeadline
@@ -8,23 +8,27 @@ from academics.models import AcademicYear
 from django.db.models import Sum, Count, Q
 from datetime import date
 from collections import defaultdict
+from authentication.permissions import CanViewReports
+from common.utils import get_verified_school_id
+
+# ✅ SECURITY FIX: all three endpoints below were AllowAny and resolved the
+# school from the client-supplied X-School-ID header — anyone on the
+# internet, no login, could pull another school's dashboard stats,
+# grade-level collection rates, and pending-payment lists (including
+# parent phone numbers). Now requires login + report access, and the
+# school is resolved from the caller's real account.
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanViewReports])
 def dashboard_stats(request):
     """Get dashboard statistics for the current school"""
 
-    school_id = request.headers.get('X-School-ID')
+    school_id = get_verified_school_id(request)
     year_id = request.query_params.get('academic_year_id')
 
     if not school_id:
-        return Response({'error': 'School ID required'}, status=400)
-
-    try:
-        school_id = int(school_id)
-    except ValueError:
-        return Response({'error': 'Invalid school ID'}, status=400)
+        return Response({'error': 'No school associated with this account'}, status=400)
 
     academic_year = None
     if year_id:
@@ -100,19 +104,14 @@ def dashboard_stats(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanViewReports])
 def grade_overview(request):
     """Get grade overview statistics for the current school"""
 
-    school_id = request.headers.get('X-School-ID')
+    school_id = get_verified_school_id(request)
     year_id = request.query_params.get('academic_year_id')
 
     if not school_id:
-        return Response([], status=200)
-
-    try:
-        school_id = int(school_id)
-    except ValueError:
         return Response([], status=200)
 
     academic_year = None
@@ -165,20 +164,15 @@ def grade_overview(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanViewReports])
 def pending_payments_report(request):
     """Get pending payments report for the current school"""
 
-    school_id = request.headers.get('X-School-ID')
+    school_id = get_verified_school_id(request)
     period = request.query_params.get('period', 'year')
     year_id = request.query_params.get('academic_year_id')
 
     if not school_id:
-        return Response([], status=200)
-
-    try:
-        school_id = int(school_id)
-    except ValueError:
         return Response([], status=200)
 
     academic_year = None

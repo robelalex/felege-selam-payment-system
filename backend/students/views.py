@@ -16,7 +16,7 @@ from schools.models import School
 from academics.models import AcademicYear
 
 # ✅ NEW: Import helper functions
-from common.utils import get_school_id_from_request, is_super_admin, get_user_school
+from common.utils import get_verified_school_id, is_super_admin, get_user_school
 from authentication.permissions import CanManageStudents
 
 
@@ -34,7 +34,14 @@ class StudentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_permissions(self):
-        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+        # ✅ SECURITY FIX: bulk_import, update_monthly_fee, and
+        # selective_promote all modify/create student records in bulk or
+        # change financial data, but weren't in the original list — any
+        # authenticated staff member, regardless of role, could use them.
+        if self.action in (
+            'create', 'update', 'partial_update', 'destroy',
+            'bulk_import', 'update_monthly_fee', 'selective_promote',
+        ):
             return [IsAuthenticated(), CanManageStudents()]
         return [IsAuthenticated()]
 
@@ -42,20 +49,20 @@ class StudentViewSet(viewsets.ModelViewSet):
         """Filter students by school (super admin sees all, school admin sees only their school)"""
         queryset = Student.objects.all()
 
-        # ✅ Get school ID from request (header or user profile)
-        school_id = get_school_id_from_request(self.request)
+        # ✅ SECURITY FIX: get_school_id_from_request trusted the header
+        # FIRST for every user, not just super admins — a school admin from
+        # School A could set X-School-ID to School B and see/edit School
+        # B's students. get_verified_school_id ignores the header entirely
+        # for non-super-admins, resolving their school from their own
+        # account instead.
+        school_id = get_verified_school_id(self.request)
         user = self.request.user
-
-        print(f"📚 StudentViewSet - User: {user.username}, is_super_admin: {is_super_admin(user)}")
-        print(f"📚 StudentViewSet - school_id from request: {school_id}")
 
         # ✅ Super admins see all, school admins see only their school
         if not is_super_admin(user) and school_id:
             queryset = queryset.filter(school_id=school_id)
-            print(f"📚 Filtered students by school ID (school admin): {school_id}")
         elif school_id:
             queryset = queryset.filter(school_id=school_id)
-            print(f"📚 Filtered students by school ID (with filter): {school_id}")
 
         # Filter by academic year
         year_id = self.request.query_params.get('academic_year_id')
@@ -312,8 +319,9 @@ class StudentViewSet(viewsets.ModelViewSet):
     def download_template(self, request):
         """Download Excel template for bulk import"""
         try:
-            # ✅ Get school from user profile or header
-            school_id = get_school_id_from_request(request)
+            # ✅ SECURITY FIX: was get_school_id_from_request (header-first
+            # for everyone) — now resolves from the real account.
+            school_id = get_verified_school_id(request)
 
             if school_id:
                 school = School.objects.get(id=school_id)
@@ -344,8 +352,11 @@ class StudentViewSet(viewsets.ModelViewSet):
 
             file = request.FILES['file']
 
-            # ✅ Get school from user profile or header
-            school_id = get_school_id_from_request(request)
+            # ✅ SECURITY FIX: was get_school_id_from_request (header-first
+            # for everyone) — now resolves from the real account, so a
+            # staff member can no longer bulk-import students into a
+            # DIFFERENT school by changing a header.
+            school_id = get_verified_school_id(request)
 
             if school_id:
                 school = School.objects.get(id=school_id)
@@ -561,9 +572,11 @@ class StudentViewSet(viewsets.ModelViewSet):
         """
         from academics.models import AcademicYear
 
-        school_id = get_school_id_from_request(request)
+        # ✅ SECURITY FIX: was get_school_id_from_request (header-first for
+        # everyone) — now resolves from the real account.
+        school_id = get_verified_school_id(request)
         if not school_id:
-            return Response({'error': 'School ID required'}, status=400)
+            return Response({'error': 'No school associated with this account'}, status=400)
 
         promote_ids = request.data.get('promote_ids', [])  # List of student PKs to promote
         current_year_id = request.data.get('current_year_id')  # Current academic year ID
@@ -658,7 +671,9 @@ class SectionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = Section.objects.filter(is_active=True)
-        school_id = get_school_id_from_request(self.request)
+        # ✅ SECURITY FIX: was get_school_id_from_request (header-first for
+        # everyone) — now resolves from the real account.
+        school_id = get_verified_school_id(self.request)
         if school_id:
             queryset = queryset.filter(school_id=school_id)
 

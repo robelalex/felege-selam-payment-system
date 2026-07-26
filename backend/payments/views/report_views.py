@@ -1,51 +1,59 @@
 # backend/payments/views/report_views.py - UPDATED with School Filtering
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from ..services.report_service import ReportService
 from academics.models import AcademicYear
 from students.models import Student
+from authentication.permissions import CanViewReports
+from common.utils import get_verified_school_id
+
+# ✅ SECURITY FIX: every function in this file was AllowAny and resolved
+# the school purely from the client-supplied X-School-ID header — anyone
+# on the internet, no login at all, could pull full financial reports
+# (collection totals, student-level payment records with parent phone
+# numbers) for ANY school just by guessing a small integer ID.
+# student_report was worse: if the header was simply omitted, its check
+# was skipped entirely and ANY student's report was returned to anyone.
+# All 5 endpoints now require a logged-in staff member with report access,
+# and the school is always resolved from their real account.
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanViewReports])
 def monthly_report(request):
     """Get monthly collection report for the current school"""
     
-    # ✅ Get school from header
-    school_id = request.headers.get('X-School-ID')
+    school_id = get_verified_school_id(request)
     year = request.query_params.get('year')
     month = request.query_params.get('month')
     
-    print(f"📊 monthly_report - X-School-ID: {school_id}")
-    print(f"📊 monthly_report - year: {year}, month: {month}")
-    
     if not school_id:
-        return Response({'error': 'School ID required'}, status=400)
+        return Response({'error': 'No school associated with this account'}, status=400)
     
     service = ReportService()
-    report = service.get_monthly_report(year, month, school_id=int(school_id))
+    report = service.get_monthly_report(year, month, school_id=school_id)
     
     return Response(report)
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanViewReports])
 def student_report(request, student_id):
     """Get report for a specific student - verify school access"""
     
-    # ✅ Verify student belongs to the school from header
-    school_id = request.headers.get('X-School-ID')
-    
-    if school_id:
-        try:
-            from students.models import Student
-            student = Student.objects.get(student_id=student_id)
-            if str(student.school_id) != school_id:
-                return Response({'error': 'Access denied - Student does not belong to your school'}, status=403)
-        except Student.DoesNotExist:
-            return Response({'error': 'Student not found'}, status=404)
+    school_id = get_verified_school_id(request)
+    if not school_id:
+        return Response({'error': 'No school associated with this account'}, status=400)
+
+    try:
+        from students.models import Student
+        student = Student.objects.get(student_id=student_id)
+        if student.school_id != school_id:
+            return Response({'error': 'Access denied - Student does not belong to your school'}, status=403)
+    except Student.DoesNotExist:
+        return Response({'error': 'Student not found'}, status=404)
     
     service = ReportService()
     report = service.get_student_report(student_id)
@@ -54,43 +62,37 @@ def student_report(request, student_id):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanViewReports])
 def annual_summary(request):
     """Get annual summary report for the current school"""
     
-    # ✅ Get school from header
-    school_id = request.headers.get('X-School-ID')
+    school_id = get_verified_school_id(request)
     year = request.query_params.get('year')
     
-    print(f"📊 annual_summary - X-School-ID: {school_id}")
-    print(f"📊 annual_summary - year: {year}")
-    
     if not school_id:
-        return Response({'error': 'School ID required'}, status=400)
+        return Response({'error': 'No school associated with this account'}, status=400)
     
     service = ReportService()
-    report = service.get_annual_summary(year, school_id=int(school_id))
+    report = service.get_annual_summary(year, school_id=school_id)
     
     return Response(report)
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanViewReports])
 def collection_summary(request):
     """Get collection summary for dashboard"""
     
-    # ✅ Get school from header
-    school_id = request.headers.get('X-School-ID')
+    school_id_int = get_verified_school_id(request)
     
-    if not school_id:
-        return Response({'error': 'School ID required'}, status=400)
+    if not school_id_int:
+        return Response({'error': 'No school associated with this account'}, status=400)
     
     try:
         from ..models import Payment
+        from django.db import models
         from students.models import Student
         from datetime import datetime
-        
-        school_id_int = int(school_id)
         
         # Get current academic year
         current_year = AcademicYear.objects.filter(is_current=True).first()
@@ -121,27 +123,25 @@ def collection_summary(request):
         return Response({'error': str(e)}, status=500)
     
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, CanViewReports])
 def monthly_detailed_report(request):
     """Get detailed monthly report with student-level data for a specific month"""
     
-    school_id = request.headers.get('X-School-ID')
+    school_id_int = get_verified_school_id(request)
     year = request.query_params.get('year')
     month = request.query_params.get('month')
     grade = request.query_params.get('grade')  # Optional grade filter
     student_search = request.query_params.get('student_search')  # Optional student search
     
-    print(f"📊 monthly_detailed_report - X-School-ID: {school_id}")
-    print(f"📊 monthly_detailed_report - year: {year}, month: {month}, grade: {grade}")
-    
-    if not school_id:
-        return Response({'error': 'School ID required'}, status=400)
+    if not school_id_int:
+        return Response({'error': 'No school associated with this account'}, status=400)
     
     if not year or not month:
         return Response({'error': 'year and month are required'}, status=400)
     
     try:
-        school_id_int = int(school_id)
+        from ..models import Payment
+        from django.db import models
         month_int = int(month)
         
         # Get all active students for this school
