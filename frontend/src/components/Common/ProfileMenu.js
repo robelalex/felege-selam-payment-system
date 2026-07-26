@@ -60,13 +60,18 @@ function ProfileMenu() {
       formData.append('last_name', form.last_name);
       formData.append('phone', form.phone);
       if (photoFile) {
-        console.log('🖼️ photoFile debug:', {
-          value: photoFile,
-          isFile: photoFile instanceof File,
-          isBlob: photoFile instanceof Blob,
-          type: typeof photoFile,
-        });
+        console.log(
+          `🖼️ photoFile debug: isFile=${photoFile instanceof File} ` +
+          `isBlob=${photoFile instanceof Blob} type=${typeof photoFile} ` +
+          `name=${photoFile?.name} size=${photoFile?.size} mime=${photoFile?.type}`
+        );
         formData.append('photo', photoFile);
+      }
+      for (const [key, val] of formData.entries()) {
+        console.log(
+          `📦 FormData entry: key=${key} isFile=${val instanceof File} ` +
+          `value=${val instanceof File ? `[File name=${val.name} size=${val.size}]` : val}`
+        );
       }
       // No manual Content-Type header — let axios set the multipart
       // boundary itself (see SchoolSettings.js logo-upload fix for why).

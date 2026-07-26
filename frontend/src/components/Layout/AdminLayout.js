@@ -134,10 +134,14 @@ useEffect(() => {
       if (parsedUser.role) {
         setUserRole(parsedUser.role);
       }
-      if (parsedUser.school) {
-        localStorage.setItem('selectedSchool', JSON.stringify(parsedUser.school));
-        setSchoolInfo(parsedUser.school);
-      }
+      // ✅ FIX: this used to also overwrite 'selectedSchool' (and
+      // schoolInfo state) with parsedUser.school — a snapshot frozen at
+      // LOGIN time. On every refresh this ran before fetchSchoolInfo()
+      // and stomped the correctly-updated cache from a logo save with
+      // that old data, which is exactly why a new logo looked saved but
+      // reverted on refresh. fetchSchoolInfo() below is the single
+      // source of truth for schoolInfo/selectedSchool now — this
+      // function only sets the admin's own user info.
     }
   };
 
@@ -189,18 +193,10 @@ useEffect(() => {
       formData.append('last_name', profileForm.last_name);
       formData.append('phone', profileForm.phone);
       if (profilePhotoFile) {
-        // 🔍 DEBUG: confirms whether this is really a File/Blob (good) or
-        // something else that got coerced to text (the bug we're chasing).
-        console.log('🖼️ profilePhotoFile debug:', {
-          value: profilePhotoFile,
-          isFile: profilePhotoFile instanceof File,
-          isBlob: profilePhotoFile instanceof Blob,
-          type: typeof profilePhotoFile,
-        });
         formData.append('photo', profilePhotoFile);
       }
-      // No manual Content-Type header — same reasoning as the school
-      // logo fix: let axios generate the multipart boundary itself.
+      // No manual Content-Type header — axios now generates the correct
+      // multipart boundary itself (see services/api.js fix).
       const res = await api.patch('/me/update/', formData);
 
       setAdminUser((prev) => {

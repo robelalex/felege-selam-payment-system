@@ -22,11 +22,24 @@ const getCSRFToken = () => {
   return cookieValue;
 };
 
+// ✅ FIX: previously this instance was created with a hardcoded
+// 'Content-Type': 'application/json' header applied to every single
+// request. For plain JSON calls that's harmless (axios sets it anyway).
+// But for FILE uploads (school logo, profile photo, staff photos, slip
+// images...) it actively broke things: because the header was already
+// explicitly set, axios did NOT replace it with the correct
+// 'multipart/form-data; boundary=...' when the request body was a
+// FormData object. Django then received a file's bytes tagged as
+// "application/json" and rejected it — this is exactly the
+// 'The submitted data was not a file...' 400 error, and it's also why
+// the profile-photo save earlier looked like it "worked" (200 OK) but
+// silently didn't change anything: for that endpoint we don't require
+// the file, so Django just ignored the field instead of rejecting it.
+// Removing this line fixes BOTH: plain JSON requests still work exactly
+// as before (axios sets application/json automatically for those), and
+// FormData/file-upload requests now get the correct multipart boundary.
 const api = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
   withCredentials: true,
 });
 
