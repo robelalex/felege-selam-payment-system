@@ -25,6 +25,7 @@ urlpatterns = [
     
     # User info
     path('me/', views.get_current_user, name='current-user'),
+    path('me/update/', views.update_profile, name='update-current-user'),
     
     # CSRF token
     path('csrf/', views.get_csrf_token, name='csrf-token'),

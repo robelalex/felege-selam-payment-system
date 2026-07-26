@@ -80,9 +80,15 @@ const SchoolSettings = () => {
         try {
             const formData = new FormData();
             formData.append('logo', logoFile);
-            const res = await api.patch(`/schools/${schoolId}/`, formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
+            // ✅ FIX: do NOT set Content-Type manually here. FormData needs
+            // a browser-generated boundary to be parseable server-side —
+            // hardcoding the header without one produced a body Django
+            // couldn't read, so request.FILES ended up empty and the logo
+            // silently never saved (PATCH still returned 200, so it looked
+            // like it worked until refresh brought back the old/default
+            // logo). Leaving headers unset lets axios add the correct
+            // multipart boundary automatically.
+            const res = await api.patch(`/schools/${schoolId}/`, formData);
             alert('✅ School logo updated successfully!');
             await fetchSchoolProfile();
 

@@ -380,40 +380,36 @@ def register(request):
             subscription_status='pending'
         )
         print(f"✅ School created: {school.name} (Code: {school.code}) - ID: {school.id}")
-        
+
+        # ✅ Was: any failure here (e.g. missing/invalid Cloudinary
+        # credentials on the server) was only printed to the server log —
+        # registration still reported full success, so the admin had no
+        # idea their logo never actually got saved until they logged in
+        # and saw the default icon. Now we track it and tell the frontend.
+        logo_saved = False
+        logo_error_message = None
         if logo:
             try:
                 school.logo.save(logo.name, logo)
                 school.save()
+                logo_saved = True
                 print(f"✅ Logo saved successfully: {school.logo.url}")
             except Exception as logo_error:
+                logo_error_message = str(logo_error)
                 print(f"⚠️ Logo save error: {logo_error}")
-        
-        from academics.models import AcademicYear
-        from datetime import date
-        import datetime as dt
-        
-        current_gregorian_year = dt.datetime.now().year
-        ethiopian_year = current_gregorian_year - 8
-        
-        years_to_create = [ethiopian_year - 1, ethiopian_year, ethiopian_year + 1, ethiopian_year + 2]
-        for year_ec in years_to_create:
-            year_name = f"{year_ec} E.C."
-            try:
-                AcademicYear.objects.create(
-                    school=school,
-                    year_ec=year_ec,
-                    name=year_name,
-                    start_date=date(year_ec + 8, 9, 10),
-                    end_date=date(year_ec + 9, 7, 9),
-                    is_current=(year_ec == ethiopian_year),
-                    is_active=True,
-                    is_archived=False
-                )
-                print(f"✅ Created academic year: {year_name}")
-            except Exception as e:
-                print(f"⚠️ Could not create {year_name}: {e}")
-        
+                import traceback
+                traceback.print_exc()
+
+        # ✅ REMOVED: this used to auto-create 4 academic years
+        # (previous + current + next 2) for every newly registered school,
+        # guessing the Ethiopian year from the server's Gregorian date.
+        # That duplicated/conflicted with the school admin's own "Create
+        # New Academic Year" flow (frontend/src/components/Admin/
+        # AcademicYearSelector.js), which already has a clean empty state
+        # ("No academic years created yet...") for exactly this situation.
+        # Academic years are now only created when the school admin
+        # explicitly creates them from Manage Years.
+
         user = User.objects.create_user(
             username=username,
             email=email,
@@ -443,9 +439,15 @@ def register(request):
         
         save_password_history(user, password)
         
+        response_message = 'Registration submitted. Waiting for Super Admin approval.'
+        if logo and not logo_saved:
+            response_message += ' Note: your logo could not be uploaded — please add it later from School Settings.'
+
         return Response({
             'success': True,
-            'message': 'Registration submitted. Waiting for Super Admin approval.',
+            'message': response_message,
+            'logo_saved': logo_saved,
+            'logo_error': logo_error_message,
             'user': {
                 'id': user.id,
                 'username': user.username,
@@ -683,6 +685,14 @@ def get_current_user(request):
         is_super_admin = (role == 'super_admin')
         is_school_admin = (role == 'school_admin')
         
+        profile = getattr(user, 'profile', None)
+        photo_url = None
+        if profile and profile.photo:
+            try:
+                photo_url = profile.photo.url
+            except Exception:
+                photo_url = None
+
         return Response({
             'success': True,
             'user': {
@@ -691,6 +701,8 @@ def get_current_user(request):
                 'username': user.username,
                 'first_name': user.first_name,
                 'last_name': user.last_name,
+                'phone': getattr(profile, 'phone', '') or '',
+                'photo': photo_url,
                 'role': role,
                 'is_super_admin': is_super_admin,
                 'is_school_admin': is_school_admin,
@@ -703,6 +715,65 @@ def get_current_user(request):
         import traceback
         traceback.print_exc()
         return Response({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def update_profile(request):
+    """
+    Lets the currently logged-in user (school_admin, staff, super_admin...)
+    update their own display name, phone and profile photo. Deliberately
+    separate from StaffManagement — only ever touches request.user's own
+    User + UserProfile rows, never anyone else's, and never their role.
+    """
+    user = request.user
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+
+    first_name = request.data.get('first_name')
+    last_name = request.data.get('last_name')
+    phone = request.data.get('phone')
+    photo = request.FILES.get('photo')
+
+    if first_name is not None:
+        user.first_name = first_name
+    if last_name is not None:
+        user.last_name = last_name
+    user.save(update_fields=['first_name', 'last_name'])
+
+    if phone is not None:
+        profile.phone = phone
+
+    if photo:
+        try:
+            profile.photo.save(photo.name, photo)
+        except Exception as photo_error:
+            print(f"⚠️ Profile photo save error: {photo_error}")
+            import traceback
+            traceback.print_exc()
+            return Response(
+                {'success': False, 'error': f'Could not save photo: {photo_error}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    profile.save()
+
+    photo_url = None
+    if profile.photo:
+        try:
+            photo_url = profile.photo.url
+        except Exception:
+            photo_url = None
+
+    return Response({
+        'success': True,
+        'user': {
+            'id': user.id,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'phone': profile.phone or '',
+            'photo': photo_url,
+        }
+    })
 
 
 @api_view(['GET'])

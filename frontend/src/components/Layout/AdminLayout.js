@@ -42,6 +42,14 @@ const AdminLayout = ({ children }) => {
   const [userRole, setUserRole] = useState(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef(null);
+
+  // ✅ NEW: "edit my profile" (name + photo) modal, opened from the top
+  // bar / sidebar admin block.
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileForm, setProfileForm] = useState({ first_name: '', last_name: '', phone: '' });
+  const [profilePhotoFile, setProfilePhotoFile] = useState(null);
+  const [profilePhotoPreview, setProfilePhotoPreview] = useState(null);
+  const [savingProfile, setSavingProfile] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useLanguage();
@@ -139,9 +147,71 @@ useEffect(() => {
       if (response.data?.user?.role) {
         setUserRole(response.data.user.role);
       }
+      // ✅ Merge in photo/phone (not present in the login payload cached
+      // in localStorage) so the avatar shows up without needing a fresh
+      // login every time it changes.
+      if (response.data?.user) {
+        setAdminUser((prev) => {
+          const merged = { ...(prev || {}), ...response.data.user };
+          localStorage.setItem('adminUser', JSON.stringify(merged));
+          return merged;
+        });
+      }
     } catch (err) {
       console.error('Error fetching user role:', err);
     }
+  };
+
+  const openProfileModal = () => {
+    setProfileForm({
+      first_name: adminUser?.first_name || '',
+      last_name: adminUser?.last_name || '',
+      phone: adminUser?.phone || '',
+    });
+    setProfilePhotoFile(null);
+    setProfilePhotoPreview(adminUser?.photo ? getMediaUrl(adminUser.photo) : null);
+    setProfileMenuOpen(false);
+    setShowProfileModal(true);
+  };
+
+  const handleProfilePhotoChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setProfilePhotoFile(file);
+    setProfilePhotoPreview(URL.createObjectURL(file));
+  };
+
+  const handleProfileSave = async () => {
+    setSavingProfile(true);
+    try {
+      const formData = new FormData();
+      formData.append('first_name', profileForm.first_name);
+      formData.append('last_name', profileForm.last_name);
+      formData.append('phone', profileForm.phone);
+      if (profilePhotoFile) {
+        formData.append('photo', profilePhotoFile);
+      }
+      // No manual Content-Type header — same reasoning as the school
+      // logo fix: let axios generate the multipart boundary itself.
+      const res = await api.patch('/me/update/', formData);
+
+      setAdminUser((prev) => {
+        const merged = { ...(prev || {}), ...res.data.user };
+        localStorage.setItem('adminUser', JSON.stringify(merged));
+        return merged;
+      });
+      setShowProfileModal(false);
+    } catch (err) {
+      console.error('Error saving profile:', err);
+      alert('❌ Failed to update profile');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const getAvatarUrl = () => {
+    if (adminUser?.photo) return getMediaUrl(adminUser.photo);
+    return null;
   };
 
 const getLogoUrl = () => {
@@ -525,9 +595,17 @@ const getLogoUrl = () => {
           {/* User Info & Logout */}
           <div className="flex-shrink-0 border-t border-gray-100">
             {!isCollapsed && adminUser && (
-              <div className="px-3 py-2 flex items-center gap-2 bg-gray-50">
-                <div className="w-7 h-7 bg-primary-100 rounded-full flex items-center justify-center">
-                  <User className="h-3.5 w-3.5 text-primary-600" />
+              <button
+                onClick={openProfileModal}
+                title="Edit my profile"
+                className="w-full px-3 py-2 flex items-center gap-2 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+              >
+                <div className="w-7 h-7 bg-primary-100 rounded-full flex items-center justify-center overflow-hidden">
+                  {getAvatarUrl() ? (
+                    <img src={getAvatarUrl()} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="h-3.5 w-3.5 text-primary-600" />
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium text-gray-800 truncate">
@@ -537,7 +615,7 @@ const getLogoUrl = () => {
                     {getRoleDisplay()}
                   </p>
                 </div>
-              </div>
+              </button>
             )}
             <button
               onClick={handleLogout}
@@ -591,8 +669,12 @@ const getLogoUrl = () => {
               onClick={() => setProfileMenuOpen(!profileMenuOpen)}
               className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
             >
-              <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
-                <User className="h-4 w-4 text-primary-600" />
+              <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center overflow-hidden">
+                {getAvatarUrl() ? (
+                  <img src={getAvatarUrl()} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <User className="h-4 w-4 text-primary-600" />
+                )}
               </div>
               <div className="text-left">
                 <p className="text-sm font-medium text-gray-800 leading-tight">
@@ -605,6 +687,13 @@ const getLogoUrl = () => {
 
             {profileMenuOpen && (
               <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50">
+                <button
+                  onClick={openProfileModal}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 text-left"
+                >
+                  <User className="h-4 w-4 text-gray-400" />
+                  My Profile
+                </button>
                 {(userRole === 'school_admin' || userRole === 'super_admin') && (
                   <Link
                     to="/school-settings"
@@ -641,6 +730,89 @@ const getLogoUrl = () => {
         isOpen={showYearSelectorModal}
         onClose={() => setShowYearSelectorModal(false)}
       />
+
+      {/* ✅ NEW: My Profile modal — edit own name/phone/photo. Opened from
+          the sidebar admin block or the top bar "My Profile" menu item. */}
+      {showProfileModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full">
+            <div className="border-b border-gray-100 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900">My Profile</h2>
+              <button
+                onClick={() => setShowProfileModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="flex flex-col items-center gap-2">
+                <div className="w-20 h-20 rounded-full bg-primary-100 flex items-center justify-center overflow-hidden border-2 border-primary-100">
+                  {profilePhotoPreview ? (
+                    <img src={profilePhotoPreview} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="h-8 w-8 text-primary-600" />
+                  )}
+                </div>
+                <label className="text-xs font-medium text-primary-600 cursor-pointer hover:underline">
+                  Change photo
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/jpg"
+                    className="hidden"
+                    onChange={handleProfilePhotoChange}
+                  />
+                </label>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
+                <input
+                  type="text"
+                  value={profileForm.first_name}
+                  onChange={(e) => setProfileForm({ ...profileForm, first_name: e.target.value })}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
+                <input
+                  type="text"
+                  value={profileForm.last_name}
+                  onChange={(e) => setProfileForm({ ...profileForm, last_name: e.target.value })}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                <input
+                  type="text"
+                  value={profileForm.phone}
+                  onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                  className="input-field"
+                />
+              </div>
+            </div>
+
+            <div className="border-t border-gray-100 px-6 py-4 flex justify-end gap-2">
+              <button
+                onClick={() => setShowProfileModal(false)}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleProfileSave}
+                disabled={savingProfile}
+                className="px-4 py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+              >
+                {savingProfile ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -15,6 +15,15 @@ class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='staff')
     phone = models.CharField(max_length=20, blank=True)
+
+    # ✅ NEW: lets any logged-in user (school_admin, staff, super_admin...)
+    # set their own profile picture, shown in the dashboard top bar/sidebar.
+    photo = models.ImageField(
+        upload_to='profile_photos/%Y/%m/',
+        blank=True,
+        null=True,
+        help_text="Profile photo shown in the dashboard header"
+    )
     
     # For email verification
     is_email_verified = models.BooleanField(default=False)
