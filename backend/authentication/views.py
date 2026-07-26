@@ -729,6 +729,12 @@ def update_profile(request):
     user = request.user
     profile, _ = UserProfile.objects.get_or_create(user=user)
 
+    # ✅ DEBUG: so the Render log tells us directly whether the browser
+    # actually attached a photo file to this request, instead of us
+    # having to guess from the response size.
+    print(f"👤 update_profile — data keys: {list(request.data.keys())}, FILES: {request.FILES}")
+
+
     first_name = request.data.get('first_name')
     last_name = request.data.get('last_name')
     phone = request.data.get('phone')

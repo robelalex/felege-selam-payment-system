@@ -189,6 +189,14 @@ useEffect(() => {
       formData.append('last_name', profileForm.last_name);
       formData.append('phone', profileForm.phone);
       if (profilePhotoFile) {
+        // 🔍 DEBUG: confirms whether this is really a File/Blob (good) or
+        // something else that got coerced to text (the bug we're chasing).
+        console.log('🖼️ profilePhotoFile debug:', {
+          value: profilePhotoFile,
+          isFile: profilePhotoFile instanceof File,
+          isBlob: profilePhotoFile instanceof Blob,
+          type: typeof profilePhotoFile,
+        });
         formData.append('photo', profilePhotoFile);
       }
       // No manual Content-Type header — same reasoning as the school

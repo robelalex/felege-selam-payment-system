@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { CheckCircle, XCircle, Users, Building2, Loader } from 'lucide-react';
 import api from '../services/api';
+import ProfileMenu from '../components/Common/ProfileMenu';
 
 function SuperAdminDashboard() {
   const [pendingSchools, setPendingSchools] = useState([]);
@@ -62,9 +63,12 @@ function SuperAdminDashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Super Admin Dashboard</h1>
-        <p className="text-gray-500 mt-1">Manage school registrations</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Super Admin Dashboard</h1>
+          <p className="text-gray-500 mt-1">Manage school registrations</p>
+        </div>
+        <ProfileMenu />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
