@@ -720,6 +720,63 @@ def get_current_user(request):
         return Response({'success': False, 'error': str(e)}, status=500)
 
 
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def update_profile(request):
+    """
+    Update the logged-in user's own profile: first_name, last_name, phone,
+    photo. This was referenced by urls.py ('me/update/') but never actually
+    implemented, so every call to it 404'd/500'd — including the admin
+    profile-photo upload on the School Settings-adjacent profile page.
+
+    Name/phone/photo for anyone with portal access live on StaffMember
+    (school_admin, teacher, registrar, etc. — see staff/models.py), not on
+    UserProfile, so this updates both the StaffMember record and the
+    User's own first_name/last_name (kept in sync since get_current_user
+    and other views read user.first_name/last_name directly).
+    """
+    try:
+        user = request.user
+        staff = getattr(user, 'staff_profile', None)
+        if not staff:
+            return Response(
+                {'success': False, 'error': 'No staff profile is linked to this account.'},
+                status=400,
+            )
+
+        first_name = request.data.get('first_name')
+        last_name = request.data.get('last_name')
+        phone = request.data.get('phone')
+        photo = request.FILES.get('photo')
+
+        if first_name is not None and first_name != '':
+            staff.first_name = first_name
+            user.first_name = first_name
+        if last_name is not None and last_name != '':
+            staff.last_name = last_name
+            user.last_name = last_name
+        if phone is not None:
+            staff.phone = phone
+        if photo:
+            staff.photo = photo
+
+        staff.save()
+        user.save(update_fields=['first_name', 'last_name'])
+
+        return Response({
+            'success': True,
+            'first_name': staff.first_name,
+            'last_name': staff.last_name,
+            'phone': staff.phone,
+            'photo': staff.photo.url if staff.photo else None,
+        })
+    except Exception as e:
+        print(f"Error in update_profile: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({'success': False, 'error': str(e)}, status=500)
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_school_staff(request):
