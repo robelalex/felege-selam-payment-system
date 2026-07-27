@@ -95,15 +95,20 @@ def admin_login_step1(request):
         return Response({'error': 'Email and password required'}, status=400)
     
     try:
-        user = User.objects.get(email=email)
+        # This endpoint is only ever used for school-admin/staff/teacher
+        # logins — parents use a completely separate OTP flow
+        # (parent_login_step1). A person can legitimately hold both a
+        # parent account and a staff/admin account under the same email
+        # (e.g. a school admin whose child also attends the school), so
+        # excluding parent accounts here resolves that ambiguity correctly
+        # instead of treating it as a data-integrity error.
+        user = User.objects.exclude(profile__role='parent').get(email=email)
     except User.DoesNotExist:
         return Response({'error': 'Invalid credentials'}, status=401)
     except User.MultipleObjectsReturned:
-        # Data integrity issue: two User rows share this email (Django's
-        # built-in auth.User.email is NOT unique by default, so this can
-        # happen). Login can't safely pick one, so fail clearly instead of
-        # crashing with an uncaught 500 — a school admin needs to merge or
-        # rename one of the duplicate accounts in the database.
+        # This means two genuinely non-parent (staff/admin) accounts share
+        # this email — a real data-integrity issue that needs manual
+        # cleanup, unlike the parent+admin case filtered out above.
         return Response(
             {'error': 'Multiple accounts are registered with this email. Please contact support.'},
             status=409,
