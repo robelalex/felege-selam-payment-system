@@ -1,4 +1,3 @@
-# Generated manually — adds UserProfile.photo (dashboard profile picture)
 from django.db import migrations, models
 
 
@@ -12,11 +11,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='userprofile',
             name='photo',
-            field=models.ImageField(
-                blank=True,
-                null=True,
-                upload_to='profile_photos/%Y/%m/',
-                help_text='Profile photo shown in the dashboard header',
-            ),
+            field=models.ImageField(blank=True, null=True, upload_to='profile_photos/%Y/%m/'),
         ),
     ]

@@ -710,6 +710,7 @@ def get_current_user(request):
                 'is_super_admin': is_super_admin,
                 'is_school_admin': is_school_admin,
                 'staff_id': getattr(getattr(user, 'staff_profile', None), 'id', None),
+                'photo': (user.profile.photo.url if getattr(user, 'profile', None) and user.profile.photo else None),
                 'school': school_info
             }
         })
@@ -726,21 +727,23 @@ def update_profile(request):
     """
     Update the logged-in user's own profile: first_name, last_name, phone,
     photo. This was referenced by urls.py ('me/update/') but never actually
-    implemented, so every call to it 404'd/500'd — including the admin
-    profile-photo upload on the School Settings-adjacent profile page.
+    implemented, so every call to it 404'd/500'd.
 
-    Name/phone/photo for anyone with portal access live on StaffMember
-    (school_admin, teacher, registrar, etc. — see staff/models.py), not on
-    UserProfile, so this updates both the StaffMember record and the
-    User's own first_name/last_name (kept in sync since get_current_user
-    and other views read user.first_name/last_name directly).
+    UserProfile.photo is the source of truth — every account with portal
+    access has a UserProfile, whereas StaffMember (and its own photo field)
+    only exists for staff created through the Staff module. A self-
+    registered school_admin has no StaffMember record at all, so relying
+    on staff_profile.photo failed for exactly that case. If the account
+    DOES also have a linked StaffMember (teachers, staff), that record's
+    name/phone/photo are kept in sync too, since those show up separately
+    on staff ID cards/directories.
     """
     try:
         user = request.user
-        staff = getattr(user, 'staff_profile', None)
-        if not staff:
+        profile = getattr(user, 'profile', None)
+        if not profile:
             return Response(
-                {'success': False, 'error': 'No staff profile is linked to this account.'},
+                {'success': False, 'error': 'No profile found for this account.'},
                 status=400,
             )
 
@@ -750,25 +753,36 @@ def update_profile(request):
         photo = request.FILES.get('photo')
 
         if first_name is not None and first_name != '':
-            staff.first_name = first_name
             user.first_name = first_name
         if last_name is not None and last_name != '':
-            staff.last_name = last_name
             user.last_name = last_name
         if phone is not None:
-            staff.phone = phone
+            profile.phone = phone
         if photo:
-            staff.photo = photo
+            profile.photo = photo
 
-        staff.save()
         user.save(update_fields=['first_name', 'last_name'])
+        profile.save()
+
+        # Keep StaffMember in sync too, if this account has one.
+        staff = getattr(user, 'staff_profile', None)
+        if staff:
+            if first_name is not None and first_name != '':
+                staff.first_name = first_name
+            if last_name is not None and last_name != '':
+                staff.last_name = last_name
+            if phone is not None:
+                staff.phone = phone
+            if photo:
+                staff.photo = photo
+            staff.save()
 
         return Response({
             'success': True,
-            'first_name': staff.first_name,
-            'last_name': staff.last_name,
-            'phone': staff.phone,
-            'photo': staff.photo.url if staff.photo else None,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'phone': profile.phone,
+            'photo': profile.photo.url if profile.photo else None,
         })
     except Exception as e:
         print(f"Error in update_profile: {e}")

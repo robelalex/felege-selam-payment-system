@@ -16,14 +16,12 @@ class UserProfile(models.Model):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='staff')
     phone = models.CharField(max_length=20, blank=True)
 
-    # ✅ NEW: lets any logged-in user (school_admin, staff, super_admin...)
-    # set their own profile picture, shown in the dashboard top bar/sidebar.
-    photo = models.ImageField(
-        upload_to='profile_photos/%Y/%m/',
-        blank=True,
-        null=True,
-        help_text="Profile photo shown in the dashboard header"
-    )
+    # Personal profile photo for the logged-in account itself. Added
+    # because StaffMember.photo only exists for staff created through the
+    # Staff module — a school_admin created via self-registration has no
+    # StaffMember record at all, so their own "my profile" photo needs a
+    # home that every account actually has.
+    photo = models.ImageField(upload_to='profile_photos/%Y/%m/', blank=True, null=True)
     
     # For email verification
     is_email_verified = models.BooleanField(default=False)
