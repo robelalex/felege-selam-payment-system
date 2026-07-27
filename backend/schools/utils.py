@@ -29,12 +29,16 @@ def get_school_for_user(request):
         pass
 
     # 2. Fall back to UserProfile
+    # ✅ FIX: the actual related_name on UserProfile.user is 'profile', not
+    # 'userprofile' — the old attribute name raised AttributeError (not
+    # ObjectDoesNotExist) for any user without a SchoolAdminProfile,
+    # meaning this fallback never actually worked, it just crashed instead.
     try:
-        school_id = user.userprofile.school_id
+        school_id = user.profile.school_id
         if school_id:
             from schools.models import School
             return School.objects.get(pk=school_id)
-    except ObjectDoesNotExist:
+    except (ObjectDoesNotExist, AttributeError):
         pass
 
     raise ObjectDoesNotExist(

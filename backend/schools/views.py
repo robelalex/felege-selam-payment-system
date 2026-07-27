@@ -125,7 +125,7 @@ def sms_config_preflight(request):
     
     # Check UserProfile
     try:
-        up = user.userprofile
+        up = user.profile
         result['profiles']['user_profile'] = {
             'id': up.id, 
             'school_id': up.school_id

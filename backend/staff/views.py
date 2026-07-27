@@ -191,8 +191,15 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
         if not email:
             return Response({'error': 'An email address is required to create a login.'}, status=400)
 
-        if User.objects.filter(email__iexact=email).exists():
-            return Response({'error': 'A user with this email already exists.'}, status=400)
+        # ✅ FIX: a parent's email (used only by the separate
+        # parent_login_step1 OTP system, in a totally different school
+        # potentially) was blocking staff-login creation here. admin_login
+        # already correctly excludes 'parent' role accounts when resolving
+        # staff/admin logins by email (see admin_login_step1) — this check
+        # needs the same exclusion, or it treats an unrelated parent
+        # account as if it were a staff/admin conflict.
+        if User.objects.exclude(profile__role='parent').filter(email__iexact=email).exists():
+            return Response({'error': 'A staff or admin account with this email already exists.'}, status=400)
 
         # Build a unique username from the staff_id (falls back to email prefix).
         base_username = (staff.staff_id or email.split('@')[0]).lower().replace(' ', '')
