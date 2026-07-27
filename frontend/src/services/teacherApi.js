@@ -82,8 +82,8 @@ export const clearTeacherSession = () => {
 };
 
 // ─── Auth (same endpoints as the web Admin login / Flutter teacher login) ──
-export const teacherLogin = (email, password) => teacherApi.post('/login/', { email, password });
-export const verifyTeacherOtp = (userId, otpCode) => teacherApi.post('/verify/', { user_id: userId, otp_code: otpCode });
+export const teacherLogin = (email, password) => teacherApi.post('/login/', { email, password, portal: 'teacher' });
+export const verifyTeacherOtp = (userId, otpCode) => teacherApi.post('/verify/', { user_id: userId, otp_code: otpCode, portal: 'teacher' });
 
 // ─── My classes ──────────────────────────────────────────────────────────
 export const getMyAssignments = () => teacherApi.get('/teacher/my-assignments/');

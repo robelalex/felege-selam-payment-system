@@ -116,7 +116,21 @@ def admin_login_step1(request):
     
     if not user.is_active:
         return Response({'error': 'Account pending approval'}, status=401)
-    
+
+    # ✅ FIX: the teacher web portal (TeacherLogin.js) reuses this exact
+    # endpoint for convenience, but had no check that the account logging
+    # in is actually a teacher — any staff role (accountant, registrar...)
+    # could authenticate through it. When the caller identifies itself as
+    # the teacher portal, require the linked StaffMember to have
+    # role='teacher' before an OTP is even sent.
+    if request.data.get('portal') == 'teacher':
+        staff_profile = getattr(user, 'staff_profile', None)
+        if not staff_profile or staff_profile.role != 'teacher':
+            return Response(
+                {'error': 'This portal is for teacher accounts only.'},
+                status=403,
+            )
+
     user = authenticate(username=user.username, password=password)
     if not user:
         return Response({'error': 'Invalid credentials'}, status=401)
@@ -166,6 +180,16 @@ def admin_login_step2(request):
         return Response({'error': 'User not found'}, status=404)
     
     profile = user.profile
+
+    # ✅ FIX: same teacher-portal check as step1, so a call directly to
+    # step2 (skipping step1) can't bypass the role gate.
+    if request.data.get('portal') == 'teacher':
+        staff_profile = getattr(user, 'staff_profile', None)
+        if not staff_profile or staff_profile.role != 'teacher':
+            return Response(
+                {'error': 'This portal is for teacher accounts only.'},
+                status=403,
+            )
     
     # ✅ VERIFY REAL OTP
     valid, message = verify_otp(profile, otp_code)

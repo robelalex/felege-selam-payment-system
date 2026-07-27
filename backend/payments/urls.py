@@ -63,6 +63,7 @@ urlpatterns = [
     path('payments/<int:pk>/archive_payment/', PaymentViewSet.as_view({'post': 'archive_payment'}), name='archive-payment'),
     path('payments/bulk_archive/', PaymentViewSet.as_view({'post': 'bulk_archive'}), name='bulk-archive'),
     path('payments/history/', PaymentViewSet.as_view({'get': 'history'}), name='payment-history'),
+    path('payments/export/', PaymentViewSet.as_view({'get': 'export_payments'}), name='export-payments'),
     
     # Deadlines and reminders (via router)
     path('', include(router.urls)),

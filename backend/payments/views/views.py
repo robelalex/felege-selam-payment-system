@@ -3,6 +3,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from django.http import HttpResponse
 from django.utils import timezone
 from payments.models import Payment, PaymentDeadline
 from students.models import Student
@@ -10,6 +11,9 @@ from payments.serializers import PaymentSerializer, PaymentDeadlineSerializer
 from academics.models import AcademicYear
 from authentication.permissions import CanManagePayments
 from common.utils import get_verified_school_id
+import pandas as pd
+from io import BytesIO
+from datetime import datetime
 
 
 class PaymentViewSet(viewsets.ModelViewSet):
@@ -321,6 +325,58 @@ class PaymentViewSet(viewsets.ModelViewSet):
         payments.delete()
 
         return Response({'success': True, 'message': f'Deleted {count} payment(s)', 'deleted_count': count})
+
+    @action(detail=False, methods=['get'], url_path='export')
+    def export_payments(self, request):
+        """
+        Export payments to Excel.
+
+        ✅ NEW: the frontend (AdminPayments.js handleExport) has been
+        calling GET /payments/export/ but no matching backend endpoint
+        existed at all — every export attempt was a 404, hence "Failed to
+        export payments". This mirrors the school/year scoping already
+        used by get_queryset, and the export-file pattern already used by
+        StudentViewSet.export_students.
+        """
+        try:
+            queryset = self.get_queryset()
+
+            data = []
+            for payment in queryset.select_related('student', 'deadline'):
+                data.append({
+                    'Student ID': payment.student.student_id,
+                    'Student Name': f"{payment.student.first_name} {payment.student.last_name}",
+                    'Grade': payment.student.grade,
+                    'Section': payment.student.section,
+                    'Deadline Month': payment.deadline.month if payment.deadline else '',
+                    'Amount': payment.amount,
+                    'Payment Method': payment.get_payment_method_display() if hasattr(payment, 'get_payment_method_display') else payment.payment_method,
+                    'Status': payment.get_status_display() if hasattr(payment, 'get_status_display') else payment.status,
+                    'Transaction Reference': payment.transaction_reference,
+                    'Paid By': payment.paid_by,
+                    'Paid By Phone': payment.paid_by_phone,
+                    'Verified At': payment.verified_at.strftime('%Y-%m-%d %H:%M') if payment.verified_at else '',
+                    'Created At': payment.created_at.strftime('%Y-%m-%d %H:%M') if payment.created_at else '',
+                })
+
+            df = pd.DataFrame(data)
+
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='Payments', index=False)
+            output.seek(0)
+
+            response = HttpResponse(
+                output.read(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            response['Content-Disposition'] = (
+                f'attachment; filename="payments_export_{datetime.now().strftime("%Y%m%d")}.xlsx"'
+            )
+            return response
+
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
 
 
 class PaymentDeadlineViewSet(viewsets.ModelViewSet):
