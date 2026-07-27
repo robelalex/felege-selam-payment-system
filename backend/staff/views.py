@@ -156,7 +156,16 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
             f"Removed staff member {instance.full_name}",
             self.request,
         )
+        # Previously this only deleted the StaffMember HR record and left
+        # the linked login (User) account behind, inactive but still
+        # occupying that email forever — so re-creating a login with the
+        # same email later always failed with "already exists", even
+        # though the staff member looked fully deleted. Delete the login
+        # too so the email is genuinely freed up.
+        linked_user = instance.user
         instance.delete()
+        if linked_user:
+            linked_user.delete()
 
     @action(detail=False, methods=['get'], url_path='teachers')
     def teachers(self, request):

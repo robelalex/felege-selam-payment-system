@@ -78,7 +78,19 @@ class SchoolViewSet(viewsets.ModelViewSet):
                 {'detail': 'Only a super admin can delete a school.'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        return super().destroy(request, *args, **kwargs)
+        school = self.get_object()
+        # Deleting the School cascades to delete its SchoolAdminProfile
+        # rows (on_delete=CASCADE on the school FK), but the underlying
+        # login (User) accounts are never touched — they'd be left behind,
+        # inactive, permanently occupying that email and blocking any
+        # future registration with it. Capture them before the cascade
+        # runs, then delete them once the school itself is gone.
+        admin_user_ids = list(school.admins.values_list('user_id', flat=True))
+        response = super().destroy(request, *args, **kwargs)
+        if admin_user_ids:
+            from django.contrib.auth.models import User
+            User.objects.filter(id__in=admin_user_ids).delete()
+        return response
 
 
 # ========== DEBUG ENDPOINT - TO FIND THE PROBLEM ==========
