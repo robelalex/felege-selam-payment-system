@@ -125,6 +125,10 @@ export const getSubjectAttendanceRoster = ({ subjectId, grade, section, date }) 
 export const saveSubjectAttendance = ({ subjectId, grade, section, date, entries }) =>
   teacherApi.post('/subject-attendance/bulk_save/', { subject_id: subjectId, grade, section, date, entries });
 
+// ─── Results / ranking (Phase 4) ────────────────────────────────────────
+export const getClassResults = ({ termId, grade, section = '' }) =>
+  teacherApi.get('/results/class_results/', { params: { term_id: termId, grade, section } });
+
 export const extractError = (err, fallback) =>
   err.response?.data?.error || err.response?.data?.detail || fallback;
 

@@ -20,7 +20,8 @@ from authentication import views as auth_views
 from rest_framework_simplejwt.views import TokenRefreshView
 from academics.views import AcademicYearViewSet, SubjectViewSet, HomeroomAssignmentViewSet
 from exams.views import (
-    TermViewSet, AssessmentTypeViewSet, MarkViewSet, DailyAttendanceViewSet, SubjectAttendanceViewSet
+    TermViewSet, AssessmentTypeViewSet, MarkViewSet, DailyAttendanceViewSet, SubjectAttendanceViewSet,
+    StudentTermResultViewSet,
 )
 
 # ✅ SchoolViewSet is REMOVED from this router — it lives in schools/urls.py now
@@ -35,6 +36,7 @@ router.register(r'terms', TermViewSet, basename='term')
 router.register(r'marks', MarkViewSet, basename='mark')
 router.register(r'attendance', DailyAttendanceViewSet, basename='attendance')
 router.register(r'subject-attendance', SubjectAttendanceViewSet, basename='subject-attendance')
+router.register(r'results', StudentTermResultViewSet, basename='student-term-result')
 
 urlpatterns = [
     path('health/', health_check, name='health_check'),

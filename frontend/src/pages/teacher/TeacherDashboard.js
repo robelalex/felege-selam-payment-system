@@ -1,7 +1,7 @@
 // src/pages/teacher/TeacherDashboard.js
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Home, BookOpen, ClipboardCheck, ListChecks, LogOut, ChevronRight, Loader, X } from 'lucide-react';
+import { Home, BookOpen, ClipboardCheck, ListChecks, Trophy, LogOut, ChevronRight, Loader, X } from 'lucide-react';
 import { getMyAssignments, getClassAssignments, clearTeacherSession, extractError } from '../../services/teacherApi';
 
 function TeacherDashboard() {
@@ -63,6 +63,13 @@ function TeacherDashboard() {
     );
   };
 
+  const openResults = (grade, section) => {
+    navigate(
+      `/teacher/results?grade=${grade}&section=${encodeURIComponent(section)}` +
+      `&academicYearId=${data?.current_academic_year_id || ''}`
+    );
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -121,6 +128,12 @@ function TeacherDashboard() {
                   <ListChecks className="h-4 w-4" /> Review Marks
                 </button>
               </div>
+              <button
+                onClick={() => openResults(homeroom.grade, homeroom.section)}
+                className="w-full mt-3 btn-secondary flex items-center justify-center gap-2 py-2.5"
+              >
+                <Trophy className="h-4 w-4" /> Class Results & Ranking
+              </button>
             </div>
           </>
         )}

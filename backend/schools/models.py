@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 class School(models.Model):
     name = models.CharField(max_length=200)
@@ -27,7 +28,28 @@ class School(models.Model):
     grade_scale = models.JSONField(
         blank=True,
         default=list,
-        help_text="Letter grade boundaries, e.g. [{'min': 90, 'max': 100, 'grade': 'A'}, ...]. Ignored if grading_system is 'percentage'.",
+        help_text=(
+            "Letter grade boundaries, e.g. [{'min': 90, 'max': 100, 'grade': 'A', "
+            "'is_passing': true}, ...]. The 'is_passing' flag on each band is what "
+            "Phase 4 pass/fail uses when grading_system is 'letter_grade' — schools "
+            "mark which bands count as a pass (e.g. F is not passing). Ignored if "
+            "grading_system is 'percentage'."
+        ),
+    )
+
+    # ✅ Phase 4 — Pass/fail threshold. Pass/fail is decided differently
+    # depending on grading_system:
+    #   - 'percentage' -> a student passes a subject/term if their average
+    #     percentage is >= pass_mark.
+    #   - 'letter_grade' -> pass/fail comes from the 'is_passing' flag on
+    #     the matching band in grade_scale instead; pass_mark is ignored.
+    #   - 'both' -> pass_mark is used (percentage is always computed even
+    #     when a letter grade is also shown), so behavior matches
+    #     'percentage' rather than 'letter_grade'.
+    pass_mark = models.DecimalField(
+        max_digits=5, decimal_places=2, default=50,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Minimum percentage to pass a subject/term. Used when grading_system is 'percentage' or 'both'; ignored for 'letter_grade'.",
     )
     
     # ✅ Add logo field
@@ -229,6 +251,50 @@ class School(models.Model):
     def __str__(self):
         return self.name
     
+    def is_passing_score(self, percentage):
+        """
+        Single source of truth for 'did this percentage pass', respecting
+        this school's grading_system:
+          - percentage / both -> compare against pass_mark
+          - letter_grade      -> find the matching band in grade_scale and
+            use its 'is_passing' flag (defaults to True if the band exists
+            but the flag wasn't set, so old grade_scale data without the
+            flag doesn't silently start failing everyone)
+        Returns None if percentage is None, or if grading_system is
+        'letter_grade' but no matching band is found in grade_scale.
+        """
+        if percentage is None:
+            return None
+
+        if self.grading_system == 'letter_grade':
+            for band in self.grade_scale or []:
+                try:
+                    if band['min'] <= percentage <= band['max']:
+                        return bool(band.get('is_passing', True))
+                except (KeyError, TypeError):
+                    continue
+            return None
+
+        return percentage >= self.pass_mark
+
+    def letter_grade_for(self, percentage):
+        """
+        Companion to is_passing_score() — returns the 'grade' string (e.g.
+        'A', 'B') from the matching grade_scale band for this percentage,
+        or '' if grading_system is 'percentage' (no letters configured) or
+        no band matches. Used by Phase 4 results to fill in
+        StudentTermResult.letter_grade when the school shows letters.
+        """
+        if percentage is None or self.grading_system not in ('letter_grade', 'both'):
+            return ''
+        for band in self.grade_scale or []:
+            try:
+                if band['min'] <= percentage <= band['max']:
+                    return band.get('grade', '')
+            except (KeyError, TypeError):
+                continue
+        return ''
+
     @property
     def has_chapa_credentials(self):
         """Check if Chapa is properly configured"""

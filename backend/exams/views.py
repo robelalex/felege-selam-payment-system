@@ -7,16 +7,21 @@ from django.utils import timezone
 from django.db import transaction
 from decimal import Decimal
 
-from .models import Term, AssessmentType, Mark, DailyAttendance, SubjectAttendance
+from .models import (
+    Term, AssessmentType, Mark, DailyAttendance, SubjectAttendance,
+    SubjectTermResult, StudentTermResult,
+)
 from .serializers import (
     TermSerializer, AssessmentTypeSerializer, MarkSerializer,
     DailyAttendanceSerializer, SubjectAttendanceSerializer,
+    SubjectTermResultSerializer, StudentTermResultSerializer,
 )
 from academics.models import AcademicYear, Subject, HomeroomAssignment
 from staff.models import TeacherClassAssignment
 from students.models import Student
 from common.utils import get_verified_school_id, get_effective_role
 from authentication.permissions import CanManageAcademics, IsTeacherOrAdmin
+from .services import results_service
 
 
 def _get_staff_profile(request):
@@ -518,7 +523,28 @@ class MarkViewSet(viewsets.ModelViewSet):
         if student_id:
             qs = qs.filter(student_id=student_id)
 
+        affected_student_ids = list(qs.values_list('student_id', flat=True).distinct())
         count = qs.update(status=new_status, reviewed_by=staff, reviewed_at=timezone.now(), homeroom_note=note)
+
+        # ✅ Phase 4 — only 'accepted' marks count toward results, so only
+        # recompute on accept. qs.update() is a bulk update and doesn't
+        # fire model signals, so this has to be called explicitly here
+        # rather than relying on a post_save hook.
+        if new_status == 'accepted' and affected_student_ids:
+            assessment_type = AssessmentType.objects.select_related('term').filter(
+                id=assessment_type_id
+            ).first()
+            subject_obj = Subject.objects.filter(id=subject_id).first()
+            if assessment_type and assessment_type.term_id and subject_obj:
+                results_service.recompute_for_class(
+                    school=assessment_type.school,
+                    subject=subject_obj,
+                    term=assessment_type.term,
+                    grade=int(grade),
+                    section=section,
+                    student_ids=affected_student_ids,
+                    computed_by=staff,
+                )
 
         return Response({'updated': count, 'status': new_status})
 
@@ -742,3 +768,107 @@ class SubjectAttendanceViewSet(viewsets.ModelViewSet):
                 saved += 1
 
         return Response({'saved': saved, 'errors': errors})
+
+
+# ============================================================================
+# Phase 4 — Results (read-only for now: nothing here writes results, that
+# only ever happens via results_service, triggered from homeroom_accept
+# above, or the manual recalculate action below)
+# ============================================================================
+
+class StudentTermResultViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Staff/admin-facing results + ranking. NOT yet exposed to parents/
+    students — the mobile/parent app's auth model (OTP + student_id
+    lookup, no full staff account) is different enough from the
+    IsAuthenticated + StaffMember pattern used everywhere else in this
+    file that it needs its own deliberate design rather than reusing
+    this ViewSet as-is. That's a follow-up, not done here.
+    """
+    serializer_class = StudentTermResultSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        school_id = get_verified_school_id(self.request)
+        qs = StudentTermResult.objects.select_related('student', 'term').filter(school_id=school_id)
+        term_id = self.request.query_params.get('term_id')
+        if term_id:
+            qs = qs.filter(term_id=term_id)
+        return qs
+
+    def retrieve(self, request, *args, **kwargs):
+        """Single student's result, with the per-subject breakdown included."""
+        instance = self.get_object()
+        staff = _get_staff_profile(request)
+        if not _is_admin(request):
+            year_id = instance.academic_year_id
+            if not staff or not _teacher_owns_homeroom(staff, instance.grade, instance.section, year_id):
+                return Response({'error': 'You are not the homeroom teacher for this class'}, status=403)
+        serializer = self.get_serializer(instance, context={'include_subjects': True})
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def class_results(self, request):
+        """Query params: term_id, grade, section. Ranked list for one homeroom class."""
+        school_id = get_verified_school_id(request)
+        term_id = request.query_params.get('term_id')
+        grade = request.query_params.get('grade')
+        section = request.query_params.get('section', '')
+
+        if not (school_id and term_id and grade):
+            return Response({'error': 'term_id and grade are required'}, status=400)
+
+        staff = _get_staff_profile(request)
+        if not _is_admin(request):
+            term = Term.objects.filter(id=term_id).first()
+            year_id = term.academic_year_id if term else None
+            if not staff or not _teacher_owns_homeroom(staff, int(grade), section, year_id):
+                return Response({'error': 'You are not the homeroom teacher for this class'}, status=403)
+
+        qs = StudentTermResult.objects.select_related('student').filter(
+            school_id=school_id, term_id=term_id, grade=grade, section=section,
+        ).order_by('homeroom_rank')
+        return Response(StudentTermResultSerializer(qs, many=True).data)
+
+    @action(detail=False, methods=['get'])
+    def school_top(self, request):
+        """Query params: term_id, band ('elementary' or 'high_school'), limit (default 3). Admin only — for award/ranking lists."""
+        if not _is_admin(request):
+            return Response({'error': 'Admin only'}, status=403)
+
+        school_id = get_verified_school_id(request)
+        term_id = request.query_params.get('term_id')
+        band = request.query_params.get('band', 'elementary')
+        limit = int(request.query_params.get('limit', 3))
+
+        if not (school_id and term_id):
+            return Response({'error': 'term_id is required'}, status=400)
+
+        max_grade = StudentTermResult.ELEMENTARY_MAX_GRADE
+        qs = StudentTermResult.objects.select_related('student').filter(
+            school_id=school_id, term_id=term_id, school_rank__isnull=False,
+        )
+        qs = qs.filter(grade__lte=max_grade) if band == 'elementary' else qs.filter(grade__gt=max_grade)
+        qs = qs.order_by('school_rank')[:limit]
+        return Response(StudentTermResultSerializer(qs, many=True).data)
+
+    @action(detail=False, methods=['post'])
+    def recalculate(self, request):
+        """Body: { term_id }. Admin only — full recompute for the whole school, this term."""
+        if not _is_admin(request):
+            return Response({'error': 'Admin only'}, status=403)
+
+        school_id = get_verified_school_id(request)
+        term_id = request.data.get('term_id')
+        if not (school_id and term_id):
+            return Response({'error': 'term_id is required'}, status=400)
+
+        term = Term.objects.filter(id=term_id, school_id=school_id).first()
+        if not term:
+            return Response({'error': 'Term not found'}, status=404)
+
+        staff = _get_staff_profile(request)
+        count = results_service.recompute_for_term(
+            school=term.school, academic_year=term.academic_year, term=term, computed_by=staff,
+        )
+        return Response({'recomputed_students': count})

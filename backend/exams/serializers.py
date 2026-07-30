@@ -1,6 +1,9 @@
 # exams/serializers.py
 from rest_framework import serializers
-from .models import Term, AssessmentType, Mark, DailyAttendance, SubjectAttendance
+from .models import (
+    Term, AssessmentType, Mark, DailyAttendance, SubjectAttendance,
+    SubjectTermResult, StudentTermResult,
+)
 
 
 class TermSerializer(serializers.ModelSerializer):
@@ -78,3 +81,48 @@ class SubjectAttendanceSerializer(serializers.ModelSerializer):
 
     def get_student_name(self, obj):
         return f"{obj.student.first_name} {obj.student.last_name}"
+
+
+# ============================================================================
+# Phase 4 — Results
+# ============================================================================
+
+class SubjectTermResultSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
+    term_name = serializers.CharField(source='term.name', read_only=True)
+
+    class Meta:
+        model = SubjectTermResult
+        fields = [
+            'id', 'student', 'subject', 'subject_name', 'term', 'term_name',
+            'grade', 'section', 'average_percentage', 'marks_counted',
+            'is_passing', 'computed_at',
+        ]
+        read_only_fields = fields  # computed-only — never written to directly via the API
+
+
+class StudentTermResultSerializer(serializers.ModelSerializer):
+    student_name = serializers.SerializerMethodField()
+    student_id_display = serializers.CharField(source='student.student_id', read_only=True)
+    term_name = serializers.CharField(source='term.name', read_only=True)
+    subject_results = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StudentTermResult
+        fields = [
+            'id', 'student', 'student_name', 'student_id_display', 'term', 'term_name',
+            'grade', 'section', 'overall_average', 'subjects_counted', 'is_passing',
+            'letter_grade', 'homeroom_rank', 'homeroom_rank_total',
+            'school_rank', 'school_rank_total', 'computed_at', 'subject_results',
+        ]
+        read_only_fields = fields
+
+    def get_student_name(self, obj):
+        return f"{obj.student.first_name} {obj.student.last_name}"
+
+    def get_subject_results(self, obj):
+        """Only included when the view explicitly asks for it (see StudentTermResultViewSet.retrieve), to keep list responses light."""
+        if not self.context.get('include_subjects'):
+            return None
+        results = SubjectTermResult.objects.filter(student=obj.student, term=obj.term).select_related('subject')
+        return SubjectTermResultSerializer(results, many=True).data

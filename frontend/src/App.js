@@ -61,6 +61,7 @@ import TeacherDashboard from './pages/teacher/TeacherDashboard';
 import TeacherGradebook from './pages/teacher/TeacherGradebook';
 import TeacherAttendance from './pages/teacher/TeacherAttendance';
 import TeacherSubjectAttendance from './pages/teacher/TeacherSubjectAttendance';
+import TeacherClassResults from './pages/teacher/TeacherClassResults';
 // Styles
 import './index.css';
 
@@ -447,6 +448,10 @@ function App() {
               <Route
                 path="/teacher/subject-attendance/:subjectId"
                 element={<TeacherProtectedRoute><TeacherSubjectAttendance /></TeacherProtectedRoute>}
+              />
+              <Route
+                path="/teacher/results"
+                element={<TeacherProtectedRoute><TeacherClassResults /></TeacherProtectedRoute>}
               />
 
             </Routes>

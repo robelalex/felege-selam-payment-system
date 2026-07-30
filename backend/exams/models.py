@@ -73,7 +73,21 @@ class AssessmentType(models.Model):
 
     class Meta:
         ordering = ['order', 'name']
-        unique_together = ['school', 'academic_year', 'name']
+        # ✅ Fixed — was ['school', 'academic_year', 'name'], which blocked
+        # the same name (e.g. "Assignment") from ever being reused in a
+        # different term of the same year, and also blocked reusing a name
+        # after soft-deleting it (destroy() just sets is_active=False, the
+        # row still exists). Adding 'term' lets each term have its own
+        # "Assignment"/"Mid Exam"/etc, and condition=is_active means only
+        # *active* rows are checked for a collision — a soft-deleted one
+        # no longer blocks the name from being reused.
+        constraints = [
+            models.UniqueConstraint(
+                fields=['school', 'academic_year', 'term', 'name'],
+                condition=models.Q(is_active=True),
+                name='unique_active_assessment_type_per_term',
+            )
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.academic_year.name}) - {self.school.name}"
@@ -231,3 +245,126 @@ class SubjectAttendance(models.Model):
 
     def __str__(self):
         return f"{self.student} - {self.subject.name} - {self.date} - {self.get_status_display()}"
+
+
+# ============================================================================
+# Phase 4 — Results: pass/fail + ranking
+# ============================================================================
+#
+# These two models are a computed cache, not new source-of-truth data.
+# Mark stays authoritative; SubjectTermResult and StudentTermResult get
+# (re)computed from accepted Mark rows whenever a homeroom teacher accepts
+# a mark, or an admin manually recalculates. The actual calculation
+# service (and the signal/action that triggers it) is the next piece to
+# build after this migration — this just lays down where the numbers live.
+#
+# Calculation rules agreed for Phase 4:
+#   - A subject's term average = sum of the student's accepted Mark
+#     scores for that subject/term, divided by the sum of those
+#     assessments' max_scores, as a percentage — matches the gradebook's
+#     own Total/100 column exactly, since it weights each assessment by
+#     its points rather than counting every assessment equally.
+#   - A student's overall term average = simple average of their
+#     SubjectTermResult.average_percentage values across all subjects.
+#   - Pass/fail uses School.is_passing_score() against the overall_average
+#     (and, per-subject, against each SubjectTermResult.average_percentage).
+#   - Ranks are computed within two pools: homeroom (same grade+section)
+#     and school-wide, split into elementary (grades 1-8) vs high school
+#     (grades 9-12) — matching the grade-8 boundary this school already
+#     uses for graduation/promotion.
+
+class SubjectTermResult(models.Model):
+    """
+    A student's computed final mark for one subject in one term.
+    """
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='subject_term_results')
+    academic_year = models.ForeignKey(AcademicYear, on_delete=models.CASCADE, related_name='subject_term_results')
+    term = models.ForeignKey(Term, on_delete=models.CASCADE, related_name='subject_results')
+    student = models.ForeignKey('students.Student', on_delete=models.CASCADE, related_name='subject_term_results')
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='term_results')
+
+    # Denormalized at computation time, same convention as Mark, so a
+    # mid-year grade/section change doesn't retroactively move a
+    # student's historical results around.
+    grade = models.IntegerField()
+    section = models.CharField(max_length=10, blank=True)
+
+    average_percentage = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Sum of accepted Mark scores for this subject/term divided by the sum of their max_scores, as a percentage — matches the gradebook's Total/100 column."
+    )
+    marks_counted = models.PositiveIntegerField(
+        default=0, help_text="How many accepted Mark rows fed into average_percentage."
+    )
+    is_passing = models.BooleanField(null=True, blank=True)
+
+    computed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['student', 'subject', 'term']
+        indexes = [
+            models.Index(fields=['school', 'academic_year', 'term', 'grade', 'section']),
+        ]
+
+    def __str__(self):
+        return f"{self.student} - {self.subject.name} - {self.term}: {self.average_percentage}"
+
+
+class StudentTermResult(models.Model):
+    """
+    A student's overall result for one term — the simple average of their
+    SubjectTermResult rows, plus pass/fail and rank.
+    """
+    ELEMENTARY_MAX_GRADE = 8  # grades 1-8 = elementary, 9-12 = high school
+
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='student_term_results')
+    academic_year = models.ForeignKey(AcademicYear, on_delete=models.CASCADE, related_name='student_term_results')
+    term = models.ForeignKey(Term, on_delete=models.CASCADE, related_name='student_results')
+    student = models.ForeignKey('students.Student', on_delete=models.CASCADE, related_name='term_results')
+
+    grade = models.IntegerField()
+    section = models.CharField(max_length=10, blank=True)
+
+    overall_average = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Simple average of this student's SubjectTermResult.average_percentage values for this term."
+    )
+    subjects_counted = models.PositiveIntegerField(default=0)
+    is_passing = models.BooleanField(null=True, blank=True)
+    letter_grade = models.CharField(
+        max_length=5, blank=True,
+        help_text="Set only when the school's grading_system is 'letter_grade' or 'both'."
+    )
+
+    # Homeroom = ranked only among the student's own grade+section.
+    homeroom_rank = models.PositiveIntegerField(null=True, blank=True)
+    homeroom_rank_total = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Class size used to produce homeroom_rank, e.g. '3rd of 42'."
+    )
+    # School-wide = ranked within elementary or high school band across the whole school.
+    school_rank = models.PositiveIntegerField(null=True, blank=True)
+    school_rank_total = models.PositiveIntegerField(null=True, blank=True)
+
+    computed_at = models.DateTimeField(auto_now=True)
+    computed_by = models.ForeignKey(
+        'staff.StaffMember', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='term_results_computed',
+        help_text="Who triggered the last recalculation, e.g. the homeroom teacher or an admin."
+    )
+
+    class Meta:
+        unique_together = ['student', 'term']
+        indexes = [
+            models.Index(fields=['school', 'academic_year', 'term', 'grade', 'section']),
+            models.Index(fields=['school', 'academic_year', 'term']),
+        ]
+        ordering = ['-overall_average']
+
+    @property
+    def is_elementary(self):
+        return self.grade <= self.ELEMENTARY_MAX_GRADE
+
+    def __str__(self):
+        return f"{self.student} - {self.term}: {self.overall_average}"
