@@ -788,12 +788,37 @@ class StudentTermResultViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = StudentTermResultSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_permissions(self):
+        # ✅ Security fix — list (and the class_results/school_top actions
+        # below) previously only required IsAuthenticated, meaning any
+        # staff member — even a subject teacher with no homeroom — could
+        # pull every student's results school-wide via GET /results/.
+        # Only admins get the unscoped view; everyone else must use
+        # retrieve or class_results, which check homeroom ownership.
+        if self.action == 'list':
+            return [IsAuthenticated(), CanManageAcademics()]
+        return [IsAuthenticated()]
+
     def get_queryset(self):
         school_id = get_verified_school_id(self.request)
         qs = StudentTermResult.objects.select_related('student', 'term').filter(school_id=school_id)
         term_id = self.request.query_params.get('term_id')
+        academic_year_id = self.request.query_params.get('academic_year_id')
         if term_id:
             qs = qs.filter(term_id=term_id)
+        elif academic_year_id:
+            # No specific term given — resolve the school's own "final
+            # term" for that year, same rule the Promote button uses, so
+            # an admin reviewing results before promoting sees the exact
+            # same term the promotion decision will be based on.
+            from schools.models import School
+            school = School.objects.filter(id=school_id).first()
+            year = AcademicYear.objects.filter(id=academic_year_id, school_id=school_id).first()
+            if school and year:
+                term = results_service.get_final_term(school, year)
+                qs = qs.filter(term=term) if term else qs.none()
+            else:
+                qs = qs.none()
         return qs
 
     def retrieve(self, request, *args, **kwargs):

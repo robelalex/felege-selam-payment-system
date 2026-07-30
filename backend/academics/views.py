@@ -19,6 +19,8 @@ from django.utils.decorators import method_decorator
 # from the logged-in user's own account, not from a client-supplied header.
 from common.utils import get_verified_school_id
 from authentication.permissions import CanManageAcademics
+from exams.models import Term, StudentTermResult
+from exams.services import results_service
 
 
 class AcademicYearViewSet(viewsets.ModelViewSet):
@@ -104,9 +106,26 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='promote_students', permission_classes=[IsAuthenticated])
     def promote_students(self, request, pk=None):
         """
-        Promote all active students to the next grade.
-        Grades below GRADUATION_GRADE (12) promote (+1).
-        Students already at GRADUATION_GRADE become 'graduated'.
+        Promote active students to the next grade — now based on their
+        Phase 4 results instead of blindly moving everyone up.
+
+        Decision per student, using StudentTermResult for the chosen term:
+          - is_passing True  -> promote (or graduate, if at GRADUATION_GRADE)
+          - is_passing False -> RETAIN: stays in the same grade, but still
+            moves to the new academic year (they repeat the grade)
+          - no result at all (no marks ever accepted for them this term)
+            -> promoted anyway, same as the old blind behavior, but
+            counted separately as students_promoted_without_results so
+            the admin can see the decision wasn't actually based on data
+
+        Which term's results to use:
+          - request.data['term_id'] if given
+          - otherwise the highest-'order' Term for this academic year
+            (i.e. the school's own idea of the "final" term)
+          - if this academic year has no terms at all set up (school
+            hasn't adopted the marks/results system yet), falls back to
+            the pre-Phase-4 blind-promote behavior for everyone, so this
+            doesn't break schools that aren't using results yet
         """
         year = self.get_object()
 
@@ -130,49 +149,91 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
                 'error': 'Next academic year not found. Please create it first.'
             }, status=400)
 
-        # Promote students
+        # Resolve which term's results decide promotion.
+        term_id = request.data.get('term_id')
+        if term_id:
+            term = Term.objects.filter(id=term_id, academic_year=year, school=year.school).first()
+            if not term:
+                return Response({'error': 'Term not found for this academic year'}, status=400)
+        else:
+            term = results_service.get_final_term(year.school, year)
+
         promoted_count = 0
         graduated_count = 0
+        retained_count = 0
+        promoted_without_results_count = 0
+        retained_students = []          # for the response, so the admin can see exactly who
+        no_result_students = []
 
         students = Student.objects.filter(
             school=year.school,
             status='active'
         )
 
+        # Preload results for this term in one query instead of one per student.
+        results_by_student_id = {}
+        if term:
+            results_by_student_id = {
+                r.student_id: r for r in StudentTermResult.objects.filter(term=term, student__in=students)
+            }
+
         for student in students:
-            if student.grade < GRADUATION_GRADE:
-                # ✅ Promote to next grade (1 → 2, ..., 8 → 9, ..., 11 → 12)
-                student.grade += 1
-                # ✅ UPDATE academic year to next year
+            result = results_by_student_id.get(student.id)
+            is_passing = result.is_passing if result else None
+
+            if is_passing is False:
+                # ❌ Failed this term — retain in the same grade, but still
+                # move them into the new academic year (they repeat it).
                 student.academic_year = f"{year.year_ec + 1} E.C."
-                # Keep the same student_id (NO change)
-                # Update monthly fee based on new grade
+                student.save()
+                retained_count += 1
+                retained_students.append({'id': student.id, 'name': f"{student.first_name} {student.last_name}", 'grade': student.grade})
+                continue
+
+            if is_passing is None:
+                promoted_without_results_count += 1
+                no_result_students.append({'id': student.id, 'name': f"{student.first_name} {student.last_name}", 'grade': student.grade})
+
+            if student.grade < GRADUATION_GRADE:
+                student.grade += 1
+                student.academic_year = f"{year.year_ec + 1} E.C."
                 new_fee = year.get_default_fee_for_grade(student.grade, year.school.id)
                 if new_fee:
                     student.monthly_fee = new_fee
                 student.save()
                 promoted_count += 1
             elif student.grade == GRADUATION_GRADE:
-                # ✅ Grade 12 students become graduated
                 student.status = 'graduated'
-                # Keep all other information (student_id remains same)
                 student.save()
                 graduated_count += 1
 
-        # Create promotion log
         log = YearPromotionLog.objects.create(
             from_year=year,
             to_year=next_year,
             students_promoted=promoted_count,
             students_graduated=graduated_count,
+            students_retained=retained_count,
+            students_promoted_without_results=promoted_without_results_count,
+            term_used=term,
             promoted_by=request.user
         )
 
+        message = f'Promoted {promoted_count} students, {graduated_count} graduated, {retained_count} retained'
+        if not term:
+            message += ' (no terms set up for this year — promoted everyone without checking results, same as before)'
+        elif promoted_without_results_count:
+            message += f' ({promoted_without_results_count} had no results yet and were promoted by default)'
+
         return Response({
             'success': True,
-            'message': f'Promoted {promoted_count} students to next grade, {graduated_count} students graduated',
+            'message': message,
             'promoted_count': promoted_count,
             'graduated_count': graduated_count,
+            'retained_count': retained_count,
+            'promoted_without_results_count': promoted_without_results_count,
+            'term_used': {'id': term.id, 'name': term.name} if term else None,
+            'retained_students': retained_students,
+            'students_without_results': no_result_students,
             'log': YearPromotionLogSerializer(log).data
         })
 

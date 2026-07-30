@@ -197,6 +197,18 @@ class YearPromotionLog(models.Model):
     
     students_promoted = models.IntegerField(default=0)
     students_graduated = models.IntegerField(default=0)
+    # ✅ Phase 4 — Promote now checks results, so these two outcomes are
+    # newly possible and worth keeping in the audit trail:
+    students_retained = models.IntegerField(
+        default=0, help_text="Students kept in the same grade because they failed the term used for promotion"
+    )
+    students_promoted_without_results = models.IntegerField(
+        default=0, help_text="Students promoted/graduated with no computed result available (no marks accepted yet) — promoted by default rather than blocked, but worth flagging since the decision wasn't actually based on results"
+    )
+    term_used = models.ForeignKey(
+        'exams.Term', on_delete=models.SET_NULL, null=True, blank=True,
+        help_text="Which term's results this promotion decision was based on, if any"
+    )
     
     promoted_by = models.ForeignKey(
         'auth.User',

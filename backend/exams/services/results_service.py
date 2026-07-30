@@ -199,6 +199,18 @@ def recompute_school_ranks(school, academic_year, term, is_elementary):
     return total
 
 
+def get_final_term(school, academic_year):
+    """
+    Shared helper — resolves 'the term whose results decide promotion /
+    the school-wide admin view' for a given academic year: whichever
+    Term has the highest 'order' (the school's own idea of its final
+    term). Returns None if the year has no terms set up at all.
+    Used by both the Promote endpoint and the admin results list, so the
+    definition of "final term" can't drift between the two.
+    """
+    return exam_models.Term.objects.filter(school=school, academic_year=academic_year).order_by('-order').first()
+
+
 def recompute_for_class(school, subject, term, grade, section, student_ids=None, computed_by=None):
     """
     Main entry point — call this right after a homeroom_accept action.

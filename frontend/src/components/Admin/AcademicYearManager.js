@@ -33,6 +33,13 @@ function AcademicYearManager() {
   // ✅ NEW: grade/section filters for the promotion table
   const [promoteGradeFilter, setPromoteGradeFilter] = useState('all');
   const [promoteSectionFilter, setPromoteSectionFilter] = useState('all');
+
+  // ✅ NEW — Phase 4: each student's computed pass/fail, pulled in so the
+  // modal can pre-check/uncheck based on real results instead of
+  // defaulting everyone to "promote" with no information.
+  const [resultsByStudentId, setResultsByStudentId] = useState({});
+  const [resultsTermName, setResultsTermName] = useState(null);
+  const [loadingResults, setLoadingResults] = useState(false);
   
   const { refreshYears, switchYear } = useYear();
   const { getAuthHeader } = useAuth();
@@ -90,20 +97,50 @@ function AcademicYearManager() {
     setPromoteYearId(yearId);
     setShowPromoteModal(true);
     setLoadingStudents(true);
+    setLoadingResults(true);
     setSelectedForPromotion([]);
     setPromoteGradeFilter('all');
     setPromoteSectionFilter('all');
-    
+    setResultsByStudentId({});
+    setResultsTermName(null);
+
     try {
       // Fetch all active students for this year
       const response = await api.get(`/students/?academic_year_id=${yearId}`, {
         headers: getAuthHeader()
       });
-      setStudentsForPromotion(response.data);
-      
-      // Default: select ALL students for promotion
-      setSelectedForPromotion(response.data.map(s => s.id));
-      
+      const students = response.data;
+      setStudentsForPromotion(students);
+
+      // ✅ NEW — Phase 4: pull in computed results for this year (the
+      // school's own "final term"), so the default selection reflects
+      // who actually passed instead of just checking every box. If this
+      // fails or comes back empty (school hasn't used the results
+      // system yet), fall back to the old behavior — select everyone —
+      // rather than blocking the promote flow.
+      let resultsMap = {};
+      try {
+        const resultsResponse = await api.get(`/results/?academic_year_id=${yearId}`, {
+          headers: getAuthHeader()
+        });
+        const results = resultsResponse.data || [];
+        results.forEach((r) => { resultsMap[r.student] = r; });
+        setResultsByStudentId(resultsMap);
+        setResultsTermName(results.length > 0 ? results[0].term_name : null);
+      } catch (resultsErr) {
+        console.warn('Results not available for this year, defaulting to select-all:', resultsErr);
+      }
+
+      // Default selection: promote everyone EXCEPT students who have a
+      // computed result that says they failed. Anyone with no result
+      // yet (or if results couldn't be loaded at all) still defaults to
+      // promoted, same as before — this only ever narrows the default,
+      // it never blocks a student the admin didn't get a chance to see.
+      const defaultSelected = students
+        .filter((s) => resultsMap[s.id]?.is_passing !== false)
+        .map((s) => s.id);
+      setSelectedForPromotion(defaultSelected);
+
       // Fetch available next years
       const yearsResponse = await api.get('/academic-years/', {
         headers: getAuthHeader()
@@ -125,6 +162,7 @@ function AcademicYearManager() {
       showMessage('error', 'Failed to load students');
     } finally {
       setLoadingStudents(false);
+      setLoadingResults(false);
     }
   };
 
@@ -703,6 +741,30 @@ function AcademicYearManager() {
                 </div>
               ) : (
                 <div>
+                  {/* ✅ NEW — Phase 4: tells the admin whether the checkboxes
+                      below were pre-set from real results, and from which
+                      term, so nobody mistakes a data-driven default for a
+                      random guess (or vice versa). */}
+                  {!loadingResults && (
+                    resultsTermName ? (
+                      <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-sm text-blue-800">
+                        <CheckCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                        <span>
+                          Checkboxes below are pre-set using each student's <strong>{resultsTermName}</strong> results —
+                          students who failed start unchecked. Review and adjust anyone before confirming.
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-2 bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4 text-sm text-yellow-800">
+                        <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                        <span>
+                          No results found for this academic year yet, so every student defaults to "Promote" —
+                          review the list manually below before confirming.
+                        </span>
+                      </div>
+                    )
+                  )}
+
                   {/* ✅ NEW: Grade / Section filters — narrows a long school-wide
                       list down to one class at a time so you're not scrolling
                       past hundreds of students to find the ones you want. */}
@@ -773,6 +835,7 @@ function AcademicYearManager() {
                           <th className="px-4 py-3 text-left font-medium text-gray-600">ID</th>
                           <th className="px-4 py-3 text-center font-medium text-gray-600">Grade</th>
                           <th className="px-4 py-3 text-center font-medium text-gray-600">Section</th>
+                          <th className="px-4 py-3 text-center font-medium text-gray-600">Results</th>
                           <th className="px-4 py-3 text-center font-medium text-gray-600">Action</th>
                         </tr>
                       </thead>
@@ -806,6 +869,28 @@ function AcademicYearManager() {
                               </td>
                               <td className="px-4 py-3 text-center text-gray-500 text-xs">
                                 {student.section || '—'}
+                              </td>
+                              <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                {(() => {
+                                  const result = resultsByStudentId[student.id];
+                                  if (!result || result.overall_average == null) {
+                                    return <span className="text-xs text-gray-400">No data</span>;
+                                  }
+                                  return (
+                                    <div className="flex flex-col items-center gap-0.5">
+                                      <span className="text-xs font-semibold text-gray-700">
+                                        {Number(result.overall_average).toFixed(1)}%
+                                      </span>
+                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                                        result.is_passing
+                                          ? 'bg-green-100 text-green-700'
+                                          : 'bg-red-100 text-red-700'
+                                      }`}>
+                                        {result.is_passing ? 'Pass' : 'Fail'}
+                                      </span>
+                                    </div>
+                                  );
+                                })()}
                               </td>
                               <td className="px-4 py-3 text-center">
                                 {isPromoted ? (
