@@ -30,6 +30,7 @@ import AdminStudents from './pages/AdminStudents';
 import AdminPayments from './pages/AdminPayments';
 import AdminAcademicYears from './pages/AdminAcademicYears';
 import AdminResultsAwards from './pages/AdminResultsAwards';
+import AdminReportCards from './pages/AdminReportCards';
 import SMSDashboard from './pages/SMSDashboard';
 import AdminSlips from './pages/AdminSlips';
 import TestDashboard from './pages/TestDashboard';
@@ -62,6 +63,7 @@ import TeacherDashboard from './pages/teacher/TeacherDashboard';
 import TeacherGradebook from './pages/teacher/TeacherGradebook';
 import TeacherAttendance from './pages/teacher/TeacherAttendance';
 import TeacherSubjectAttendance from './pages/teacher/TeacherSubjectAttendance';
+import TeacherClassResults from './pages/teacher/TeacherClassResults';
 // Styles
 import './index.css';
 
@@ -217,6 +219,20 @@ function App() {
                     <ChapaWarningProvider>
                       <AdminLayout>
                         <AdminResultsAwards />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Report Cards — generate/release (Phase 6) */}
+              <Route
+                path="/admin/report-cards"
+                element={
+                  <ProtectedRoute>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <AdminReportCards />
                       </AdminLayout>
                     </ChapaWarningProvider>
                   </ProtectedRoute>
@@ -462,6 +478,10 @@ function App() {
               <Route
                 path="/teacher/subject-attendance/:subjectId"
                 element={<TeacherProtectedRoute><TeacherSubjectAttendance /></TeacherProtectedRoute>}
+              />
+              <Route
+                path="/teacher/results"
+                element={<TeacherProtectedRoute><TeacherClassResults /></TeacherProtectedRoute>}
               />
 
             </Routes>

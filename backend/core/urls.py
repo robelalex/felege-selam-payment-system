@@ -23,6 +23,7 @@ from exams.views import (
     TermViewSet, AssessmentTypeViewSet, MarkViewSet, DailyAttendanceViewSet, SubjectAttendanceViewSet,
     StudentTermResultViewSet,
 )
+from report_cards.views import ReportCardViewSet
 
 # ✅ SchoolViewSet is REMOVED from this router — it lives in schools/urls.py now
 router = DefaultRouter()
@@ -37,6 +38,7 @@ router.register(r'marks', MarkViewSet, basename='mark')
 router.register(r'attendance', DailyAttendanceViewSet, basename='attendance')
 router.register(r'subject-attendance', SubjectAttendanceViewSet, basename='subject-attendance')
 router.register(r'results', StudentTermResultViewSet, basename='student-term-result')
+router.register(r'report-cards', ReportCardViewSet, basename='report-card')
 
 urlpatterns = [
     path('health/', health_check, name='health_check'),

@@ -856,6 +856,82 @@ class StudentTermResultViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(StudentTermResultSerializer(qs, many=True).data)
 
     @action(detail=False, methods=['get'])
+    def class_results_terms(self, request):
+        """
+        Query params: grade, section, academic_year_id.
+
+        Same homeroom ownership rule as class_results above (admin, or
+        the homeroom teacher for this exact grade+section), but instead
+        of one term's ranking, returns every term side by side plus the
+        average-of-terms figure and the rank based on THAT average — the
+        "Term 1 | Term 2 | Average" view for the homeroom's
+        "Check Result and Award" screen. Doesn't touch class_results or
+        school_top above; this is a new, separate action.
+        """
+        school_id = get_verified_school_id(request)
+        grade = request.query_params.get('grade')
+        section = request.query_params.get('section', '')
+        academic_year_id = request.query_params.get('academic_year_id')
+
+        if not (school_id and grade and academic_year_id):
+            return Response({'error': 'grade and academic_year_id are required'}, status=400)
+
+        try:
+            grade = int(grade)
+            academic_year_id = int(academic_year_id)
+        except (TypeError, ValueError):
+            return Response({'error': 'grade and academic_year_id must be numbers'}, status=400)
+
+        staff = _get_staff_profile(request)
+        if not _is_admin(request):
+            if not staff or not _teacher_owns_homeroom(staff, grade, section, academic_year_id):
+                return Response({'error': 'You are not the homeroom teacher for this class'}, status=403)
+
+        from schools.models import School
+        school = School.objects.filter(id=school_id).first()
+        year = AcademicYear.objects.filter(id=academic_year_id, school_id=school_id).first()
+        if not (school and year):
+            return Response({'error': 'Academic year not found'}, status=404)
+
+        terms = list(Term.objects.filter(school=school, academic_year=year, is_active=True).order_by('order', 'name'))
+
+        from report_cards.services.cumulative_service import compute_cumulative_for_class_with_terms
+        data = compute_cumulative_for_class_with_terms(school, year, grade, section)
+
+        students = Student.objects.filter(school=school, grade=grade, section=section, status='active').order_by('first_name', 'last_name')
+
+        results = []
+        for s in students:
+            entry = data.get(s.id, {})
+            per_term = entry.get('per_term', {})
+            results.append({
+                'student_id': s.id,
+                'student_name': f"{s.first_name} {s.last_name}",
+                'student_id_display': s.student_id,
+                'terms': [
+                    {
+                        'term_id': t.id,
+                        'term_name': t.name,
+                        'average': per_term.get(t.id, {}).get('average'),
+                    }
+                    for t in terms
+                ],
+                'average_of_terms': entry.get('overall_average'),
+                'terms_counted': entry.get('terms_counted', 0),
+                'is_passing': entry.get('is_passing'),
+                'letter_grade': entry.get('letter_grade', ''),
+                'homeroom_rank': entry.get('homeroom_rank'),
+                'homeroom_rank_total': entry.get('homeroom_rank_total'),
+            })
+
+        results.sort(key=lambda r: (r['homeroom_rank'] is None, r['homeroom_rank'] or 0))
+
+        return Response({
+            'terms': [{'id': t.id, 'name': t.name} for t in terms],
+            'results': results,
+        })
+
+    @action(detail=False, methods=['get'])
     def school_top(self, request):
         """Query params: term_id, band ('elementary' or 'high_school'), limit (default 3). Admin only — for award/ranking lists."""
         if not _is_admin(request):

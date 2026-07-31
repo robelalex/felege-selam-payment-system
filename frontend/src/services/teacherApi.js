@@ -129,6 +129,11 @@ export const saveSubjectAttendance = ({ subjectId, grade, section, date, entries
 export const getClassResults = ({ termId, grade, section = '' }) =>
   teacherApi.get('/results/class_results/', { params: { term_id: termId, grade, section } });
 
+// Term 1 | Term 2 | ... | Average-of-terms view for the homeroom's
+// "Check Result and Award" screen (Phase 6 cumulative logic, reused).
+export const getClassResultsByTerms = ({ grade, section = '', academicYearId }) =>
+  teacherApi.get('/results/class_results_terms/', { params: { grade, section, academic_year_id: academicYearId } });
+
 export const extractError = (err, fallback) =>
   err.response?.data?.error || err.response?.data?.detail || fallback;
 

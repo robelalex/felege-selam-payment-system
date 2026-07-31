@@ -25,6 +25,7 @@ import {
   ChevronDown,
   BookOpen,
   Trophy,
+  FileText,
   Users as UsersIcon
 } from 'lucide-react';
 import api from '../../services/api';
@@ -256,6 +257,7 @@ const getLogoUrl = () => {
   const schoolAdminSettingsNavItems = [
     { path: '/admin/academic-years', label: t('nav_academic_years'), icon: Calendar },
     { path: '/admin/results-awards', label: t('nav_results_awards'), icon: Trophy },
+    { path: '/admin/report-cards', label: t('nav_report_cards'), icon: FileText },
     { path: '/admin/deadlines', label: t('nav_payment_deadlines'), icon: Calendar },
     { path: '/admin/sections', label: t('nav_sections'), icon: Grid },
     { path: '/admin/staff', label: t('nav_staff'), icon: UsersIcon },
@@ -286,6 +288,7 @@ const getLogoUrl = () => {
         { path: '/admin/academics-setup', label: t('nav_academics_setup'), icon: BookOpen },
         { path: '/admin/academic-years', label: t('nav_academic_years'), icon: Calendar },
         { path: '/admin/results-awards', label: t('nav_results_awards'), icon: Trophy },
+        { path: '/admin/report-cards', label: t('nav_report_cards'), icon: FileText },
         { path: '/admin/staff', label: t('nav_staff'), icon: UsersIcon },
       ],
     },

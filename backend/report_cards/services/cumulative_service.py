@@ -126,6 +126,41 @@ def compute_cumulative_for_class(school, academic_year, grade, section):
     return results
 
 
+def compute_cumulative_for_class_with_terms(school, academic_year, grade, section):
+    """
+    Same ranking/averaging as compute_cumulative_for_class() above — not
+    changed, not touched — but each student's dict also gets a
+    'per_term' key: { term_id: {'term_name': str, 'average': Decimal|None} }
+    for every term in this academic year, so a screen can show Term 1 |
+    Term 2 | ... | Average side by side instead of just the final
+    average-of-terms figure.
+
+    Built for the homeroom "Check Result and Award" screen, which needs
+    to show each term individually next to the cumulative average rather
+    than just the cumulative number on its own.
+    """
+    base = compute_cumulative_for_class(school, academic_year, grade, section)
+
+    term_results = (
+        StudentTermResult.objects.filter(
+            school=school, academic_year=academic_year, grade=grade, section=section,
+        )
+        .select_related('term')
+    )
+
+    per_term_by_student = {}
+    for tr in term_results:
+        per_term_by_student.setdefault(tr.student_id, {})[tr.term_id] = {
+            'term_name': tr.term.name,
+            'average': tr.overall_average,
+        }
+
+    for student_id, entry in base.items():
+        entry['per_term'] = per_term_by_student.get(student_id, {})
+
+    return base
+
+
 def compute_cumulative_school_ranks(school, academic_year, is_elementary):
     """
     School-wide cumulative rank, split elementary (grades 1-8) vs high
