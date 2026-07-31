@@ -32,7 +32,7 @@ from django.db.models import Avg
 from .. import models as exam_models
 
 
-def _round2(value):
+def round2(value):
     if value is None:
         return None
     return Decimal(value).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
@@ -59,7 +59,7 @@ def recompute_subject_term_result(student, subject, term):
     total_max = sum(m.assessment_type.max_score for m in marks if m.assessment_type.max_score)
     marks_counted = sum(1 for m in marks if m.assessment_type.max_score)
 
-    average_percentage = _round2((total_score / total_max) * 100) if total_max else None
+    average_percentage = round2((total_score / total_max) * 100) if total_max else None
     school = term.school
     is_passing = school.is_passing_score(average_percentage) if average_percentage is not None else None
 
@@ -90,7 +90,7 @@ def recompute_student_term_result(student, term, computed_by=None):
         student=student, term=term, average_percentage__isnull=False,
     )
     values = [r.average_percentage for r in subject_results]
-    overall_average = _round2(sum(values) / len(values)) if values else None
+    overall_average = round2(sum(values) / len(values)) if values else None
 
     school = term.school
     is_passing = school.is_passing_score(overall_average) if overall_average is not None else None
@@ -113,31 +113,42 @@ def recompute_student_term_result(student, term, computed_by=None):
     return result
 
 
-def _assign_ranks(queryset):
+def rank_by_value(items, get_value):
     """
-    Shared helper: given a StudentTermResult queryset (already scoped to
-    one ranking pool — a homeroom class, or a school-wide elementary/high
-    school band), sort by overall_average descending and write rank +
-    rank_total back with one bulk_update. Students with no
-    overall_average yet (nothing accepted for them this term) are left
-    unranked (rank stays null) rather than counted at the bottom, since
-    they don't have a result to be ranked ON.
-    """
-    ranked = [r for r in queryset if r.overall_average is not None]
-    ranked.sort(key=lambda r: r.overall_average, reverse=True)
-    total = len(ranked)
+    Generic, reusable ranking core — no dependency on any particular
+    model. Given a list of arbitrary items and a function to pull a
+    numeric value out of each one, returns (ranked_items, total) where
+    ranked_items is [(item, rank), ...] sorted descending by value, with
+    standard competition ranking for ties (two people tied for 1st both
+    get rank 1, the next person gets rank 3, not 2). Items whose value is
+    None are dropped entirely — you can't rank someone with no score.
 
-    # Ties share the same rank (standard competition ranking: 1,2,2,4).
-    updates = []
-    prev_average = None
+    This is the same logic that was previously private to this file
+    (only used for StudentTermResult); pulled out to a standalone
+    function so report_cards' cumulative-year ranking can reuse the
+    exact same, already-tested tie-handling instead of a second
+    hand-rolled copy.
+    """
+    scored = [(item, get_value(item)) for item in items]
+    scored = [(item, value) for item, value in scored if value is not None]
+    scored.sort(key=lambda pair: pair[1], reverse=True)
+    total = len(scored)
+
+    ranked_items = []
+    prev_value = None
     current_rank = 0
-    for i, result in enumerate(ranked, start=1):
-        if result.overall_average != prev_average:
+    for i, (item, value) in enumerate(scored, start=1):
+        if value != prev_value:
             current_rank = i
-            prev_average = result.overall_average
-        updates.append((result, current_rank))
+            prev_value = value
+        ranked_items.append((item, current_rank))
 
-    return updates, total
+    return ranked_items, total
+
+
+def _assign_ranks(queryset):
+    """Thin wrapper around rank_by_value for StudentTermResult querysets — see rank_by_value for the actual logic."""
+    return rank_by_value(list(queryset), lambda r: r.overall_average)
 
 
 def recompute_homeroom_ranks(school, academic_year, term, grade, section):

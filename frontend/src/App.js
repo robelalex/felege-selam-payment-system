@@ -29,6 +29,7 @@ import Reports from './pages/Reports';
 import AdminStudents from './pages/AdminStudents';
 import AdminPayments from './pages/AdminPayments';
 import AdminAcademicYears from './pages/AdminAcademicYears';
+import AdminResultsAwards from './pages/AdminResultsAwards';
 import SMSDashboard from './pages/SMSDashboard';
 import AdminSlips from './pages/AdminSlips';
 import TestDashboard from './pages/TestDashboard';
@@ -61,7 +62,6 @@ import TeacherDashboard from './pages/teacher/TeacherDashboard';
 import TeacherGradebook from './pages/teacher/TeacherGradebook';
 import TeacherAttendance from './pages/teacher/TeacherAttendance';
 import TeacherSubjectAttendance from './pages/teacher/TeacherSubjectAttendance';
-import TeacherClassResults from './pages/teacher/TeacherClassResults';
 // Styles
 import './index.css';
 
@@ -203,6 +203,20 @@ function App() {
                     <ChapaWarningProvider>
                       <AdminLayout>
                         <AdminAcademicYears />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* School-wide Results & Awards (Phase 4) */}
+              <Route
+                path="/admin/results-awards"
+                element={
+                  <ProtectedRoute>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <AdminResultsAwards />
                       </AdminLayout>
                     </ChapaWarningProvider>
                   </ProtectedRoute>
@@ -448,10 +462,6 @@ function App() {
               <Route
                 path="/teacher/subject-attendance/:subjectId"
                 element={<TeacherProtectedRoute><TeacherSubjectAttendance /></TeacherProtectedRoute>}
-              />
-              <Route
-                path="/teacher/results"
-                element={<TeacherProtectedRoute><TeacherClassResults /></TeacherProtectedRoute>}
               />
 
             </Routes>

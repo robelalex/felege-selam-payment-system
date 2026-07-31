@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'authentication',
     'academics',
     'exams',
+    'report_cards',
     'common',
     'staff',
     'admin_dashboard',

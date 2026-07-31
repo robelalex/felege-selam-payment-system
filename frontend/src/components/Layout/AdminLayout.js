@@ -24,6 +24,7 @@ import {
   History,
   ChevronDown,
   BookOpen,
+  Trophy,
   Users as UsersIcon
 } from 'lucide-react';
 import api from '../../services/api';
@@ -254,6 +255,7 @@ const getLogoUrl = () => {
   // ✅ ADDED badge to Chapa Payment
   const schoolAdminSettingsNavItems = [
     { path: '/admin/academic-years', label: t('nav_academic_years'), icon: Calendar },
+    { path: '/admin/results-awards', label: t('nav_results_awards'), icon: Trophy },
     { path: '/admin/deadlines', label: t('nav_payment_deadlines'), icon: Calendar },
     { path: '/admin/sections', label: t('nav_sections'), icon: Grid },
     { path: '/admin/staff', label: t('nav_staff'), icon: UsersIcon },
@@ -283,6 +285,7 @@ const getLogoUrl = () => {
         { path: '/admin/sections', label: t('nav_sections'), icon: Grid },
         { path: '/admin/academics-setup', label: t('nav_academics_setup'), icon: BookOpen },
         { path: '/admin/academic-years', label: t('nav_academic_years'), icon: Calendar },
+        { path: '/admin/results-awards', label: t('nav_results_awards'), icon: Trophy },
         { path: '/admin/staff', label: t('nav_staff'), icon: UsersIcon },
       ],
     },
