@@ -99,6 +99,10 @@ function AdminLogin() {
           }));
         }
 
+        // ✅ Let YearContext know a token now exists, so it can fetch
+        // academic years instead of waiting for the next full page load.
+        window.dispatchEvent(new CustomEvent('authChanged'));
+
         navigate('/admin/dashboard');
       } else {
         setError(response.data.error || 'Invalid OTP code');

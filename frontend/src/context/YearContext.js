@@ -20,7 +20,27 @@ export const YearProvider = ({ children }) => {
   const [selectedYear, setSelectedYear] = useState(null);
 
   useEffect(() => {
-    fetchYears();
+    // ✅ Only fetch if we actually have a token — avoids firing this on
+    // public/unauthenticated pages (parent login, receipt page, etc.)
+    // where it would just 401 every time.
+    if (localStorage.getItem('access_token')) {
+      fetchYears();
+    } else {
+      setLoading(false);
+    }
+
+    // ✅ Refetch once the user logs in. YearProvider is mounted once,
+    // above <Router>, so it never remounts on navigation — without this
+    // listener, years would only ever be fetched (or skipped) based on
+    // whatever auth state existed on the very first page load.
+    const handleAuthChanged = () => {
+      if (localStorage.getItem('access_token')) {
+        setLoading(true);
+        fetchYears();
+      }
+    };
+    window.addEventListener('authChanged', handleAuthChanged);
+    return () => window.removeEventListener('authChanged', handleAuthChanged);
   }, []);
 
   const fetchYears = async () => {
