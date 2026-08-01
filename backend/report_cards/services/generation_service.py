@@ -33,12 +33,15 @@ def _homeroom_teacher_name(school, academic_year, grade, section):
 
 def _attendance_summary(student, academic_year):
     """
-    Year-to-date attendance counts. Term has no start/end date on this
-    schools's data model, so a per-term breakdown isn't possible yet —
-    every report card (term or cumulative) shows the same year-to-date
-    figures, which is standard practice for most report cards anyway.
+    Year-to-date attendance counts. Returns (None, None, None) when no
+    attendance has been recorded at all — so the report card shows "—"
+    rather than "2 present · 0 absent · 0 late" which confuses parents
+    into thinking the school only tracked 2 days.
     """
     qs = DailyAttendance.objects.filter(student=student, academic_year=academic_year)
+    total = qs.count()
+    if total == 0:
+        return None, None, None
     present = qs.filter(status='present').count()
     absent = qs.filter(status='absent').count()
     late = qs.filter(status='late').count()
@@ -136,9 +139,23 @@ def generate_cumulative_report_card(student, academic_year, generated_by=None):
     present, absent, late = _attendance_summary(student, academic_year)
     homeroom_name = _homeroom_teacher_name(school, academic_year, student.grade, student.section)
 
-    term_names = sorted({
-        tn for subj in cumulative['subjects'] for tn in subj['per_term'].keys()
-    }) if cumulative['subjects'] else []
+    # Collect term names in CORRECT chronological order (Term.order field),
+    # not alphabetical — alphabetical puts "Semester 10" before "Semester 2".
+    # We query the actual Term rows to get their declared order.
+    from exams.models import Term as TermModel
+    year_terms = list(
+        TermModel.objects.filter(school=school, academic_year=academic_year, is_active=True)
+        .order_by('order', 'name')
+        .values_list('name', flat=True)
+    )
+    # Only keep terms that actually appear in this student's subject data.
+    subject_term_names = {tn for subj in cumulative['subjects'] for tn in subj['per_term'].keys()}
+    ordered_term_names = [t for t in year_terms if t in subject_term_names]
+    # Safety: any term in data that isn't in the school's term list (edge case)
+    # goes at the end, in alphabetical order.
+    extras = sorted(subject_term_names - set(ordered_term_names))
+    term_names = ordered_term_names + extras
+
     snapshot = {'subjects': cumulative['subjects'], 'term_names': term_names}
 
     # Homeroom rank among the student's own class, using the same

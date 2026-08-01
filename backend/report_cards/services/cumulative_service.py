@@ -69,7 +69,7 @@ def compute_cumulative_for_student(student, academic_year):
         year_avg = round2(sum(data['values']) / len(data['values']))
         subjects_snapshot.append({
             'subject_name': name,
-            'year_average': year_avg,
+            'year_average': float(year_avg) if year_avg is not None else None,
             'per_term': {term_name: float(val) for term_name, val in data['per_term'].items()},
         })
     subjects_snapshot.sort(key=lambda s: s['subject_name'])
