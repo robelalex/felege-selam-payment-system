@@ -868,7 +868,12 @@ def create_staff(request):
         if role not in valid_roles:
             return Response({'error': f'Invalid role. Choose from: {valid_roles}'}, status=400)
         
-        if User.objects.filter(email=email).exists():
+        # Only block on a genuine admin/staff collision — a 'parent'
+        # account under this email is a separate identity (see
+        # RegisterSerializer.validate and admin_login_step1 for the same
+        # exclusion) and shouldn't stop this email from also being used
+        # for a staff account.
+        if User.objects.exclude(profile__role='parent').filter(email=email).exists():
             return Response({'error': 'Email already exists'}, status=400)
         if User.objects.filter(username=username).exists():
             return Response({'error': 'Username already exists'}, status=400)

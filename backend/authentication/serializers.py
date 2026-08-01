@@ -87,13 +87,19 @@ class RegisterSerializer(serializers.Serializer):
     def validate(self, attrs):
         if attrs['password'] != attrs['confirm_password']:
             raise serializers.ValidationError({"password": "Password fields didn't match."})
-        
-        if User.objects.filter(email=attrs['email']).exists():
+
+        # Only block on a genuine admin/staff collision. A 'parent' account
+        # under this email is a separate identity for a separate purpose
+        # (see admin_login_step1's matching exclusion) — a parent should
+        # always be free to also register as a school admin or staff
+        # member, at this school or any other, without their existing
+        # parent account getting in the way.
+        if User.objects.exclude(profile__role='parent').filter(email=attrs['email']).exists():
             raise serializers.ValidationError({"email": "User with this email already exists."})
-        
+
         if User.objects.filter(username=attrs['username']).exists():
             raise serializers.ValidationError({"username": "Username already taken."})
-        
+
         return attrs
     
     def create(self, validated_data):
