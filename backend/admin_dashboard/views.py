@@ -56,6 +56,17 @@ def dashboard(request):
                     user.profile.is_email_verified = True
                     user.profile.role = 'school_admin'
                     user.profile.save()
+                # ✅ FIX: sync the School model's own status fields so the
+                # subscription middleware, the admin list, and any future
+                # expiry checks all see 'approved' instead of 'pending'.
+                if hasattr(user, 'profile') and user.profile.school_id:
+                    try:
+                        school = School.objects.get(id=user.profile.school_id)
+                        school.subscription_status = 'approved'
+                        school.subscription_active = True
+                        school.save(update_fields=['subscription_status', 'subscription_active'])
+                    except School.DoesNotExist:
+                        pass
                 return redirect('/admin-dashboard/dashboard/')
             except User.DoesNotExist:
                 pass

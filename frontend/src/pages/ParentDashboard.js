@@ -35,12 +35,15 @@ function ParentDashboard() {
   // ✅ NEW: Chapa status state
   const [chapaConfigured, setChapaConfigured] = useState(true);
   const [loadingChapa, setLoadingChapa] = useState(true);
+  // ✅ NEW: Multiple bank accounts
+  const [bankAccounts, setBankAccounts] = useState([]);
 
   useEffect(() => {
     fetchStudentData();
     fetchAcademicYear();
     fetchPendingSlips();
     checkChapaStatus(); // ✅ Check if Chapa is configured
+    fetchBankAccounts(); // ✅ Load school's bank accounts
   }, [studentId]);
 
   // ✅ NEW: Check Chapa status for this school
@@ -54,6 +57,17 @@ function ParentDashboard() {
       setChapaConfigured(false);
     } finally {
       setLoadingChapa(false);
+    }
+  };
+
+  // ✅ NEW: Fetch school's bank accounts so parents see all options
+  const fetchBankAccounts = async () => {
+    try {
+      const res = await api.get('/bank-accounts/');
+      const accounts = res.data?.results || res.data || [];
+      setBankAccounts(accounts);
+    } catch {
+      // Silently fall back to the old single-account fields on student object
     }
   };
 
@@ -209,21 +223,40 @@ const handleMakePayment = async (deadlineId, amount) => {
 
   const handleBankTransfer = (payment) => {
     const schoolName = student?.school_name || 'School Name';
-    const bankName = student?.bank_name || 'Commercial Bank of Ethiopia';
-    const accountName = student?.bank_account_holder || schoolName;
-    const accountNumber = student?.bank_account_number || 'Not provided';
-    
+
+    // Use the new bank accounts list if available; fall back to old single-account fields
+    const accountList = bankAccounts.length > 0
+      ? bankAccounts.map(acc => ({
+          label: acc.display_label || acc.bank_name,
+          bank: acc.bank_name,
+          accountName: acc.account_holder,
+          accountNumber: acc.account_number,
+          isPrimary: acc.is_primary,
+        }))
+      : [{
+          label: student?.bank_name || 'Commercial Bank of Ethiopia',
+          bank: student?.bank_name || 'Commercial Bank of Ethiopia',
+          accountName: student?.bank_account_holder || schoolName,
+          accountNumber: student?.bank_account_number || 'Not provided',
+          isPrimary: true,
+        }];
+
+    const primaryAcc = accountList.find(a => a.isPrimary) || accountList[0];
+
     setShowBankInfo({
-      payment: payment,
+      payment,
       amount: payment.amount,
+      accounts: accountList,
       instructions: [
-        `Bank: ${bankName}`,
-        `Account Name: ${accountName}`,
-        `Account Number: ${accountNumber}`,
+        accountList.length > 1
+          ? `Choose any of the ${accountList.length} accounts listed below`
+          : `Bank: ${primaryAcc.bank}`,
+        `Account Name: ${primaryAcc.accountName}`,
+        `Account Number: ${primaryAcc.accountNumber}`,
         `Reference: Use Student ID: ${student?.student_id}`,
         `Month: ${payment.month_name}`,
-        'After transfer, upload the bank slip'
-      ]
+        'After transfer, upload the bank slip',
+      ],
     });
   };
 
@@ -630,18 +663,45 @@ const handleMakePayment = async (deadlineId, amount) => {
       {showBankInfo && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowBankInfo(null)}>
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold mb-4">Bank Transfer Instructions</h3>
-            <div className="space-y-2">
-              {showBankInfo.instructions.map((instruction, idx) => (
-                <p key={idx} className="text-sm text-gray-700">{instruction}</p>
-              ))}
+            <h3 className="text-lg font-bold mb-1">Bank Transfer Instructions</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Transfer the amount to any of the accounts below, then upload your slip.
+            </p>
+
+            {/* Multiple bank account cards */}
+            {showBankInfo.accounts && showBankInfo.accounts.length > 0 ? (
+              <div className="space-y-3 mb-4">
+                {showBankInfo.accounts.map((acc, idx) => (
+                  <div key={idx} className={`border rounded-lg p-3 ${acc.isPrimary ? 'border-primary-300 bg-primary-50' : 'border-gray-200'}`}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Building2 className="h-4 w-4 text-primary-600 flex-shrink-0" />
+                      <span className="font-semibold text-sm text-gray-900">{acc.bank}</span>
+                      {acc.isPrimary && <span className="text-xs bg-primary-100 text-primary-700 px-1.5 py-0.5 rounded-full">Primary</span>}
+                    </div>
+                    <p className="text-sm text-gray-600 ml-6">Account Name: <span className="font-medium">{acc.accountName}</span></p>
+                    <p className="text-sm text-gray-600 ml-6">Account No: <span className="font-mono font-medium">{acc.accountNumber}</span></p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2 mb-4">
+                {showBankInfo.instructions.map((instruction, idx) => (
+                  <p key={idx} className="text-sm text-gray-700">{instruction}</p>
+                ))}
+              </div>
+            )}
+
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4 text-sm text-yellow-800">
+              <p>Reference: Use your student ID <span className="font-bold">{student?.student_id}</span></p>
+              <p className="mt-0.5">Month: <span className="font-medium">{showBankInfo.payment?.month_name}</span></p>
             </div>
+
             <button
               onClick={() => {
                 setShowBankInfo(null);
                 handleUploadClick(showBankInfo.payment);
               }}
-              className="mt-4 w-full btn-primary flex items-center justify-center gap-2"
+              className="mt-2 w-full btn-primary flex items-center justify-center gap-2"
             >
               <Upload className="h-4 w-4" />
               Upload Bank Slip

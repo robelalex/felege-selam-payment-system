@@ -17,6 +17,7 @@ from .views import (
 
 router = DefaultRouter()
 router.register(r'schools', views.SchoolViewSet)
+router.register(r'bank-accounts', views.BankAccountViewSet, basename='bank-account')
 
 urlpatterns = [
     # ✅ CRITICAL: Custom paths MUST come BEFORE router.urls

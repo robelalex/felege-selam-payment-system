@@ -5,7 +5,7 @@ from django.http import HttpResponse, HttpResponseRedirect
 from django.middleware.csrf import get_token
 from django.core.mail import send_mail
 from django.conf import settings
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
@@ -268,6 +268,7 @@ def admin_login_step2(request):
 # ===== OTP 2FA: PARENT LOGIN WITH OTP ONLY =====
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@authentication_classes([])
 @csrf_exempt
 def parent_login_step1(request):
     """Step 1: Parent sends email, receives REAL OTP"""
@@ -321,6 +322,7 @@ def parent_login_step1(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@authentication_classes([])
 @csrf_exempt
 def parent_login_step2(request):
     """Step 2: Verify REAL OTP and return success"""

@@ -8,7 +8,7 @@ from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from ..services.chapa_service import ChapaService
 from ..services.payment_initiation_service import initiate_payment_checkout
 from ..services.receipt_service import finalize_receipt
@@ -27,9 +27,14 @@ ENGLISH_MONTHS = {
 }
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def initiate_chapa_payment(request):
-    """Initiate a Chapa payment using school's OWN credentials"""
+    """Initiate a Chapa payment using school's OWN credentials.
+
+    Requires the caller to be authenticated as a parent whose email or phone
+    matches the student's parent_email / parent_phone — so a parent can only
+    pay for their own child, not for a random student ID they guessed.
+    """
     try:
         data = request.data
         student_id  = data.get('student_id')
@@ -60,6 +65,27 @@ def initiate_chapa_payment(request):
             return JsonResponse(
                 {'success': False, 'error': f'Student {student_id} not found'},
                 status=404
+            )
+
+        # ✅ SECURITY: verify the authenticated caller is actually this
+        # student's parent — not just someone who knows the student_id.
+        # A parent's User is created with their email as the username, and
+        # their student's parent_email / parent_phone links back to them.
+        caller_email = request.user.email or ''
+        caller_phone = getattr(request.user, 'profile', None)
+        caller_phone = caller_phone.phone if caller_phone else ''
+        is_own_child = (
+            (caller_email and caller_email == student.parent_email) or
+            (caller_phone and caller_phone == student.parent_phone)
+        )
+        # Super admins and school admins are allowed to initiate on behalf
+        # of a parent (e.g. for testing or assisted payment at the counter).
+        from common.utils import get_effective_role
+        role = get_effective_role(request.user)
+        if not is_own_child and role not in ('super_admin', 'school_admin'):
+            return JsonResponse(
+                {'success': False, 'error': 'You can only initiate payment for your own child'},
+                status=403
             )
 
         # ✅ Verify student belongs to this school

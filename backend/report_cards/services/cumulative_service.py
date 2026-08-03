@@ -70,7 +70,8 @@ def compute_cumulative_for_student(student, academic_year):
         subjects_snapshot.append({
             'subject_name': name,
             'year_average': float(year_avg) if year_avg is not None else None,
-            'per_term': {term_name: float(val) for term_name, val in data['per_term'].items()},
+            'per_term': {term_name: float(val) if val is not None else None
+                         for term_name, val in data['per_term'].items()},
         })
     subjects_snapshot.sort(key=lambda s: s['subject_name'])
 
@@ -83,15 +84,15 @@ def compute_cumulative_for_student(student, academic_year):
             'subjects': subjects_snapshot,
         }
 
-    overall_values = [tr.overall_average for tr in term_results]
-    overall_average = round2(sum(overall_values) / len(overall_values))
+    overall_values = [tr.overall_average for tr in term_results if tr.overall_average is not None]
+    overall_average = round2(sum(overall_values) / len(overall_values)) if overall_values else None
 
     school = academic_year.school
     is_passing = school.is_passing_score(overall_average)
     letter_grade = school.letter_grade_for(overall_average)
 
     return {
-        'overall_average': overall_average,
+        'overall_average': float(overall_average) if overall_average is not None else None,
         'terms_counted': len(term_results),
         'is_passing': is_passing,
         'letter_grade': letter_grade,

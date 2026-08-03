@@ -5,8 +5,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
 from django.core.exceptions import ObjectDoesNotExist
-from .models import School, SchoolAdminProfile
-from .serializers import SchoolSerializer
+from .models import School, SchoolAdminProfile, SchoolBankAccount
+from .serializers import SchoolSerializer, BankAccountSerializer
 from .utils import get_school_for_user
 
 # Import the SMS service
@@ -665,3 +665,48 @@ class SchoolEmailTestView(APIView):
             school.save(update_fields=['email_enabled', 'email_test_status'])
             
             return Response({'error': error_msg}, status=400)
+
+# ── Bank Accounts API ────────────────────────────────────────────────────────
+class BankAccountViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for a school's bank accounts (multiple per school supported).
+    School admins manage their own accounts only; super admins can manage
+    any school's accounts using X-School-ID header.
+    Parents read their school's active accounts via the list action —
+    that's how the app shows "pay into this account" options.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        from common.utils import get_verified_school_id
+        school_id = get_verified_school_id(self.request)
+        if not school_id:
+            return SchoolBankAccount.objects.none()
+        qs = SchoolBankAccount.objects.filter(school_id=school_id)
+        # Non-admins (parents) only ever see active accounts.
+        from common.utils import get_effective_role
+        role = get_effective_role(self.request.user)
+        if role not in ('super_admin', 'school_admin'):
+            qs = qs.filter(is_active=True)
+        return qs
+
+    def get_serializer_class(self):
+        return BankAccountSerializer
+
+    def perform_create(self, serializer):
+        from common.utils import get_verified_school_id
+        school_id = get_verified_school_id(self.request)
+        from .models import School
+        school = School.objects.get(id=school_id)
+        # If this is being marked primary, un-mark the current primary first.
+        if serializer.validated_data.get('is_primary'):
+            SchoolBankAccount.objects.filter(school=school, is_primary=True).update(is_primary=False)
+        serializer.save(school=school)
+
+    def perform_update(self, serializer):
+        if serializer.validated_data.get('is_primary'):
+            school = serializer.instance.school
+            SchoolBankAccount.objects.filter(school=school, is_primary=True).exclude(
+                pk=serializer.instance.pk
+            ).update(is_primary=False)
+        serializer.save()

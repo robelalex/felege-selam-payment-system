@@ -175,7 +175,7 @@ def generate_cumulative_report_card(student, academic_year, generated_by=None):
                 'grade': student.grade,
                 'section': student.section,
                 'homeroom_teacher_name': homeroom_name,
-                'overall_average': cumulative['overall_average'],
+                'overall_average': float(cumulative['overall_average']) if cumulative['overall_average'] is not None else None,
                 'is_passing': cumulative['is_passing'],
                 'letter_grade': cumulative['letter_grade'],
                 'homeroom_rank': class_entry.get('homeroom_rank'),

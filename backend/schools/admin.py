@@ -1,7 +1,7 @@
 # backend/schools/admin.py
 from django.contrib import admin
 from django.contrib.auth.models import User
-from .models import School, SchoolAdminProfile
+from .models import School, SchoolAdminProfile, SchoolBankAccount
 
 @admin.register(School)
 class SchoolAdmin(admin.ModelAdmin):
@@ -53,3 +53,10 @@ class SchoolAdminProfileAdmin(admin.ModelAdmin):
     list_filter = ['is_active', 'school']
     search_fields = ['user__username', 'user__email', 'school__name']
     raw_id_fields = ['user', 'school']
+
+@admin.register(SchoolBankAccount)
+class SchoolBankAccountAdmin(admin.ModelAdmin):
+    list_display = ['school', 'bank_name', 'account_number', 'account_holder', 'is_primary', 'is_active', 'supports_auto_verify']
+    list_filter = ['bank_code', 'is_primary', 'is_active', 'supports_auto_verify', 'school']
+    search_fields = ['school__name', 'account_number', 'account_holder', 'display_label']
+    autocomplete_fields = ['school']

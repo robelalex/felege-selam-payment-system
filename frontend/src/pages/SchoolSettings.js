@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { getMediaUrl } from '../utils/imageUrl';
+import SchoolBankAccounts from '../components/Admin/SchoolBankAccounts';
 
 const SchoolSettings = () => {
     const { getAuthHeader } = useAuth();
@@ -498,6 +499,11 @@ const SchoolSettings = () => {
                         </button>
                     </div>
                 </form>
+            </div>
+
+            {/* ==================== BANK ACCOUNTS ==================== */}
+            <div className="bg-white shadow rounded-lg overflow-hidden p-6 mt-6">
+                <SchoolBankAccounts />
             </div>
 
             {/* ==================== INSTRUCTIONS ==================== */}

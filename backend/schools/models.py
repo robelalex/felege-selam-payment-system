@@ -335,3 +335,5 @@ class SchoolAdminProfile(models.Model):
     class Meta:
         verbose_name = "School Admin Profile"
         verbose_name_plural = "School Admin Profiles"
+# ── Multiple bank accounts (Phase 7 addition) ─────────────────────────────
+from .bank_account_models import SchoolBankAccount  # noqa: F401

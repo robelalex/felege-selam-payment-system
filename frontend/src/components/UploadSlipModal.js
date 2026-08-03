@@ -12,11 +12,25 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState(null);
-  
+  const [bankAccounts, setBankAccounts] = useState([]);
+  // selectedBankId: 'auto' = let backend detect, or a SchoolBankAccount id
+  const [selectedBankId, setSelectedBankId] = useState('auto');
+
   // Auto-extraction states
   const [extracting, setExtracting] = useState(false);
   const [aiDetected, setAiDetected] = useState(false);
   const [showManualInput, setShowManualInput] = useState(false);
+
+  // Load school's bank accounts so the parent can say which one they used
+  useEffect(() => {
+    api.get('/bank-accounts/').then(res => {
+      const list = res.data?.results || res.data || [];
+      setBankAccounts(list);
+      // Default-select the primary if there's only one or there's a clear primary
+      const primary = list.find(a => a.is_primary);
+      if (primary) setSelectedBankId(String(primary.id));
+    }).catch(() => {});
+  }, []);
 
   const handleFileChange = async (e) => {
     const selectedFile = e.target.files[0];
@@ -77,7 +91,17 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
     formData.append('student_id', student.student_id);
     formData.append('deadline_id', deadline.id);
     formData.append('amount', deadline.amount);
-    formData.append('bank_name', 'CBE'); // Always CBE for now
+
+    // Resolve bank name: use the selected account's display name, or fall
+    // back to 'auto' so the backend OCR detects it from the slip image.
+    if (selectedBankId && selectedBankId !== 'auto') {
+      const chosen = bankAccounts.find(a => String(a.id) === String(selectedBankId));
+      formData.append('bank_name', chosen ? chosen.bank_name : 'auto');
+      formData.append('bank_account_id', selectedBankId);
+    } else {
+      formData.append('bank_name', student?.bank_name || 'auto');
+    }
+
     formData.append('transaction_reference', transactionReference.trim());
     formData.append('slip_image', file);
     formData.append('uploaded_by', student.parent_full_name || student.full_name);
@@ -167,6 +191,32 @@ function UploadSlipModal({ student, deadline, onClose, onSuccess }) {
                   </div>
                 </div>
               </div>
+
+              {/* Bank Account Picker */}
+              {bankAccounts.length > 0 && (
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Which account did you pay into? *</label>
+                  <div className="space-y-2">
+                    {bankAccounts.map(acc => (
+                      <label key={acc.id} className={`flex items-start gap-3 border rounded-xl p-3 cursor-pointer transition-all ${String(selectedBankId) === String(acc.id) ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                        <input
+                          type="radio"
+                          name="bank_account"
+                          value={String(acc.id)}
+                          checked={String(selectedBankId) === String(acc.id)}
+                          onChange={() => setSelectedBankId(String(acc.id))}
+                          className="mt-0.5 flex-shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm text-gray-900">{acc.bank_name}</p>
+                          <p className="text-xs text-gray-500 font-mono">{acc.account_number} · {acc.account_holder}</p>
+                          {acc.display_label && <p className="text-xs text-gray-400">"{acc.display_label}"</p>}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* File Upload Area */}
               <div>
