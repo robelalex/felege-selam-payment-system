@@ -18,7 +18,7 @@ function PrivacyPolicy() {
         <p>We implement industry-standard security measures to protect your personal information.</p>
         
         <h2 className="text-xl font-semibold mt-6 mb-2">4. Contact Us</h2>
-        <p>Email: robelalex90@gmail.com</p>
+        <p>Email: support@schoolpayethiopia.com</p>
         
         <div className="mt-8 pt-4 border-t text-gray-500 text-sm">
           <p>{PLATFORM_NAME}</p>

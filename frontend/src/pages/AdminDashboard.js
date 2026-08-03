@@ -55,6 +55,17 @@ function AdminDashboard() {
     () => sessionStorage.getItem('chapaBannerDismissed') === '1'
   );
 
+  // ✅ Item 6: onboarding checklist for new/small schools
+  const [onboarding, setOnboarding] = useState({
+    loading: true,
+    hasBankAccount: false,
+    termsCount: 0,
+    deadlinesCount: 0,
+  });
+  const [checklistDismissed, setChecklistDismissed] = useState(
+    () => localStorage.getItem('onboardingChecklistDismissed') === '1'
+  );
+
   const { selectedYear } = useYear();
   const isFetching = useRef(false);
   const abortController = useRef(null);
@@ -213,9 +224,37 @@ function AdminDashboard() {
     };
   }, []);
 
+  const fetchOnboardingStatus = useCallback(async () => {
+    try {
+      const [bankRes, termsRes, deadlinesRes] = await Promise.all([
+        api.get('/bank-accounts/'),
+        api.get('/terms/'),
+        api.get('/deadlines/'),
+      ]);
+      const bankData = bankRes.data?.results || bankRes.data || [];
+      const termsData = termsRes.data?.results || termsRes.data || [];
+      const deadlinesData = deadlinesRes.data?.results || deadlinesRes.data || [];
+      setOnboarding({
+        loading: false,
+        hasBankAccount: bankData.length > 0,
+        termsCount: termsData.length,
+        deadlinesCount: deadlinesData.length,
+      });
+    } catch (err) {
+      console.error('Error checking onboarding status:', err);
+      setOnboarding(prev => ({ ...prev, loading: false }));
+    }
+  }, []);
+
+  const handleDismissChecklist = () => {
+    setChecklistDismissed(true);
+    localStorage.setItem('onboardingChecklistDismissed', '1');
+  };
+
   useEffect(() => {
     fetchData();
     checkChapaStatus();
+    fetchOnboardingStatus();
 
     const handleRefresh = () => { fetchData(); };
     window.addEventListener('refreshData', handleRefresh);
@@ -225,7 +264,7 @@ function AdminDashboard() {
       window.removeEventListener('refreshData', handleRefresh);
       window.removeEventListener('yearChanged', handleRefresh);
     };
-  }, [fetchData, checkChapaStatus]);
+  }, [fetchData, checkChapaStatus, fetchOnboardingStatus]);
 
   const overall = {
     total: dashboardStats.total_students,
@@ -235,6 +274,48 @@ function AdminDashboard() {
     collection: dashboardStats.collection_rate,
     totalCollected: dashboardStats.total_collected
   };
+
+  // ✅ Item 6: onboarding checklist — shown to schools that are still
+  // getting set up. "Fewer than 5 students" is a stand-in for "brand new
+  // school", not a hard cutoff — it purposely stays visible a little
+  // past a single test student so admins actually finish setup.
+  const onboardingSteps = [
+    {
+      key: 'bank_account',
+      label: 'Add a bank account',
+      description: 'So parents know where to send bank transfers',
+      complete: onboarding.hasBankAccount,
+      to: '/school-settings',
+    },
+    {
+      key: 'students',
+      label: 'Add students',
+      description: 'Register the students at your school',
+      complete: dashboardStats.total_students >= 5,
+      to: '/admin/students',
+    },
+    {
+      key: 'terms',
+      label: 'Set up terms',
+      description: 'Define your grading periods (e.g. Semester 1, Semester 2)',
+      complete: onboarding.termsCount > 0,
+      to: '/admin/academics-setup',
+    },
+    {
+      key: 'deadlines',
+      label: 'Set payment deadlines',
+      description: 'Tell parents when monthly fees are due',
+      complete: onboarding.deadlinesCount > 0,
+      to: '/admin/deadlines',
+    },
+  ];
+
+  const needsOnboarding = (
+    dashboardStats.total_students < 5 ||
+    onboarding.deadlinesCount === 0 ||
+    onboarding.termsCount === 0
+  );
+  const showOnboardingChecklist = !onboarding.loading && !checklistDismissed && needsOnboarding;
 
   const visibleGrades = ALL_GRADES.filter(g => {
     if (levelFilter === 'elementary') return g <= 8;
@@ -392,6 +473,59 @@ function AdminDashboard() {
             </div>
           </motion.div>
         )
+      )}
+
+      {/* ===== ONBOARDING CHECKLIST ===== */}
+      {showOnboardingChecklist && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          className="bg-white border border-primary-100 rounded-2xl shadow-sm p-5"
+        >
+          <div className="flex items-start justify-between gap-3 mb-4">
+            <div>
+              <h3 className="font-semibold text-gray-900 text-base">🚀 Finish setting up your school</h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Complete these steps so parents can start paying and viewing report cards.
+              </p>
+            </div>
+            <button
+              onClick={handleDismissChecklist}
+              className="text-gray-400 hover:text-gray-700 text-xl font-bold leading-none flex-shrink-0"
+              title="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {onboardingSteps.map((step, idx) => (
+              <Link
+                key={step.key}
+                to={step.to}
+                className={`flex items-start gap-3 p-3 rounded-xl border transition-colors ${
+                  step.complete
+                    ? 'border-green-200 bg-green-50'
+                    : 'border-gray-200 hover:border-primary-300 hover:bg-primary-50'
+                }`}
+              >
+                {step.complete ? (
+                  <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
+                ) : (
+                  <div className="h-5 w-5 rounded-full border-2 border-gray-300 flex items-center justify-center text-[11px] font-semibold text-gray-400 flex-shrink-0 mt-0.5">
+                    {idx + 1}
+                  </div>
+                )}
+                <div>
+                  <p className={`text-sm font-medium ${step.complete ? 'text-green-800' : 'text-gray-900'}`}>
+                    Step {idx + 1}: {step.label}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">{step.description}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </motion.div>
       )}
 
       {/* Stats Cards */}

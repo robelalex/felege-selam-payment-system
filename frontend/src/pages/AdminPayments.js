@@ -206,23 +206,23 @@ function AdminPayments() {
   };
 
   const handleExport = async () => {
+    if (!selectedYear || !selectedYear.id) {
+      alert('Please select an academic year before exporting.');
+      return;
+    }
     try {
       const params = new URLSearchParams();
-      if (selectedYear && selectedYear.id) {
-        params.append('academic_year_id', selectedYear.id);
-      }
-      
-      const queryString = params.toString();
-      const url = queryString ? `/payments/export/?${queryString}` : '/payments/export/';
-      
-      const response = await api.get(url, { responseType: 'blob' });
-      const url_blob = window.URL.createObjectURL(new Blob([response.data]));
+      params.append('academic_year_id', selectedYear.id);
+
+      const response = await api.get(`/payments/export/?${params.toString()}`, { responseType: 'blob' });
+      const url_blob = window.URL.createObjectURL(new Blob([response.data], { type: 'text/csv' }));
       const link = document.createElement('a');
       link.href = url_blob;
-      link.setAttribute('download', `payments_${selectedYear?.name || 'all'}_${new Date().toISOString().slice(0,10)}.xlsx`);
+      link.setAttribute('download', `verified_payments_${selectedYear.name || 'all'}_${new Date().toISOString().slice(0,10)}.csv`);
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url_blob);
     } catch (err) {
       console.error('Export failed:', err);
       alert('Failed to export payments');
@@ -375,7 +375,7 @@ const getMonthName = (payment) => {
           })()}
           <button onClick={handleExport} className="btn-outline flex items-center gap-2 tap-target">
             <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">Export</span>
+            <span className="hidden sm:inline">Export to CSV</span>
           </button>
           <button onClick={fetchPayments} className="btn-outline flex items-center gap-2 tap-target">
             <RefreshCw className="h-4 w-4" />

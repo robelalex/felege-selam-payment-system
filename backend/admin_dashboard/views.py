@@ -5,6 +5,8 @@ from django.contrib.auth.models import User
 from django.http import HttpResponse
 from django.contrib.auth.hashers import make_password
 from django.utils import timezone
+from django.db.models import Sum
+from datetime import timedelta
 import json
 
 from schools.models import School, SchoolAdminProfile
@@ -122,12 +124,52 @@ def dashboard(request):
             except School.DoesNotExist:
                 pass
     
+    # ✅ Item 5 — Super admin revenue/overview dashboard.
+    # Computed directly from School.subscription_status (not the
+    # User-based approximation above) so suspended schools are counted
+    # correctly and nothing is missed just because a school's admin user
+    # happens to be inactive for an unrelated reason.
+    schools_approved_count = School.objects.filter(subscription_status='approved').count()
+    schools_pending_count = School.objects.filter(subscription_status='pending').count()
+    schools_suspended_count = School.objects.filter(subscription_status='suspended').count()
+    schools_rejected_count = School.objects.filter(subscription_status='rejected').count()
+    total_schools_all = School.objects.count()
+
+    total_students_all = Student.objects.filter(status='active').count()
+
+    now = timezone.now()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    verified_this_month = Payment.objects.filter(
+        status='verified',
+        is_archived=False,
+        verified_at__gte=month_start,
+    ).aggregate(total=Sum('amount'))
+    total_verified_amount_this_month = verified_this_month['total'] or 0
+
+    expiring_soon_cutoff = now.date() + timedelta(days=30)
+    schools_expiring_soon = School.objects.filter(
+        subscription_expiry__isnull=False,
+        subscription_expiry__gte=now.date(),
+        subscription_expiry__lte=expiring_soon_cutoff,
+    ).order_by('subscription_expiry')
+
     context = {
         'total_schools': len(pending_schools) + len(approved_schools_list),
         'pending_approvals': len(pending_schools),
         'approved_schools': len(approved_schools_list),
         'pending_schools': pending_schools,
         'approved_schools_list': approved_schools_list,
+
+        # Item 5 additions
+        'total_schools_all': total_schools_all,
+        'schools_approved_count': schools_approved_count,
+        'schools_pending_count': schools_pending_count,
+        'schools_suspended_count': schools_suspended_count,
+        'schools_rejected_count': schools_rejected_count,
+        'total_students_all': total_students_all,
+        'total_verified_amount_this_month': total_verified_amount_this_month,
+        'schools_expiring_soon': schools_expiring_soon,
+        'current_month_label': now.strftime('%B %Y'),
     }
     return render(request, 'admin_dashboard/dashboard.html', context)
 

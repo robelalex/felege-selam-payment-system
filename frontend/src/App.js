@@ -33,9 +33,6 @@ import AdminResultsAwards from './pages/AdminResultsAwards';
 import AdminReportCards from './pages/AdminReportCards';
 import SMSDashboard from './pages/SMSDashboard';
 import AdminSlips from './pages/AdminSlips';
-import TestDashboard from './pages/TestDashboard';
-import LoginTest from './pages/LoginTest';
-import SimpleTest from './pages/SimpleTest';
 import PaymentSuccess from './pages/PaymentSuccess';
 import AdminDeadlines from './pages/AdminDeadlines';
 import ParentLogin from './pages/ParentLogin';
@@ -267,20 +264,6 @@ function App() {
                 }
               />
 
-              {/* Test */}
-              <Route
-                path="/admin/test"
-                element={
-                  <ProtectedRoute>
-                    <ChapaWarningProvider>
-                      <AdminLayout>
-                        <TestDashboard />
-                      </AdminLayout>
-                    </ChapaWarningProvider>
-                  </ProtectedRoute>
-                }
-              />
-
               {/* Super Admin */}
               <Route
                 path="/superadmin/dashboard"
@@ -381,9 +364,6 @@ function App() {
                 element={<PaymentLandingPage />} 
               />
 
-              {/* Test Routes */}
-              <Route path="/login-test" element={<LoginTest />} />
-              <Route path="/simple-test" element={<SimpleTest />} />
               <Route path="/payment/success" element={<PaymentSuccess />} />
 
               {/* Parent Portal Routes */}

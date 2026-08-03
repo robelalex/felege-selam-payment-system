@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
-// ✅ CRITICAL FIX: Point to actual Django backend on Render
-const API_BASE = "https://felege-selam-payment-system.onrender.com";
+// ✅ FIX (item 3): was hardcoded to a specific Render deployment URL, which
+// silently breaks this page on any other environment (staging, a future
+// re-deploy under a different service name, etc). Derived from the same
+// REACT_APP_API_URL env var services/api.js uses — that var includes a
+// trailing /api, which this file's callers append manually, so it's
+// stripped back off here.
+const API_BASE = (
+  process.env.REACT_APP_API_URL || "https://felege-selam-payment-system.onrender.com/api"
+).replace(/\/api\/?$/, "");
 
 const STATUS_MESSAGES = {
   expired: "This payment link has expired. Please contact the school office for a new one.",

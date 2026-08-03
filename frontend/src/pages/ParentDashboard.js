@@ -7,7 +7,7 @@ import {
   XCircle, AlertCircle, Loader, Eye, Download, 
   ChevronRight, User, Home, Receipt, TrendingUp,
   Shield, Smartphone, Building2, Lock, ArrowLeft,
-  Upload, Banknote, Trash2, AlertTriangle
+  Upload, Banknote, Trash2, AlertTriangle, FileText, Award
 } from 'lucide-react';
 import api from '../services/api';
 import { getMediaUrl } from '../utils/imageUrl';
@@ -37,6 +37,9 @@ function ParentDashboard() {
   const [loadingChapa, setLoadingChapa] = useState(true);
   // ✅ NEW: Multiple bank accounts
   const [bankAccounts, setBankAccounts] = useState([]);
+  // ✅ NEW: Released report cards
+  const [reportCards, setReportCards] = useState([]);
+  const [loadingReportCards, setLoadingReportCards] = useState(true);
 
   useEffect(() => {
     fetchStudentData();
@@ -44,7 +47,25 @@ function ParentDashboard() {
     fetchPendingSlips();
     checkChapaStatus(); // ✅ Check if Chapa is configured
     fetchBankAccounts(); // ✅ Load school's bank accounts
+    fetchReportCards(); // ✅ Load released report cards
   }, [studentId]);
+
+  // ✅ NEW: Fetch this student's released report cards
+  const fetchReportCards = async () => {
+    setLoadingReportCards(true);
+    try {
+      const response = await api.get('/report-cards/', {
+        params: { student_id: studentId, status: 'released' }
+      });
+      const cards = response.data?.results || response.data || [];
+      setReportCards(cards);
+    } catch (err) {
+      console.error('Error fetching report cards:', err);
+      setReportCards([]);
+    } finally {
+      setLoadingReportCards(false);
+    }
+  };
 
   // ✅ NEW: Check Chapa status for this school
   const checkChapaStatus = async () => {
@@ -390,6 +411,60 @@ const handleMakePayment = async (deadlineId, amount) => {
             </div>
           </div>
         </div>
+
+        {/* Report Cards Section */}
+        {!loadingReportCards && reportCards.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-lg p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <Award className="h-5 w-5 text-indigo-600" />
+              Report Cards ({reportCards.length})
+            </h2>
+            <div className="space-y-3">
+              {reportCards.map((card) => (
+                <div
+                  key={card.id}
+                  className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border border-gray-200 rounded-xl p-4 hover:border-indigo-200 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-indigo-100 rounded-lg flex-shrink-0">
+                      <FileText className="h-5 w-5 text-indigo-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900">
+                        {card.report_type === 'cumulative'
+                          ? `${card.academic_year_name} — Year-End Report`
+                          : `${card.term_name || 'Term'} — ${card.academic_year_name}`}
+                      </p>
+                      <div className="flex flex-wrap gap-3 mt-1 text-sm text-gray-500">
+                        {card.overall_average != null && (
+                          <span>Average: {parseFloat(card.overall_average).toFixed(1)}%</span>
+                        )}
+                        {card.letter_grade && <span>Grade: {card.letter_grade}</span>}
+                        {card.released_at && (
+                          <span>Released {formatDate(card.released_at)}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {card.pdf_url ? (
+                    <a
+                      href={card.pdf_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium flex-shrink-0"
+                    >
+                      <Download className="h-4 w-4" />
+                      Download PDF
+                    </a>
+                  ) : (
+                    <span className="text-sm text-gray-400 flex-shrink-0">PDF not available</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Pending Payments Section */}
         {pendingPayments.length > 0 && (

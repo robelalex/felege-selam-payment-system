@@ -46,11 +46,53 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        params = self.request.query_params
+
+        # ✅ Parent portal support: a parent account has no
+        # SchoolAdminProfile / UserProfile.school_id, so
+        # get_verified_school_id(request) always resolves to None for
+        # them — the queryset below used to come back empty for every
+        # single parent request as a result, regardless of student_id.
+        # Parents are scoped by matching the STUDENT's parent_email /
+        # parent_phone against the logged-in account instead, and only
+        # ever see released report cards for that one child.
+        if get_effective_role(self.request.user) == 'parent':
+            student_id = params.get('student_id')
+            if not student_id:
+                return ReportCard.objects.none()
+
+            student = Student.objects.filter(pk=student_id).first()
+            if not student:
+                return ReportCard.objects.none()
+
+            user_email = (self.request.user.email or '').strip().lower()
+            profile = getattr(self.request.user, 'profile', None)
+            user_phone = (getattr(profile, 'phone', '') or '').strip()
+            student_email = (student.parent_email or '').strip().lower()
+            student_phone = (student.parent_phone or '').strip()
+
+            owns_student = (
+                (user_email and user_email == student_email)
+                or (user_phone and user_phone == student_phone)
+            )
+            if not owns_student:
+                return ReportCard.objects.none()
+
+            qs = ReportCard.objects.select_related('student', 'term', 'academic_year') \
+                .filter(student=student, status='released')  # parents never see drafts
+
+            if params.get('academic_year_id'):
+                qs = qs.filter(academic_year_id=params['academic_year_id'])
+            if params.get('term_id'):
+                qs = qs.filter(term_id=params['term_id'])
+            if params.get('report_type'):
+                qs = qs.filter(report_type=params['report_type'])
+            return qs
+
         school_id = get_verified_school_id(self.request)
         qs = ReportCard.objects.select_related('student', 'term', 'academic_year', 'generated_by', 'released_by') \
             .filter(school_id=school_id)
 
-        params = self.request.query_params
         if params.get('academic_year_id'):
             qs = qs.filter(academic_year_id=params['academic_year_id'])
         if params.get('grade'):

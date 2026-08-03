@@ -23,11 +23,29 @@ from django.db import models
 # real logged-in school_admin/super_admin/accountant, and get_verified_school_id
 # resolves the school from THEIR account, not from a client-supplied header.
 from authentication.permissions import CanManagePayments
-from common.utils import get_verified_school_id
+from common.utils import get_verified_school_id, get_effective_role
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+# ✅ SECURITY FIX (item 1): upload_slip was @permission_classes([AllowAny])
+# with NO login required — anyone on the internet could upload a "payment
+# slip" for any student at any school. Now requires a real logged-in user
+# (parent or school staff), plus an ownership check below so a parent can
+# only upload slips for their OWN child.
+#
+# NOTE: deliberately NOT using @authentication_classes([]) here (the
+# pattern used elsewhere in this repo, e.g. parent_login_step1/step2, to
+# dodge SessionAuthentication's CSRF 401s on the LOGIN endpoints, where the
+# user isn't authenticated yet). An empty authentication_classes list means
+# no authenticator ever runs at all, so request.user would always be
+# AnonymousUser and IsAuthenticated would reject every request — including
+# legitimate ones. This endpoint needs auth to actually run: the web parent
+# portal calls it with a session cookie (+ CSRF header, already sent by the
+# axios interceptor) after parent_login_step2's auth_login(), and the
+# Flutter app calls it with the JWT bearer token from the same step. The
+# project-wide defaults (JWTAuthentication + SessionAuthentication) already
+# support both, so we leave authentication_classes unset here.
+@permission_classes([IsAuthenticated])
 @csrf_exempt
 def upload_slip(request):
     """
@@ -48,15 +66,46 @@ def upload_slip(request):
         student = Student.objects.get(student_id=student_id)
         deadline = PaymentDeadline.objects.get(id=deadline_id)
 
-        school_id = request.headers.get('X-School-ID')
-        school = None
-        if school_id:
-            try:
-                school = School.objects.get(id=int(school_id))
-                if str(student.school_id) != school_id:
-                    return Response({'error': 'Student does not belong to your school'}, status=403)
-            except Exception:
-                pass
+        # ✅ SECURITY FIX (item 1): ownership check. School admins and
+        # payment managers (accountants) upload slips on behalf of parents
+        # all the time, so they bypass this — everyone else must be the
+        # student's own parent, verified by matching the logged-in
+        # account's email/phone against the student's parent_email/
+        # parent_phone. Never trust a "parent name" field from the body.
+        role = get_effective_role(request.user)
+        is_school_staff = role in ('super_admin', 'school_admin', 'accountant')
+
+        if not is_school_staff:
+            user_email = (request.user.email or '').strip().lower()
+            profile = getattr(request.user, 'profile', None)
+            user_phone = (getattr(profile, 'phone', '') or '').strip()
+            student_email = (student.parent_email or '').strip().lower()
+            student_phone = (student.parent_phone or '').strip()
+
+            email_matches = bool(user_email) and user_email == student_email
+            phone_matches = bool(user_phone) and user_phone == student_phone
+
+            if not (email_matches or phone_matches):
+                return Response(
+                    {'error': 'You are not authorized to upload a payment slip for this student.'},
+                    status=403
+                )
+
+        # ✅ Derive the school from the student record itself rather than
+        # trusting a client-supplied X-School-ID header — the header used
+        # to be the ONLY source, and was silently skipped whenever it was
+        # simply absent from the request.
+        school_id = str(student.school_id)
+        try:
+            school = School.objects.get(id=student.school_id)
+        except School.DoesNotExist:
+            school = None
+
+        # Non-super-admin staff must be scoped to their own school.
+        if is_school_staff and role != 'super_admin':
+            verified_school_id = get_verified_school_id(request)
+            if verified_school_id and student.school_id != verified_school_id:
+                return Response({'error': 'Student does not belong to your school'}, status=403)
 
         image_bytes = slip_image.read()
 

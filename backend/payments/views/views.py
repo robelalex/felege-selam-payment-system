@@ -329,54 +329,71 @@ class PaymentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='export')
     def export_payments(self, request):
         """
-        Export payments to Excel.
+        Item 7: GET /api/payments/export/?academic_year_id=X
+        Exports VERIFIED payments for the given academic year as a CSV,
+        with the exact columns the admin payments page needs for
+        bookkeeping/reconciliation.
 
-        ✅ NEW: the frontend (AdminPayments.js handleExport) has been
-        calling GET /payments/export/ but no matching backend endpoint
-        existed at all — every export attempt was a 404, hence "Failed to
-        export payments". This mirrors the school/year scoping already
-        used by get_queryset, and the export-file pattern already used by
-        StudentViewSet.export_students.
+        ✅ Rewritten from an earlier version of this same endpoint that
+        exported an .xlsx of ALL payments (any status) regardless of
+        academic year — that's the wrong shape for "verified payments for
+        this year" bookkeeping, and .xlsx needs openpyxl just to open,
+        where every spreadsheet tool (and Excel itself) opens CSV directly.
         """
+        import csv
+
+        school_id = get_verified_school_id(request)
+        if not school_id:
+            return Response({'error': 'School ID required'}, status=400)
+
+        year_id = request.query_params.get('academic_year_id')
+        if not year_id:
+            return Response({'error': 'academic_year_id is required'}, status=400)
+
         try:
-            queryset = self.get_queryset()
+            academic_year = AcademicYear.objects.get(id=int(year_id), school_id=school_id)
+        except (AcademicYear.DoesNotExist, ValueError):
+            return Response({'error': 'Academic year not found'}, status=404)
 
-            data = []
-            for payment in queryset.select_related('student', 'deadline'):
-                data.append({
-                    'Student ID': payment.student.student_id,
-                    'Student Name': f"{payment.student.first_name} {payment.student.last_name}",
-                    'Grade': payment.student.grade,
-                    'Section': payment.student.section,
-                    'Deadline Month': payment.deadline.month if payment.deadline else '',
-                    'Amount': payment.amount,
-                    'Payment Method': payment.get_payment_method_display() if hasattr(payment, 'get_payment_method_display') else payment.payment_method,
-                    'Status': payment.get_status_display() if hasattr(payment, 'get_status_display') else payment.status,
-                    'Transaction Reference': payment.transaction_reference,
-                    'Paid By': payment.paid_by,
-                    'Paid By Phone': payment.paid_by_phone,
-                    'Verified At': payment.verified_at.strftime('%Y-%m-%d %H:%M') if payment.verified_at else '',
-                    'Created At': payment.created_at.strftime('%Y-%m-%d %H:%M') if payment.created_at else '',
-                })
+        payments = Payment.objects.select_related('student', 'deadline', 'verified_by').filter(
+            student__school_id=school_id,
+            deadline__academic_year=academic_year,
+            status='verified',
+            is_archived=False,
+        ).order_by('student__grade', 'student__first_name', 'verified_at')
 
-            df = pd.DataFrame(data)
+        response = HttpResponse(content_type='text/csv')
+        filename = f'verified_payments_{academic_year.name}_{datetime.now().strftime("%Y%m%d")}.csv'
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
 
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, sheet_name='Payments', index=False)
-            output.seek(0)
+        writer = csv.writer(response)
+        writer.writerow([
+            'Student Name', 'Student ID', 'Grade', 'Section', 'Month',
+            'Amount', 'Payment Method', 'Transaction Reference',
+            'Verified Date', 'Verified By',
+        ])
 
-            response = HttpResponse(
-                output.read(),
-                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        for payment in payments:
+            student = payment.student
+            deadline = payment.deadline
+            verified_by_name = (
+                payment.verified_by.get_full_name() or payment.verified_by.username
+                if payment.verified_by else ''
             )
-            response['Content-Disposition'] = (
-                f'attachment; filename="payments_export_{datetime.now().strftime("%Y%m%d")}.xlsx"'
-            )
-            return response
+            writer.writerow([
+                f"{student.first_name} {student.last_name}",
+                student.student_id,
+                student.grade,
+                student.section,
+                deadline.get_month_display() if deadline else '',
+                payment.amount,
+                payment.get_payment_method_display(),
+                payment.transaction_reference,
+                payment.verified_at.strftime('%Y-%m-%d %H:%M') if payment.verified_at else '',
+                verified_by_name,
+            ])
 
-        except Exception as e:
-            return Response({'error': str(e)}, status=500)
+        return response
 
 
 class PaymentDeadlineViewSet(viewsets.ModelViewSet):
