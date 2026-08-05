@@ -36,6 +36,27 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(editStudent?.photo ? getMediaUrl(editStudent.photo) : null);
 
+  const [formData, setFormData] = useState({
+    student_id: editStudent?.student_id || '',
+    first_name: editStudent?.first_name || '',
+    last_name: editStudent?.last_name || '',
+    father_name: editStudent?.father_name || '',
+    mother_name: editStudent?.mother_name || '',
+    grade: editStudent?.grade || 1,
+    section: editStudent?.section || '',
+    academic_year: editStudent?.academic_year || '',
+    parent_full_name: editStudent?.parent_full_name || '',
+    parent_phone: editStudent?.parent_phone || '',
+    parent_alternative_phone: editStudent?.parent_alternative_phone || '',
+    parent_email: editStudent?.parent_email || '',
+    monthly_fee: editStudent?.monthly_fee || 200,
+    city: editStudent?.city || 'Jimma',
+    subcity: editStudent?.subcity || '',
+    kebele: editStudent?.kebele || '',
+    house_number: editStudent?.house_number || '',
+    status: editStudent?.status || 'active'
+  });
+
   // ✅ NEW: enrollment documents (birth certificate, leaving certificate, etc.)
   // selected right here in the form, uploaded automatically right after the
   // student record is created/saved. Keyed by document_type -> File.
@@ -71,27 +92,6 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
     setDocumentFiles(prev => ({ ...prev, [documentType]: file }));
     setError('');
   };
-  
-  const [formData, setFormData] = useState({
-    student_id: editStudent?.student_id || '',
-    first_name: editStudent?.first_name || '',
-    last_name: editStudent?.last_name || '',
-    father_name: editStudent?.father_name || '',
-    mother_name: editStudent?.mother_name || '',
-    grade: editStudent?.grade || 1,
-    section: editStudent?.section || '',
-    academic_year: editStudent?.academic_year || '',
-    parent_full_name: editStudent?.parent_full_name || '',
-    parent_phone: editStudent?.parent_phone || '',
-    parent_alternative_phone: editStudent?.parent_alternative_phone || '',
-    parent_email: editStudent?.parent_email || '',
-    monthly_fee: editStudent?.monthly_fee || 200,
-    city: editStudent?.city || 'Jimma',
-    subcity: editStudent?.subcity || '',
-    kebele: editStudent?.kebele || '',
-    house_number: editStudent?.house_number || '',
-    status: editStudent?.status || 'active'
-  });
 
   // Fetch available academic years
   useEffect(() => {
