@@ -17,11 +17,15 @@ import {
   Mail,
   GraduationCap,
   User,
-  MoreVertical
+  MoreVertical,
+  Image as ImageIcon,
+  FileText
 } from 'lucide-react';
 import api from '../services/api';
 import StudentRegistrationForm from '../components/Admin/StudentRegistrationForm';
 import BulkImport from '../components/Admin/BulkImport';
+import BulkPhotoUpload from '../components/Admin/BulkPhotoUpload';
+import StudentDocumentsModal from '../components/Admin/StudentDocumentsModal';
 import { useYear } from '../context/YearContext';
 
 function AdminStudents() {
@@ -33,6 +37,9 @@ function AdminStudents() {
   const [editStudent, setEditStudent] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [showBulkImport, setShowBulkImport] = useState(false);
+  // ✅ NEW: bulk photo upload + per-student document management
+  const [showBulkPhotoUpload, setShowBulkPhotoUpload] = useState(false);
+  const [documentsStudent, setDocumentsStudent] = useState(null);
   const [viewMode, setViewMode] = useState('table'); // 'table' or 'grid'
   const itemsPerPage = 10;
   
@@ -261,6 +268,15 @@ function AdminStudents() {
               <Upload className="h-4 w-4" />
               <span className="hidden sm:inline">Bulk Import</span>
             </button>
+
+            {/* ✅ NEW: Bulk photo upload — ZIP matched by Student ID filename */}
+            <button
+              onClick={() => setShowBulkPhotoUpload(true)}
+              className="btn-outline flex items-center gap-2 tap-target"
+            >
+              <ImageIcon className="h-4 w-4" />
+              <span className="hidden sm:inline">Bulk Photos</span>
+            </button>
             
             <button 
               onClick={handleExport}
@@ -408,6 +424,14 @@ function AdminStudents() {
                               >
                                 <Edit className="h-4 w-4 text-gray-600" />
                               </button>
+                              {/* ✅ NEW: enrollment documents (birth cert, leaving cert, etc.) */}
+                              <button
+                                onClick={() => setDocumentsStudent(student)}
+                                className="p-1 hover:bg-gray-100 rounded transition-colors tap-target"
+                                title="Documents"
+                              >
+                                <FileText className="h-4 w-4 text-gray-600" />
+                              </button>
                               <button 
                                 onClick={() => handleDeleteStudent(student.id)}
                                 className="p-1 hover:bg-gray-100 rounded transition-colors tap-target"
@@ -514,6 +538,29 @@ function AdminStudents() {
               fetchStudents();
               setShowBulkImport(false);
             }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ✅ NEW: Bulk Photo Upload Modal */}
+      <AnimatePresence>
+        {showBulkPhotoUpload && (
+          <BulkPhotoUpload
+            onClose={() => setShowBulkPhotoUpload(false)}
+            onSuccess={() => {
+              fetchStudents();
+              setShowBulkPhotoUpload(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ✅ NEW: Enrollment Documents Modal */}
+      <AnimatePresence>
+        {documentsStudent && (
+          <StudentDocumentsModal
+            student={documentsStudent}
+            onClose={() => setDocumentsStudent(null)}
           />
         )}
       </AnimatePresence>

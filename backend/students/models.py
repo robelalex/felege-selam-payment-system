@@ -90,6 +90,24 @@ class Student(models.Model):
         return f"{self.first_name} {self.last_name}"
 
     @property
+    def formatted_name(self):
+        """
+        ✅ Display name used on ID cards, report cards, receipts and lists.
+        Respects the owning school's naming_convention:
+          - 'ethiopian'      -> "First Name + Father Name" (standard Ethiopian
+            convention; last_name is typically the grandfather's name and is
+            not printed).
+          - 'international'  -> "First Name + Last Name" (unchanged/default
+            behavior for non-Ethiopian schools using this system).
+        Falls back to full_name if father_name is missing so nothing breaks
+        for existing records that predate this field.
+        """
+        convention = getattr(self.school, 'naming_convention', 'ethiopian')
+        if convention == 'ethiopian' and self.father_name:
+            return f"{self.first_name} {self.father_name}"
+        return self.full_name
+
+    @property
     def school_level(self):
         """'elementary' for grades 1-8, 'high_school' for grades 9-12"""
         return 'elementary' if self.grade <= 8 else 'high_school'
@@ -210,3 +228,52 @@ class Section(models.Model):
     def save(self, *args, **kwargs):
         self.clean()
         super().save(*args, **kwargs)
+
+
+class StudentDocument(models.Model):
+    """
+    ✅ Enrollment documents — birth certificate for new Grade 1 entrants,
+    grade 6/8 leaving (completion) certificates required by the Ethiopian
+    system at those transition points, and general transfer certificates
+    for students joining from another school.
+
+    Kept as a generic document_type + file model (rather than separate
+    fixed fields on Student) so new document types can be added later
+    without another migration, and so a student can hold more than one
+    document (e.g. both a grade 8 leaving certificate AND a transfer
+    certificate).
+    """
+    DOCUMENT_TYPE_CHOICES = [
+        ('birth_certificate', 'Birth Certificate'),
+        ('leaving_certificate_grade6', 'Grade 6 Leaving Certificate'),
+        ('leaving_certificate_grade8', 'Grade 8 Leaving Certificate'),
+        ('transfer_certificate', 'Transfer Certificate'),
+        ('grade12_certificate', 'Grade 12 Certificate'),
+        ('other', 'Other'),
+    ]
+
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name='documents'
+    )
+    document_type = models.CharField(max_length=40, choices=DOCUMENT_TYPE_CHOICES)
+    file = models.FileField(
+        upload_to='student_documents/%Y/%m/',
+        help_text="Scanned copy or photo of the document (PDF, JPG, PNG)"
+    )
+    # ✅ Registrar can mark a document as verified once the physical/original
+    # copy has been checked — useful for inspection/audit readiness, which
+    # regional education bureaus do check for this exact set of documents.
+    verified = models.BooleanField(default=False)
+    notes = models.CharField(max_length=255, blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+        indexes = [
+            models.Index(fields=['student', 'document_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.student.student_id or self.student.full_name} - {self.get_document_type_display()}"

@@ -6,8 +6,8 @@ from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from .models import Student, Section, GRADUATION_GRADE
-from .serializers import StudentSerializer, SectionSerializer
+from .models import Student, Section, StudentDocument, GRADUATION_GRADE
+from .serializers import StudentSerializer, SectionSerializer, StudentDocumentSerializer
 from payments.models import Payment, PaymentDeadline, PaymentSlip
 import pandas as pd
 from io import BytesIO
@@ -41,6 +41,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         if self.action in (
             'create', 'update', 'partial_update', 'destroy',
             'bulk_import', 'update_monthly_fee', 'selective_promote',
+            'upload_document', 'delete_document', 'bulk_photo_upload',
         ):
             return [IsAuthenticated(), CanManageStudents()]
         return [IsAuthenticated()]
@@ -652,6 +653,149 @@ class StudentViewSet(viewsets.ModelViewSet):
             'from_year': current_year.name,
             'to_year': next_year.name,
             'errors': errors
+        })
+
+    # ========== ENROLLMENT DOCUMENTS (birth certificate, leaving certs, etc.) ==========
+
+    @action(detail=True, methods=['post'], url_path='upload_document')
+    def upload_document(self, request, pk=None):
+        """
+        Attach an enrollment document (birth certificate, grade 6/8 leaving
+        certificate, transfer certificate, etc.) to this student.
+        Expects multipart form data: file, document_type, notes (optional).
+        """
+        student = self.get_object()
+
+        if 'file' not in request.FILES:
+            return Response({'error': 'No file uploaded'}, status=400)
+
+        document_type = request.data.get('document_type')
+        valid_types = dict(StudentDocument.DOCUMENT_TYPE_CHOICES)
+        if document_type not in valid_types:
+            return Response(
+                {'error': f'document_type must be one of: {", ".join(valid_types.keys())}'},
+                status=400
+            )
+
+        document = StudentDocument.objects.create(
+            student=student,
+            document_type=document_type,
+            file=request.FILES['file'],
+            notes=request.data.get('notes', '')
+        )
+
+        serializer = StudentDocumentSerializer(document)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'], url_path='documents')
+    def list_documents(self, request, pk=None):
+        """List all enrollment documents attached to this student."""
+        student = self.get_object()
+        documents = student.documents.all()
+        serializer = StudentDocumentSerializer(documents, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['delete'], url_path='delete_document/(?P<document_id>[^/.]+)')
+    def delete_document(self, request, pk=None, document_id=None):
+        """Remove an enrollment document from this student."""
+        student = self.get_object()
+        try:
+            document = student.documents.get(id=document_id)
+        except StudentDocument.DoesNotExist:
+            return Response({'error': 'Document not found'}, status=404)
+        document.delete()
+        return Response({'success': True})
+
+    # ========== BULK PHOTO UPLOAD (ZIP, matched by Student ID filename) ==========
+
+    @action(detail=False, methods=['post'], url_path='bulk_photo_upload')
+    def bulk_photo_upload(self, request):
+        """
+        Bulk-attach student photos from a single ZIP file.
+
+        How it works: the registrar names each photo file after the
+        student's Student ID (e.g. FS-2024-1001.jpg) — the same IDs that
+        are already generated during the normal registration/bulk-import
+        flow — zips them together, and uploads the ZIP once here. Each
+        photo is matched to a student by filename and saved to that
+        student's `photo` field. This is purely additive: it reuses the
+        existing `photo` ImageField and doesn't change how photos are
+        stored, served, or read anywhere else in the system.
+
+        Only matches students within the uploader's own school, so a
+        mis-named file can't accidentally overwrite another school's data.
+        """
+        import zipfile
+        from django.core.files.base import ContentFile
+
+        if 'file' not in request.FILES:
+            return Response({'error': 'No ZIP file uploaded'}, status=400)
+
+        zip_file = request.FILES['file']
+        if not zip_file.name.lower().endswith('.zip'):
+            return Response({'error': 'Please upload a .zip file'}, status=400)
+
+        school_id = get_verified_school_id(request)
+        if not school_id:
+            return Response({'error': 'School not identified. Please contact administrator.'}, status=400)
+
+        ALLOWED_EXTENSIONS = ('.jpg', '.jpeg', '.png')
+        MAX_PHOTO_SIZE = 5 * 1024 * 1024  # 5MB per photo, matches frontend limit
+
+        matched = []
+        unmatched = []
+        errors = []
+
+        try:
+            with zipfile.ZipFile(zip_file) as archive:
+                for entry in archive.infolist():
+                    # Skip directories and macOS metadata junk
+                    if entry.is_dir() or '/__MACOSX' in entry.filename or entry.filename.startswith('.'):
+                        continue
+
+                    filename = entry.filename.split('/')[-1]  # ignore any folder path inside the zip
+                    if not filename:
+                        continue
+
+                    name_no_ext, ext = filename.rsplit('.', 1) if '.' in filename else (filename, '')
+                    ext = f'.{ext.lower()}'
+
+                    if ext not in ALLOWED_EXTENSIONS:
+                        unmatched.append({'filename': filename, 'reason': 'Unsupported file type (use JPG or PNG)'})
+                        continue
+
+                    if entry.file_size > MAX_PHOTO_SIZE:
+                        unmatched.append({'filename': filename, 'reason': 'File larger than 5MB'})
+                        continue
+
+                    student_id = name_no_ext.strip()
+                    student = Student.objects.filter(
+                        student_id=student_id,
+                        school_id=school_id
+                    ).first()
+
+                    if not student:
+                        unmatched.append({'filename': filename, 'reason': f'No student found with ID "{student_id}" in this school'})
+                        continue
+
+                    try:
+                        photo_bytes = archive.read(entry)
+                        student.photo.save(filename, ContentFile(photo_bytes), save=True)
+                        matched.append({'filename': filename, 'student_id': student.student_id, 'student_name': student.full_name})
+                    except Exception as e:
+                        errors.append({'filename': filename, 'error': str(e)})
+
+        except zipfile.BadZipFile:
+            return Response({'error': 'That file is not a valid ZIP archive'}, status=400)
+
+        return Response({
+            'success': True,
+            'matched_count': len(matched),
+            'unmatched_count': len(unmatched),
+            'error_count': len(errors),
+            'matched': matched,
+            'unmatched': unmatched,
+            'errors': errors,
         })
 
 

@@ -54,6 +54,22 @@ class School(models.Model):
     
     # ✅ Add logo field
     logo = models.ImageField(upload_to='school_logos/', blank=True, null=True, help_text="School logo (JPG, PNG)")
+
+    # ✅ Naming convention — controls how Student.formatted_name is composed
+    # everywhere it's used (ID cards, report cards, receipts, lists), without
+    # touching how first_name/father_name/last_name are stored. Ethiopian
+    # schools print "First Name + Father Name"; international schools using
+    # this system print "First Name + Last Name" instead.
+    NAMING_CONVENTION_CHOICES = [
+        ('ethiopian', 'Ethiopian (First Name + Father Name)'),
+        ('international', 'International (First Name + Last Name)'),
+    ]
+    naming_convention = models.CharField(
+        max_length=20,
+        choices=NAMING_CONVENTION_CHOICES,
+        default='ethiopian',
+        help_text="How student names are displayed/printed on ID cards, report cards and receipts.",
+    )
     
     # Subscription information
     SUBSCRIPTION_STATUS_CHOICES = [
