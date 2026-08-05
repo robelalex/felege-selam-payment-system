@@ -14,7 +14,8 @@ import {
   Loader,
   Mail,
   Home,
-  Calendar
+  Calendar,
+  FileText
 } from 'lucide-react';
 import api from '../../services/api';
 import { getMediaUrl } from '../../utils/imageUrl';
@@ -34,6 +35,42 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
   // ✅ NEW: student photo
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(editStudent?.photo ? getMediaUrl(editStudent.photo) : null);
+
+  // ✅ NEW: enrollment documents (birth certificate, leaving certificate, etc.)
+  // selected right here in the form, uploaded automatically right after the
+  // student record is created/saved. Keyed by document_type -> File.
+  const [documentFiles, setDocumentFiles] = useState({});
+  const DOC_TYPE_LABELS = {
+    birth_certificate: 'Birth Certificate',
+    leaving_certificate_grade6: 'Grade 6 Leaving Certificate',
+    leaving_certificate_grade8: 'Grade 8 Leaving Certificate',
+    transfer_certificate: 'Transfer Certificate',
+    grade12_certificate: 'Grade 12 Certificate',
+  };
+  // Which document(s) this system recommends for the currently selected
+  // grade — mirrors the Ethiopian system's transition points: Grade 1
+  // entrants need a birth certificate, Grade 7 entrants need the Grade 6
+  // leaving certificate, Grade 9 entrants need the Grade 8 leaving
+  // certificate, Grade 12 completers need their Grade 12 certificate.
+  const recommendedDocTypes = (() => {
+    const g = parseInt(formData.grade, 10);
+    const types = [];
+    if (g === 1) types.push('birth_certificate');
+    if (g === 7) types.push('leaving_certificate_grade6');
+    if (g === 9) types.push('leaving_certificate_grade8');
+    if (g === 12) types.push('grade12_certificate');
+    return types.map(value => ({ value, label: DOC_TYPE_LABELS[value] }));
+  })();
+
+  const handleDocumentFileChange = (documentType, file) => {
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Document must be smaller than 10MB');
+      return;
+    }
+    setDocumentFiles(prev => ({ ...prev, [documentType]: file }));
+    setError('');
+  };
   
   const [formData, setFormData] = useState({
     student_id: editStudent?.student_id || '',
@@ -213,7 +250,22 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
       if (response.data && response.data.student_id) {
         setGeneratedId(response.data.student_id);
       }
-      
+
+      // ✅ NEW: upload any selected enrollment documents now that we have
+      // a real student id to attach them to (documents need the student
+      // to exist first, same as the standalone Documents modal).
+      const studentRecordId = editStudent ? editStudent.id : response.data.id;
+      const docEntries = Object.entries(documentFiles);
+      if (studentRecordId && docEntries.length > 0) {
+        await Promise.all(docEntries.map(([docType, file]) => {
+          const docData = new FormData();
+          docData.append('file', file);
+          docData.append('document_type', docType);
+          return api.post(`/students/${studentRecordId}/upload_document/`, docData, multipartConfig)
+            .catch(err => console.error(`Failed to upload ${docType}:`, err));
+        }));
+      }
+
       setSuccess(editStudent ? 'Student updated successfully!' : `Student registered successfully! ID: ${response.data.student_id}`);
       
       setTimeout(() => {
@@ -479,6 +531,63 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
                     step="50"
                     required
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* ✅ NEW: Enrollment Documents — recommended based on selected grade */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                <FileText className="h-5 w-5 text-primary-600" />
+                Enrollment Documents
+              </h3>
+              <p className="text-xs text-gray-500 mb-4">
+                Optional here — you can also add these later from the Documents icon on the student list.
+              </p>
+
+              <div className="space-y-3">
+                {recommendedDocTypes.map(type => (
+                  <div
+                    key={type.value}
+                    className="flex items-center justify-between gap-3 border border-amber-200 bg-amber-50 rounded-lg p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900">
+                        {type.label} <span className="text-xs text-amber-700 font-normal">recommended for Grade {formData.grade}</span>
+                      </p>
+                      {documentFiles[type.value] && (
+                        <p className="text-xs text-green-700 truncate">Selected: {documentFiles[type.value].name}</p>
+                      )}
+                    </div>
+                    <label className="btn-outline text-xs px-3 py-1.5 cursor-pointer flex-shrink-0">
+                      {documentFiles[type.value] ? 'Change' : 'Upload'}
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        className="hidden"
+                        onChange={(e) => handleDocumentFileChange(type.value, e.target.files?.[0])}
+                      />
+                    </label>
+                  </div>
+                ))}
+
+                <div className="flex items-center justify-between gap-3 border border-gray-200 rounded-lg p-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900">Transfer Certificate</p>
+                    <p className="text-xs text-gray-500">If this student is transferring from another school</p>
+                    {documentFiles['transfer_certificate'] && (
+                      <p className="text-xs text-green-700 truncate">Selected: {documentFiles['transfer_certificate'].name}</p>
+                    )}
+                  </div>
+                  <label className="btn-outline text-xs px-3 py-1.5 cursor-pointer flex-shrink-0">
+                    {documentFiles['transfer_certificate'] ? 'Change' : 'Upload'}
+                    <input
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      className="hidden"
+                      onChange={(e) => handleDocumentFileChange('transfer_certificate', e.target.files?.[0])}
+                    />
+                  </label>
                 </div>
               </div>
             </div>

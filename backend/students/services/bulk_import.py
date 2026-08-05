@@ -56,7 +56,7 @@ class BulkImportService:
             instructions.append(["1. Do NOT modify the column headers"])
             instructions.append(["2. Fill in student data starting from row 2"])
             instructions.append(["3. Required fields: First Name, Last Name, Grade, Parent Phone"])
-            instructions.append(["4. Grade must be between 1 and 8"])
+            instructions.append(["4. Grade must be between 1 and 12"])
             instructions.append(["5. Phone number format: 0912345678"])
             instructions.append(["6. Monthly Fee should be a number (e.g., 200)"])
             instructions.append([])
@@ -80,8 +80,8 @@ class BulkImportService:
         # Validate grade
         try:
             grade = int(row.get('Grade', 0))
-            if grade < 1 or grade > 8:
-                errors.append(f"Row {index}: Grade must be between 1 and 8")
+            if grade < 1 or grade > 12:
+                errors.append(f"Row {index}: Grade must be between 1 and 12")
         except (ValueError, TypeError):
             errors.append(f"Row {index}: Grade must be a number")
         

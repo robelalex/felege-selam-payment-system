@@ -227,7 +227,7 @@ function BulkImport({ onClose, onSuccess }) {
                 <ul className="text-sm text-yellow-700 space-y-1 list-disc list-inside">
                   <li>Do NOT modify the column headers</li>
                   <li>Required fields: First Name, Last Name, Grade, Parent Phone</li>
-                  <li>Grade must be between 1 and 8</li>
+                  <li>Grade must be between 1 and 12</li>
                   <li>Phone format: 0912345678</li>
                   <li>Maximum 1000 students per file</li>
                 </ul>
