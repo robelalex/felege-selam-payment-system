@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.utils import timezone
-from django.db import transaction
+from django.db import transaction, models
 from decimal import Decimal
 
 from .models import (
@@ -133,6 +133,20 @@ class AssessmentTypeViewSet(viewsets.ModelViewSet):
         term_id = self.request.query_params.get('term_id')
         if term_id:
             queryset = queryset.filter(term_id=term_id)
+
+        # ✅ NEW: optional ?grade= filter — assessment types are now
+        # class(grade)-based. Not passing this param keeps the old behavior
+        # (every active assessment type for the year/term), so existing
+        # callers (e.g. the Flutter app's mark entry screen before it's
+        # updated to pass grade) keep working unchanged.
+        grade = self.request.query_params.get('grade')
+        if grade:
+            try:
+                queryset = queryset.filter(
+                    models.Q(grade=int(grade)) | models.Q(grade__isnull=True)
+                )
+            except ValueError:
+                pass
         return queryset
 
     def perform_create(self, serializer):

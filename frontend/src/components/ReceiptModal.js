@@ -1,7 +1,7 @@
 // src/components/ReceiptModal.js
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Download, Printer, CheckCircle } from 'lucide-react';
+import { X, Download, Printer, CheckCircle, Clock, XCircle, HelpCircle } from 'lucide-react';
 
 function ReceiptModal({ payment, student, onClose }) {
   const [schoolName, setSchoolName] = useState('');
@@ -51,8 +51,30 @@ function ReceiptModal({ payment, student, onClose }) {
   const paymentMonth = payment?.month || payment?.month_name || 'N/A';
   const paymentAmount = payment?.amount || '0';
   const paymentMethod = payment?.payment_method || 'chapa';
-  const paymentRef = payment?.transaction_reference || payment?.tx_ref || 'N/A';
+  // ✅ FIX: the payment_history API returns this field as `transaction_ref`
+  // (see students/views.py) — this was only checking `transaction_reference`
+  // / `tx_ref`, neither of which matched, so it always fell through to 'N/A'
+  // for regular payments even when a reference was recorded.
+  const paymentRef = payment?.transaction_ref || payment?.transaction_reference || payment?.tx_ref || 'N/A';
   const paymentDate = payment?.payment_date || payment?.created_at || new Date().toISOString();
+
+  // ✅ FIX: was hardcoded to always show "Verified" with a green check,
+  // regardless of the payment's real status. Both a regular Payment and a
+  // slip (passed in as {...slip, is_slip: true}) use the same `status`
+  // field/choices (pending/verified/rejected), so this reads it directly
+  // instead of assuming success.
+  const paymentStatus = payment?.status || 'pending';
+  const STATUS_DISPLAY = {
+    verified: { label: 'Verified', color: 'text-green-600', Icon: CheckCircle },
+    pending: { label: 'Pending Verification', color: 'text-yellow-600', Icon: Clock },
+    rejected: { label: 'Rejected', color: 'text-red-600', Icon: XCircle },
+    failed: { label: 'Failed', color: 'text-red-600', Icon: XCircle },
+  };
+  const statusDisplay = STATUS_DISPLAY[paymentStatus] || {
+    label: paymentStatus,
+    color: 'text-gray-600',
+    Icon: HelpCircle,
+  };
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
@@ -183,7 +205,7 @@ function ReceiptModal({ payment, student, onClose }) {
             <div className="flex justify-between"><span className="text-gray-500 text-sm">Amount:</span><span className="font-bold text-primary-600 text-base">{formatAmount(paymentAmount)}</span></div>
             <div className="flex justify-between"><span className="text-gray-500 text-sm">Method:</span><span className="text-sm capitalize">{paymentMethod}</span></div>
             <div className="flex justify-between"><span className="text-gray-500 text-sm">Transaction:</span><span className="text-xs font-mono break-all max-w-[180px] text-right">{paymentRef}</span></div>
-            <div className="flex justify-between pt-1"><span className="text-gray-500 text-sm">Status:</span><span className="text-green-600 text-sm flex items-center gap-1"><CheckCircle className="h-3 w-3" /> Verified</span></div>
+            <div className="flex justify-between pt-1"><span className="text-gray-500 text-sm">Status:</span><span className={`${statusDisplay.color} text-sm flex items-center gap-1`}><statusDisplay.Icon className="h-3 w-3" /> {statusDisplay.label}</span></div>
           </div>
 
           <div className="flex gap-2 pt-2">

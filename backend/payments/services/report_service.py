@@ -203,13 +203,13 @@ class ReportService:
         # ✅ FIX: Resolve student's academic_year string to object
         student_year_obj = self._resolve_academic_year(student.academic_year, student.school_id)
         
-        # Get all payments for this student
-        payments = Payment.objects.filter(
-            student=student
-        ).order_by('-created_at')
-        
-        # Get deadlines for this student's specific GRADE only
-        # ✅ FIX: Use resolved AcademicYear object
+        # ✅ FIX: Scope payments to the student's CURRENT academic year only.
+        # Before, this pulled every payment ever made by this student across
+        # ALL years (student=student, no year filter). That's invisible for a
+        # normal promotion because the grade also changes, but for a REPEATER
+        # (same grade, new year) the old year's payments/report would still
+        # show up mixed in with the new year's — same bug class already fixed
+        # on payment_history()/PaymentViewSet, just missed here.
         deadline_filter = {
             'school': student.school,
             'is_active': True
@@ -218,6 +218,16 @@ class ReportService:
             deadline_filter['academic_year'] = student_year_obj
         else:
             deadline_filter['academic_year__name'] = student.academic_year
+
+        payments = Payment.objects.filter(student=student)
+        if student_year_obj:
+            payments = payments.filter(deadline__academic_year=student_year_obj)
+        else:
+            payments = payments.filter(deadline__academic_year__name=student.academic_year)
+        payments = payments.order_by('-created_at')
+        
+        # Get deadlines for this student's specific GRADE only
+        # ✅ FIX: Use resolved AcademicYear object
         
         deadlines = PaymentDeadline.objects.filter(**deadline_filter).filter(
             models.Q(grade=student.grade) | models.Q(grade__isnull=True)

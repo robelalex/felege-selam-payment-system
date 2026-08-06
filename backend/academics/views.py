@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from rest_framework.permissions import IsAuthenticated
+from django.db import models
 from django.utils import timezone
 from .models import AcademicYear, YearPromotionLog, Subject, HomeroomAssignment
 from .serializers import (
@@ -332,7 +333,20 @@ class SubjectViewSet(viewsets.ModelViewSet):
         school_id = get_verified_school_id(self.request)
         if not school_id:
             return Subject.objects.none()
-        return Subject.objects.filter(school_id=school_id, is_active=True)
+        queryset = Subject.objects.filter(school_id=school_id, is_active=True)
+
+        # ✅ NEW: optional ?grade= filter — subjects are now class(grade)-based.
+        # Not passing this param keeps the old behavior (every active subject
+        # for the school), so nothing that already calls /subjects/ breaks.
+        grade = self.request.query_params.get('grade')
+        if grade:
+            try:
+                queryset = queryset.filter(
+                    models.Q(grade=int(grade)) | models.Q(grade__isnull=True)
+                )
+            except ValueError:
+                pass
+        return queryset
 
     def perform_create(self, serializer):
         school_id = get_verified_school_id(self.request)

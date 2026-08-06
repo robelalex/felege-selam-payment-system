@@ -57,6 +57,16 @@ class AssessmentType(models.Model):
         help_text="Which term this belongs to, e.g. Semester 1"
     )
     name = models.CharField(max_length=100, help_text="e.g., Mid Term Exam, Final Exam, Quiz 1")
+    # ✅ NEW: assessment types are now class(grade)-based — not every grade
+    # grades the same way (e.g. Grade 1 might not have a "Final Exam" the
+    # way Grade 12 does). Nullable/blank so every assessment type created
+    # before this field existed keeps applying to every grade, exactly as
+    # it always has — nothing already set up breaks.
+    grade = models.IntegerField(
+        choices=[(i, f'Grade {i}') for i in range(1, 13)],
+        null=True, blank=True,
+        help_text="Leave blank to make this assessment type available to every grade"
+    )
     max_score = models.DecimalField(
         max_digits=6, decimal_places=2, default=100,
         validators=[MinValueValidator(1)],
@@ -82,8 +92,11 @@ class AssessmentType(models.Model):
         # *active* rows are checked for a collision — a soft-deleted one
         # no longer blocks the name from being reused.
         constraints = [
+            # ✅ Added 'grade' — lets the same name (e.g. "Assignment") be
+            # registered separately per grade within the same term, since
+            # assessment types are now class(grade)-based.
             models.UniqueConstraint(
-                fields=['school', 'academic_year', 'term', 'name'],
+                fields=['school', 'academic_year', 'term', 'name', 'grade'],
                 condition=models.Q(is_active=True),
                 name='unique_active_assessment_type_per_term',
             )

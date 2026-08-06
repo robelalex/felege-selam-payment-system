@@ -30,6 +30,10 @@ const translations = {
     nav_academic_years: 'Academic Years',
     nav_results_awards: 'Results & Awards',
     nav_report_cards: 'Report Cards',
+    // ✅ FIX: this key was missing from the English block (only am/om had
+    // it), so t('nav_academics_setup') fell through to the raw key string
+    // and the nav literally showed "nav_academics_setup".
+    nav_academics_setup: 'Academic Setups',
     nav_payment_deadlines: 'Payment Deadlines',
     nav_sections: 'Sections',
     nav_staff: 'Staff & Teachers',

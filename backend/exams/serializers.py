@@ -18,7 +18,8 @@ class AssessmentTypeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AssessmentType
-        fields = ['id', 'school', 'academic_year', 'term', 'term_name', 'name', 'max_score', 'weight_percent', 'order', 'is_active', 'created_at']
+        # ✅ Added 'grade' — assessment types are now class(grade)-based (null = all grades)
+        fields = ['id', 'school', 'academic_year', 'term', 'term_name', 'name', 'grade', 'max_score', 'weight_percent', 'order', 'is_active', 'created_at']
         read_only_fields = ['school']
 
 

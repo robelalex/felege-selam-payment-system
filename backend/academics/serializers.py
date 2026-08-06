@@ -56,7 +56,8 @@ class YearPromotionLogSerializer(serializers.ModelSerializer):
 class SubjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Subject
-        fields = ['id', 'school', 'name', 'code', 'is_active', 'created_at']
+        # ✅ Added 'grade' — subjects are now class(grade)-based (null = all grades)
+        fields = ['id', 'school', 'name', 'code', 'grade', 'is_active', 'created_at']
         read_only_fields = ['school']
 
 

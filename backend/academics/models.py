@@ -243,15 +243,34 @@ class Subject(models.Model):
         max_length=20, blank=True,
         help_text="Optional short code, e.g., ENG, MATH, PHY"
     )
+    # ✅ NEW: subjects are now class(grade)-based — Grade 1 and Grade 10
+    # don't teach the same subjects, so a school can register "Mathematics"
+    # for Grade 1 separately from "Mathematics" for Grade 9, each with its
+    # own row. Left nullable (blank=True) so every subject that existed
+    # before this field was added keeps working exactly as before — a null
+    # grade means "applies to every grade" (same pattern PaymentDeadline
+    # already uses for its own grade field), so nothing already registered
+    # silently disappears from any grade's dropdown.
+    grade = models.IntegerField(
+        choices=[(i, f'Grade {i}') for i in range(1, 13)],
+        null=True, blank=True,
+        help_text="Leave blank to make this subject available to every grade"
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['name']
-        unique_together = ['school', 'name']
+        ordering = ['grade', 'name']
+        # ✅ Was ['school', 'name'] — that blocked registering the same
+        # subject name for two different grades (e.g. "Mathematics" for
+        # both Grade 1 and Grade 9). Adding grade lets each grade have its
+        # own row; a school still can't register the same name twice for
+        # the same grade (or twice as "all grades").
+        unique_together = ['school', 'name', 'grade']
 
     def __str__(self):
-        return f"{self.school.name} - {self.name}"
+        grade_label = f"Grade {self.grade}" if self.grade else "All Grades"
+        return f"{self.school.name} - {self.name} ({grade_label})"
 
 
 class HomeroomAssignment(models.Model):
