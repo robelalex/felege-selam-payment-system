@@ -119,3 +119,64 @@ class IsSchoolAdminOrPaymentManager(permissions.BasePermission):
             return False
         role = request.user.profile.role
         return role in ['school_admin', 'payment_manager']
+
+class IsParentOfStudentOrCanManage(permissions.BasePermission):
+    """
+    ✅ NEW — powers the parent self-service registration flow (photo +
+    document upload from the Parent Portal). A parent may only ever
+    touch their OWN child's record, matched by their logged-in email
+    against Student.parent_email — never another family's data. Staff
+    who can already manage students (CanManageStudents: school_admin/
+    registrar, scoped to their own school) keep full access too, so a
+    registrar can still do this in person if a parent can't.
+
+    This is a brand-new, narrowly-scoped permission used only by the new
+    parent-facing actions on StudentViewSet — it does not touch or
+    loosen any existing permission anywhere else in the system.
+    """
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated)
+
+    def has_object_permission(self, request, view, obj):
+        from common.utils import get_verified_school_id, is_super_admin
+
+        if CanManageStudents().has_permission(request, view):
+            school_id = get_verified_school_id(request)
+            if is_super_admin(request.user) or (school_id and obj.school_id == school_id):
+                return True
+
+        profile = getattr(request.user, 'profile', None)
+        if profile and profile.role == 'parent' and obj.parent_email:
+            return obj.parent_email.strip().lower() == request.user.email.strip().lower()
+
+        return False
+
+
+class IsSameSchoolOrOwnParent(permissions.BasePermission):
+    """
+    ✅ NEW — read-only guard for per-student detail endpoints (payment
+    history, pending payments, pending bank slips) that are legitimately
+    viewed by several different staff roles across the admin dashboard
+    (e.g. the Class Details view on the main dashboard), not just
+    registrars. Deliberately does NOT require CanManageStudents — any
+    authenticated staff member scoped to the SAME school as the student
+    keeps read access, exactly as before. A parent may only view their
+    OWN child, matched by their logged-in email against
+    Student.parent_email — never another family's.
+    """
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated)
+
+    def has_object_permission(self, request, view, obj):
+        from common.utils import get_verified_school_id, is_super_admin
+
+        profile = getattr(request.user, 'profile', None)
+        if profile and profile.role == 'parent':
+            return bool(obj.parent_email) and (
+                obj.parent_email.strip().lower() == request.user.email.strip().lower()
+            )
+
+        if is_super_admin(request.user):
+            return True
+        school_id = get_verified_school_id(request)
+        return bool(school_id) and obj.school_id == school_id

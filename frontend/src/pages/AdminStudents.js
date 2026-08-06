@@ -37,6 +37,7 @@ function AdminStudents() {
   const [editStudent, setEditStudent] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [showBulkImport, setShowBulkImport] = useState(false);
+  const [sendingReminders, setSendingReminders] = useState(false);
   // ✅ NEW: bulk photo upload + per-student document management
   const [showBulkPhotoUpload, setShowBulkPhotoUpload] = useState(false);
   const [documentsStudent, setDocumentsStudent] = useState(null);
@@ -125,6 +126,40 @@ function AdminStudents() {
     } catch (err) {
       console.error('Export failed:', err);
       alert('Failed to export students');
+    }
+  };
+
+  // ✅ NEW: bulk-email parents of any student (in the current academic
+  // year) still missing a photo or a required document. Backend applies
+  // the same school/year scoping as the student list itself.
+  const handleSendRegistrationReminders = async () => {
+    if (!window.confirm('Email parents of every student with an incomplete registration (missing photo and/or documents)?')) {
+      return;
+    }
+    setSendingReminders(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectedYear && selectedYear.id) {
+        params.append('academic_year_id', selectedYear.id);
+        params.append('academic_year', selectedYear.year_ec);
+      }
+      const queryString = params.toString();
+      const url = queryString
+        ? `/students/send_registration_reminders_bulk/?${queryString}`
+        : '/students/send_registration_reminders_bulk/';
+
+      const response = await api.post(url);
+      const { sent_count, skipped_no_email_count, failed_count } = response.data;
+      alert(
+        `Sent ${sent_count} reminder(s).` +
+        (skipped_no_email_count ? ` ${skipped_no_email_count} student(s) had no parent email on file.` : '') +
+        (failed_count ? ` ${failed_count} email(s) failed to send.` : '')
+      );
+    } catch (err) {
+      console.error('Error sending registration reminders:', err);
+      alert('Failed to send reminders. Please try again.');
+    } finally {
+      setSendingReminders(false);
     }
   };
 
@@ -284,6 +319,21 @@ function AdminStudents() {
             >
               <Download className="h-4 w-4" />
               <span className="hidden sm:inline">Export</span>
+            </button>
+
+            {/* ✅ NEW: email every parent whose student is still missing a
+                photo or a required document a link to log into the Parent
+                Portal (existing OTP login) and finish it themselves. */}
+            <button
+              onClick={handleSendRegistrationReminders}
+              disabled={sendingReminders}
+              className="btn-outline flex items-center gap-2 tap-target"
+              title="Email parents of students with an incomplete registration (missing photo/documents)"
+            >
+              <Mail className="h-4 w-4" />
+              <span className="hidden sm:inline">
+                {sendingReminders ? 'Sending...' : 'Remind Parents'}
+              </span>
             </button>
           </div>
         </div>

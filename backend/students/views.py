@@ -17,7 +17,56 @@ from academics.models import AcademicYear
 
 # ✅ NEW: Import helper functions
 from common.utils import get_verified_school_id, is_super_admin, get_user_school
-from authentication.permissions import CanManageStudents
+from authentication.permissions import CanManageStudents, IsParentOfStudentOrCanManage, IsSameSchoolOrOwnParent
+
+# ✅ NEW: which enrollment document(s) each grade transition requires —
+# same rule the frontend registration form already uses for its
+# "recommended documents" hint, now also used server-side so the parent
+# portal can show an accurate checklist without duplicating the logic.
+RECOMMENDED_DOC_TYPES_BY_GRADE = {
+    1: ['birth_certificate'],
+    7: ['leaving_certificate_grade6'],
+    9: ['leaving_certificate_grade8'],
+    12: ['grade12_certificate'],
+}
+
+
+def _send_registration_reminder_email(student):
+    """Plain-text email pointing the parent at the existing Parent Portal
+    OTP login — same send_mail/anymail setup that already sends the login
+    codes (see authentication.views.send_otp_via_email), so it works
+    everywhere that already works today, no extra config needed."""
+    from django.core.mail import send_mail
+    from django.conf import settings
+
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'https://felege-selam-payment-system.vercel.app')
+    login_link = f"{frontend_url}/parent-login"
+    school_name = student.school.name
+
+    subject = f"Finish {student.formatted_name}'s registration — {school_name}"
+    message = (
+        f"Hello,\n\n"
+        f"{student.formatted_name}'s registration at {school_name} is almost done — "
+        f"we still need a photo and/or a document or two.\n\n"
+        f"Please log in to the Parent Portal using this email address ({student.parent_email}) "
+        f"and your child's Student ID ({student.student_id or 'ask the school office'}):\n"
+        f"{login_link}\n\n"
+        f"You'll get a one-time login code by email — no password needed. "
+        f"Once you're in, you can upload the photo and documents directly.\n\n"
+        f"Thank you,\n{school_name}"
+    )
+    try:
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[student.parent_email],
+            fail_silently=False,
+        )
+        return True
+    except Exception as e:
+        print(f"❌ Failed to send registration reminder to {student.parent_email}: {e}")
+        return False
 
 
 class StudentViewSet(viewsets.ModelViewSet):
@@ -38,10 +87,27 @@ class StudentViewSet(viewsets.ModelViewSet):
         # selective_promote all modify/create student records in bulk or
         # change financial data, but weren't in the original list — any
         # authenticated staff member, regardless of role, could use them.
+        # ✅ NEW: parent self-service actions — a parent may only touch
+        # their OWN child's record (enforced object-by-object inside
+        # IsParentOfStudentOrCanManage), staff who can manage students
+        # keep access too.
+        if self.action in ('registration_status', 'parent_upload_photo', 'parent_upload_document'):
+            return [IsAuthenticated(), IsParentOfStudentOrCanManage()]
+
+        # ✅ SECURITY FIX: these three are read-only per-student detail
+        # endpoints used by BOTH the parent portal AND several staff
+        # views (e.g. the admin dashboard's Class Details breakdown) that
+        # aren't limited to registrars. Same-school staff keep read
+        # access as before; a parent is now restricted to their own
+        # child instead of any student by ID.
+        if self.action in ('payment_history', 'pending_payments', 'pending_slips'):
+            return [IsAuthenticated(), IsSameSchoolOrOwnParent()]
+
         if self.action in (
             'create', 'update', 'partial_update', 'destroy',
             'bulk_import', 'update_monthly_fee', 'selective_promote',
             'upload_document', 'delete_document', 'bulk_photo_upload',
+            'send_registration_reminder', 'send_registration_reminders_bulk',
         ):
             return [IsAuthenticated(), CanManageStudents()]
         return [IsAuthenticated()]
@@ -171,10 +237,23 @@ class StudentViewSet(viewsets.ModelViewSet):
         if student_id:
             try:
                 student = Student.objects.get(student_id=student_id)
-                serializer = self.get_serializer(student)
-                return Response(serializer.data)
             except Student.DoesNotExist:
                 return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
+
+            # ✅ SECURITY FIX: this used to return the full student record
+            # (name, phone numbers, address, monthly fee) to ANY logged-in
+            # account for ANY student ID, with the parent/child match only
+            # checked afterwards in the browser's JavaScript — so the data
+            # had already left the server before that check ever ran, and
+            # calling this endpoint directly (Postman, curl, devtools)
+            # skipped the check entirely. Same 404 for "wrong owner" as for
+            # "doesn't exist" so this endpoint can't be used to probe which
+            # student IDs are valid.
+            if not IsParentOfStudentOrCanManage().has_object_permission(request, self, student):
+                return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
+
+            serializer = self.get_serializer(student)
+            return Response(serializer.data)
         return Response({'error': 'Please provide student_id'}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['get'], url_path='payment_history')
@@ -705,6 +784,128 @@ class StudentViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Document not found'}, status=404)
         document.delete()
         return Response({'success': True})
+
+    # ========== PARENT SELF-SERVICE REGISTRATION COMPLETION ==========
+    # A parent who's already logged into the Parent Portal (existing
+    # email-OTP flow — see authentication.views.parent_login_step1/2)
+    # can finish their own child's registration themselves: upload the
+    # student photo and whichever enrollment documents this grade needs,
+    # instead of a staff member doing it in person one student at a time.
+    # No new link/token system — it rides on the login flow that's
+    # already built and already secure.
+
+    @action(detail=True, methods=['get'], url_path='registration_status')
+    def registration_status(self, request, pk=None):
+        """What's still missing for this student: photo and/or any
+        grade-appropriate enrollment documents. Used to render the
+        parent's checklist and the admin's 'incomplete' badge."""
+        student = self.get_object()
+        required_types = RECOMMENDED_DOC_TYPES_BY_GRADE.get(student.grade, [])
+        uploaded_types = set(student.documents.values_list('document_type', flat=True))
+        doc_labels = dict(StudentDocument.DOCUMENT_TYPE_CHOICES)
+
+        required_documents = [
+            {'value': t, 'label': doc_labels[t], 'uploaded': t in uploaded_types}
+            for t in required_types
+        ]
+        missing = [d for d in required_documents if not d['uploaded']]
+
+        return Response({
+            'student_id': student.student_id,
+            'student_name': student.formatted_name,
+            'has_photo': bool(student.photo),
+            'required_documents': required_documents,
+            'is_complete': bool(student.photo) and not missing,
+        })
+
+    @action(detail=True, methods=['post'], url_path='parent_upload_photo')
+    def parent_upload_photo(self, request, pk=None):
+        """Parent uploads/replaces their child's profile photo."""
+        student = self.get_object()
+        photo = request.FILES.get('photo')
+        if not photo:
+            return Response({'error': 'No photo uploaded'}, status=400)
+        if photo.size > 5 * 1024 * 1024:
+            return Response({'error': 'Photo must be smaller than 5MB'}, status=400)
+
+        student.photo = photo
+        student.save(update_fields=['photo'])
+        return Response({
+            'success': True,
+            'photo': StudentSerializer(student, context={'request': request}).data.get('photo'),
+        })
+
+    @action(detail=True, methods=['post'], url_path='parent_upload_document')
+    def parent_upload_document(self, request, pk=None):
+        """Parent uploads one enrollment document for their child. Unlike
+        the staff-facing upload_document above, re-uploading the same
+        document_type REPLACES the previous file rather than creating a
+        duplicate — a parent correcting a blurry scan shouldn't leave two
+        rows behind for the registrar to sort out."""
+        student = self.get_object()
+        if 'file' not in request.FILES:
+            return Response({'error': 'No file uploaded'}, status=400)
+
+        document_type = request.data.get('document_type')
+        valid_types = dict(StudentDocument.DOCUMENT_TYPE_CHOICES)
+        if document_type not in valid_types:
+            return Response(
+                {'error': f'document_type must be one of: {", ".join(valid_types.keys())}'},
+                status=400
+            )
+
+        document, _ = StudentDocument.objects.update_or_create(
+            student=student,
+            document_type=document_type,
+            defaults={'file': request.FILES['file']}
+        )
+        serializer = StudentDocumentSerializer(document)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='send_registration_reminder')
+    def send_registration_reminder(self, request, pk=None):
+        """Staff-triggered: emails this student's parent a plain
+        instruction to log into the Parent Portal and finish uploading
+        the photo/documents. Reuses the same OTP login already built —
+        the parent gets a one-time code by email, no separate token."""
+        student = self.get_object()
+        if not student.parent_email:
+            return Response({'error': 'This student has no parent email on file'}, status=400)
+
+        sent = _send_registration_reminder_email(student)
+        if not sent:
+            return Response({'error': 'Failed to send email'}, status=500)
+        return Response({'success': True, 'message': f'Reminder sent to {student.parent_email}'})
+
+    @action(detail=False, methods=['post'], url_path='send_registration_reminders_bulk')
+    def send_registration_reminders_bulk(self, request):
+        """Send the reminder to every student currently in view (respects
+        the same school/academic-year filters as the student list) who is
+        still missing a photo or a required document — one click instead
+        of doing it student-by-student."""
+        queryset = self.filter_queryset(self.get_queryset())
+        sent, skipped_no_email, still_missing_but_not_sent = [], [], []
+
+        for student in queryset:
+            required_types = RECOMMENDED_DOC_TYPES_BY_GRADE.get(student.grade, [])
+            uploaded_types = set(student.documents.values_list('document_type', flat=True))
+            incomplete = (not student.photo) or any(t not in uploaded_types for t in required_types)
+            if not incomplete:
+                continue
+            if not student.parent_email:
+                skipped_no_email.append(student.formatted_name)
+                continue
+            if _send_registration_reminder_email(student):
+                sent.append(student.formatted_name)
+            else:
+                still_missing_but_not_sent.append(student.formatted_name)
+
+        return Response({
+            'sent_count': len(sent),
+            'skipped_no_email_count': len(skipped_no_email),
+            'skipped_no_email': skipped_no_email,
+            'failed_count': len(still_missing_but_not_sent),
+        })
 
     # ========== BULK PHOTO UPLOAD (ZIP, matched by Student ID filename) ==========
 

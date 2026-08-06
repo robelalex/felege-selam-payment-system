@@ -14,6 +14,7 @@ import { getMediaUrl } from '../utils/imageUrl';
 import ParentLayout from '../components/Layout/ParentLayout';
 import UploadSlipModal from '../components/UploadSlipModal';
 import ReceiptModal from '../components/ReceiptModal';
+import RegistrationCompletionCard from '../components/RegistrationCompletionCard';
 
 function ParentDashboard() {
   const { studentId } = useParams();
@@ -393,6 +394,12 @@ const handleMakePayment = async (deadlineId, amount) => {
             </div>
           </div>
         )}
+
+        {/* ✅ NEW: Finish registration (photo + required documents) */}
+        <RegistrationCompletionCard
+          studentId={studentId}
+          onPhotoUploaded={(photoUrl) => setStudent(prev => ({ ...prev, photo: photoUrl }))}
+        />
 
         {/* Contact Information */}
         <div className="bg-white rounded-2xl shadow-lg p-6">
