@@ -143,6 +143,63 @@ function AdminPayments() {
     }
   };
 
+  // ✅ NEW: manual verify for a pending payment — e.g. after confirming
+  // with Chapa's dashboard, a bank statement, or the parent showing proof
+  // that the money genuinely went through. Generates the same receipt/SMS
+  // the automatic webhook path would.
+  const [actioningId, setActioningId] = useState(null);
+  const verifyPaymentManually = async (paymentId) => {
+    if (!window.confirm('Confirm this payment actually went through and mark it Verified? This sends the parent their receipt.')) return;
+    setActioningId(paymentId);
+    try {
+      await api.post(`/payments/${paymentId}/verify_payment/`);
+      await fetchPayments();
+      setShowDetails(false);
+    } catch (err) {
+      console.error('Error verifying payment:', err);
+      alert('Failed to verify payment. Please try again.');
+    } finally {
+      setActioningId(null);
+    }
+  };
+
+  // ✅ NEW: live re-check with Chapa for a single pending Chapa payment —
+  // the same check the parent's "Check Again" button triggers, just
+  // reachable from the admin side.
+  const recheckWithChapa = async (paymentId) => {
+    setActioningId(paymentId);
+    try {
+      const res = await api.post(`/payments/${paymentId}/recheck_chapa/`);
+      await fetchPayments();
+      if (res.data?.verified) {
+        alert('✅ Chapa confirmed this payment — marked Verified.');
+        setShowDetails(false);
+      } else {
+        alert(`Chapa status: ${res.data?.chapa_status || 'still pending'}. No change yet.`);
+      }
+    } catch (err) {
+      console.error('Error re-checking with Chapa:', err);
+      alert(err.response?.data?.error || 'Could not reach Chapa to check this payment.');
+    } finally {
+      setActioningId(null);
+    }
+  };
+
+  const rejectPaymentManually = async (paymentId) => {
+    const reason = window.prompt('Reason for rejecting this payment:') || '';
+    setActioningId(paymentId);
+    try {
+      await api.post('/payments/bulk_reject/', { payment_ids: [paymentId], reason });
+      await fetchPayments();
+      setShowDetails(false);
+    } catch (err) {
+      console.error('Error rejecting payment:', err);
+      alert('Failed to reject payment. Please try again.');
+    } finally {
+      setActioningId(null);
+    }
+  };
+
   const bulkArchive = async () => {
     if (selectedPayments.length === 0) {
       alert('Please select at least one payment to archive.');
@@ -563,6 +620,39 @@ const getMonthName = (payment) => {
                           >
                             <Eye className="h-4 w-4" />
                           </button>
+                          {/* ✅ NEW: pending payments now get real actions,
+                              not just Archive. Chapa payments also get a
+                              live re-check button. */}
+                          {payment.status === 'pending' && (
+                            <>
+                              {payment.payment_method === 'chapa' && (
+                                <button
+                                  onClick={() => recheckWithChapa(payment.id)}
+                                  disabled={actioningId === payment.id}
+                                  className="text-indigo-600 hover:text-indigo-800 tap-target p-1 disabled:opacity-50"
+                                  title="Re-check with Chapa"
+                                >
+                                  <RefreshCw className="h-4 w-4" />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => verifyPaymentManually(payment.id)}
+                                disabled={actioningId === payment.id}
+                                className="text-green-600 hover:text-green-800 tap-target p-1 disabled:opacity-50"
+                                title="Mark Verified"
+                              >
+                                <CheckCircle className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => rejectPaymentManually(payment.id)}
+                                disabled={actioningId === payment.id}
+                                className="text-orange-600 hover:text-orange-800 tap-target p-1 disabled:opacity-50"
+                                title="Reject"
+                              >
+                                <XCircle className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
                           <button
                             onClick={() => archivePayment(payment.id)}
                             className="text-red-600 hover:text-red-800 tap-target p-1"
@@ -727,6 +817,36 @@ const getMonthName = (payment) => {
                 </div>
 
                 <div className="flex flex-col sm:flex-row justify-end gap-2 mt-6">
+                  {/* ✅ NEW: same pending-payment actions as the row buttons,
+                      surfaced here too since this is where staff actually
+                      read the details before deciding what to do. */}
+                  {selectedPayment.status === 'pending' && (
+                    <>
+                      {selectedPayment.payment_method === 'chapa' && (
+                        <button
+                          onClick={() => recheckWithChapa(selectedPayment.id)}
+                          disabled={actioningId === selectedPayment.id}
+                          className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 tap-target disabled:opacity-50"
+                        >
+                          Re-check with Chapa
+                        </button>
+                      )}
+                      <button
+                        onClick={() => verifyPaymentManually(selectedPayment.id)}
+                        disabled={actioningId === selectedPayment.id}
+                        className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 tap-target disabled:opacity-50"
+                      >
+                        Mark Verified
+                      </button>
+                      <button
+                        onClick={() => rejectPaymentManually(selectedPayment.id)}
+                        disabled={actioningId === selectedPayment.id}
+                        className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 tap-target disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                    </>
+                  )}
                   <button
                     onClick={() => archivePayment(selectedPayment.id)}
                     className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 tap-target"

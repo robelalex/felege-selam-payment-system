@@ -26,6 +26,25 @@ ENGLISH_MONTHS = {
     'ሰኔ': 'Sene', 'ሐምሌ': 'Hamle', 'ነሐሴ': 'Nehase', 'ጳጉሜ': 'Pagume'
 }
 
+
+def find_payment_by_tx_ref(tx_ref):
+    """
+    ✅ FIX (money-safety): a Payment row's tx_ref changes on retry (see
+    previous_tx_refs on the model), so a lookup that only checks the
+    CURRENT transaction_reference can miss a payment that Chapa actually
+    processed under an older tx_ref — which used to mean that money was
+    deducted from a parent with zero record of it anywhere in this system.
+    Every webhook/verify/status lookup must go through this function, not
+    a raw `Payment.objects.filter(transaction_reference=tx_ref)`.
+    """
+    if not tx_ref:
+        return None
+    payment = Payment.objects.filter(transaction_reference=tx_ref).first()
+    if payment:
+        return payment
+    return Payment.objects.filter(previous_tx_refs__contains=[tx_ref]).first()
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def initiate_chapa_payment(request):
@@ -228,7 +247,7 @@ def chapa_webhook(request):
         tx_ref = data.get('tx_ref') or data.get('trx_ref')
         
         # Find payment first to get school
-        payment = Payment.objects.filter(transaction_reference=tx_ref).first()
+        payment = find_payment_by_tx_ref(tx_ref)
         if not payment:
             logger.warning(f"⚠️ Webhook: payment not found for tx_ref={tx_ref}")
             return JsonResponse({'status': 'not_found'}, status=404)
@@ -333,7 +352,7 @@ def verify_chapa_payment(request):
         return JsonResponse({'error': 'Missing tx_ref'}, status=400)
 
     try:
-        payment = Payment.objects.filter(transaction_reference=tx_ref).first()
+        payment = find_payment_by_tx_ref(tx_ref)
 
         if payment and payment.status == 'verified':
             finalize_receipt(payment)
@@ -394,7 +413,7 @@ def verify_chapa_payment(request):
 def payment_status(request, tx_ref):
     """Quick status check by tx_ref."""
     try:
-        payment = Payment.objects.filter(transaction_reference=tx_ref).first()
+        payment = find_payment_by_tx_ref(tx_ref)
         if payment:
             receipt_token = None
             if payment.status == 'verified':

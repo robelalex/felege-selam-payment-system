@@ -85,6 +85,19 @@ class Payment(models.Model):
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS)
     transaction_reference = models.CharField(max_length=200, blank=True)
 
+    # ✅ FIX (money-safety): every tx_ref this Payment row has ever used,
+    # oldest first. Chapa payments reuse the same pending row on retry, and
+    # `transaction_reference` above only ever holds the CURRENT tx_ref — a
+    # retry overwrites it. Without this history, if a parent's first
+    # attempt actually succeeded on Chapa's side but arrived late (webhook
+    # lag), and they'd already retried in the meantime, the first tx_ref's
+    # webhook could never find this row again — the money would be
+    # deducted from the parent with zero record of it in our system.
+    # Every lookup-by-tx_ref (webhook, verify, status) now checks both
+    # this field and the current one, so no tx_ref this row ever generated
+    # can go untraceable.
+    previous_tx_refs = models.JSONField(default=list, blank=True)
+
     invoice_number = models.CharField(max_length=50, blank=True, unique=True, null=True)
     chapa_reference = models.CharField(max_length=200, blank=True)
     webhook_received = models.BooleanField(default=False)

@@ -47,8 +47,16 @@ def initiate_payment_checkout(payment, email, first_name, last_name,
         dict: {'success': bool, 'checkout_url': str, 'tx_ref': str, 'error': str}
     """
     tx_ref = build_tx_ref(payment)
+
+    # ✅ FIX (money-safety): don't just overwrite transaction_reference — if
+    # this row already has one (a retry), keep it in previous_tx_refs first.
+    # See the field's comment on the model for why: otherwise a late Chapa
+    # webhook for the OLD tx_ref would find no matching row at all.
+    if payment.transaction_reference and payment.transaction_reference != tx_ref:
+        payment.previous_tx_refs = list(payment.previous_tx_refs or []) + [payment.transaction_reference]
+
     payment.transaction_reference = tx_ref
-    payment.save(update_fields=['transaction_reference'])
+    payment.save(update_fields=['transaction_reference', 'previous_tx_refs'])
 
     return_url = f"{return_url_base}?tx_ref={tx_ref}"
 

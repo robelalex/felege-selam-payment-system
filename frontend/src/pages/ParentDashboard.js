@@ -106,12 +106,49 @@ function ParentDashboard() {
       setPendingPayments(pendingResponse.data);
       
       localStorage.setItem('selectedStudent', JSON.stringify(studentResponse.data));
-      
+
+      // ✅ NEW: a parent who saw "Verification Pending" and closed the tab
+      // had no way to resolve it themselves — the only re-check was the
+      // "Check Again" button on that one page, easy to lose. Now, every
+      // time the dashboard loads, any still-pending Chapa payment gets
+      // silently re-checked in the background. If Chapa has since
+      // confirmed it (webhook lag is common), it flips to Verified right
+      // here — no trip to the school needed.
+      recheckPendingChapaPayments(paymentResponse.data);
+
     } catch (err) {
       console.error('Error fetching student data:', err);
       setError('Failed to load student information. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const recheckPendingChapaPayments = async (paymentList) => {
+    const stuckOnes = (paymentList || []).filter(
+      (p) => p.status === 'pending' && p.payment_method === 'chapa' && p.transaction_ref
+    );
+    if (stuckOnes.length === 0) return;
+
+    let anyResolved = false;
+    for (const p of stuckOnes) {
+      try {
+        const res = await api.get(`/chapa/verify/?tx_ref=${encodeURIComponent(p.transaction_ref)}`);
+        if (res.data?.verified) anyResolved = true;
+      } catch {
+        // Silent — this is a background best-effort check, not a
+        // user-facing action. If Chapa is unreachable right now, the
+        // payment just stays pending until the next dashboard load.
+      }
+    }
+
+    // Refresh the lists once if anything actually changed, so the parent
+    // sees the updated status without needing to do anything.
+    if (anyResolved) {
+      const paymentResponse = await api.get(`/students/${studentId}/payment_history/`);
+      setPayments(paymentResponse.data);
+      const pendingResponse = await api.get(`/students/${studentId}/pending_payments/`);
+      setPendingPayments(pendingResponse.data);
     }
   };
 

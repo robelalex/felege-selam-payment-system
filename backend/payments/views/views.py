@@ -163,7 +163,9 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def verify_payment(self, request, pk=None):
-        """Admin verifies a payment"""
+        """Admin manually verifies a payment — e.g. after confirming with
+        Chapa's own dashboard or a bank statement that money genuinely
+        arrived, for a payment stuck on "Verification Pending"."""
         payment = self.get_object()
         # ✅ SECURITY FIX: this used to compare the payment's school against
         # the client-supplied header — but the header IS the attacker's
@@ -178,9 +180,73 @@ class PaymentViewSet(viewsets.ModelViewSet):
         payment.status = 'verified'
         payment.verified_at = timezone.now()
         payment.verified_by = request.user
+
+        # ✅ FIX: a manual verify used to skip everything the automatic
+        # webhook path does — no invoice number, no receipt_token, no SMS
+        # confirmation to the parent. That meant an admin fixing a stuck
+        # Chapa payment by hand still left the parent with no receipt.
+        # Now both paths produce the same complete result.
+        if not payment.invoice_number:
+            payment.invoice_number = payment.generate_invoice_number()
         payment.save()
 
+        from payments.services.receipt_service import finalize_receipt, send_payment_success_notifications
+        finalize_receipt(payment)
+        try:
+            send_payment_success_notifications(payment)
+        except Exception:
+            pass  # never let a notification failure block the verify itself
+
         return Response({'success': True, 'message': 'Payment verified successfully'})
+
+    @action(detail=True, methods=['post'], url_path='recheck_chapa')
+    def recheck_chapa(self, request, pk=None):
+        """✅ NEW: admin-facing manual re-poll of Chapa for a single pending
+        payment — the same live check the parent's "Check Again" button
+        does, just reachable from the admin side without needing the
+        parent to have the link open. Only makes sense for payment_method
+        chapa; other methods return an error rather than silently no-op."""
+        payment = self.get_object()
+        verified_school_id = get_verified_school_id(request)
+
+        if verified_school_id and payment.student.school_id != verified_school_id:
+            return Response({'error': 'Payment does not belong to your school'}, status=403)
+
+        if payment.payment_method != 'chapa':
+            return Response({'error': 'Only Chapa payments can be re-checked with Chapa'}, status=400)
+        if not payment.transaction_reference:
+            return Response({'error': 'This payment has no transaction reference to check'}, status=400)
+
+        from payments.services.school_chapa_service import SchoolChapaService
+        from payments.services.receipt_service import finalize_receipt, send_payment_success_notifications
+        chapa_service = SchoolChapaService(payment.student.school_id)
+        result = chapa_service.verify_payment(payment.transaction_reference)
+
+        if not result.get('success'):
+            return Response({
+                'success': False,
+                'error': result.get('error', 'Could not reach Chapa to check this payment'),
+            }, status=502)
+
+        chapa_status = result.get('status', '')
+        if chapa_status == 'success' and payment.status != 'verified':
+            payment.status = 'verified'
+            payment.verified_at = timezone.now()
+            if not payment.invoice_number:
+                payment.invoice_number = payment.generate_invoice_number()
+            payment.save()
+            finalize_receipt(payment)
+            try:
+                send_payment_success_notifications(payment)
+            except Exception:
+                pass
+
+        return Response({
+            'success': True,
+            'chapa_status': chapa_status,
+            'payment_status': payment.status,
+            'verified': payment.status == 'verified',
+        })
 
     @action(detail=False, methods=['get'])
     def pending_verifications(self, request):
