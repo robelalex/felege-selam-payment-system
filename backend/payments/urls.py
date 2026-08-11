@@ -50,6 +50,16 @@ urlpatterns = [
     path('payments/', payment_viewset, name='payments'),
     path('payments/initiate-payment/', PaymentViewSet.as_view({'post': 'initiate_payment'}), name='initiate-payment'),
     path('payments/verify-payment/<int:pk>/', PaymentViewSet.as_view({'post': 'verify_payment'}), name='verify-payment'),
+    # ✅ FIX: this app doesn't use DRF's router for PaymentViewSet (see the
+    # comment above router.register — every @action needs its own path()
+    # here, it isn't automatic). AdminPayments.js's new Verify/Re-check
+    # buttons call these exact URLs — without these two lines they 404,
+    # which is exactly the "Not Found: /api/payments/115/recheck_chapa/"
+    # you just saw. The old dash-style '/verify-payment/<pk>/' above is a
+    # DIFFERENT URL and nothing in the frontend calls it, so it's left
+    # alone rather than removed.
+    path('payments/<int:pk>/verify_payment/', PaymentViewSet.as_view({'post': 'verify_payment'}), name='verify-payment-action'),
+    path('payments/<int:pk>/recheck_chapa/', PaymentViewSet.as_view({'post': 'recheck_chapa'}), name='recheck-chapa'),
     path('payments/pending-verifications/', PaymentViewSet.as_view({'get': 'pending_verifications'}), name='pending-verifications'),
     path('payments/delete-payment/<int:pk>/', PaymentViewSet.as_view({'delete': 'delete_pending'}), name='delete-payment'),
     path('payments/bulk-delete/', PaymentViewSet.as_view({'post': 'bulk_delete_pending'}), name='bulk-delete'),

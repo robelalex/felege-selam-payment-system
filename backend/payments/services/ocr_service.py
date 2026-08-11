@@ -206,7 +206,16 @@ class OCRService:
     
     def verify_slip(self, image_path, expected_amount, expected_student_id=None, expected_bank_name=None):
         """
-        Complete slip verification with multi-factor validation
+        Complete slip verification with multi-factor validation.
+
+        ✅ NEW: now also tries AI-based extraction (Claude reading the
+        actual image) via ai_slip_extraction_service, since regex-on-OCR-
+        text was consistently unreliable at pulling the transaction
+        reference off real parent-uploaded photos. For each field, the AI
+        result is used when Claude found something and OCR/regex did
+        not — real value from either wins over a missing one. If the AI
+        path is unavailable (no API key) or fails for any reason, this
+        works exactly as it did before, unchanged.
         """
         try:
             text = self.extract_text(image_path)
@@ -228,12 +237,53 @@ class OCRService:
             extracted_account = self.extract_account_number(text)
             extracted_date = self.extract_date(text)
             extracted_student_id = self.extract_student_reference(text)
-            
+
+            # ✅ NEW: let Claude read the actual photo and fill in whatever
+            # the regex pass missed — reference_number especially, since
+            # that's the field with the least consistent formatting across
+            # banks. A None/empty regex result never overrides a real AI
+            # one; a real regex result is only replaced if the AI result
+            # disagrees on amount specifically (the field with the most
+            # riding on it), preferring whichever one is present.
+            try:
+                from payments.services.ai_slip_extraction_service import extract_with_ai
+                ai_result = extract_with_ai(image_path)
+            except Exception as e:
+                logger.warning(f"AI slip extraction call failed, continuing with OCR-only: {e}")
+                ai_result = None
+
+            ai_used_for = []
+            if ai_result:
+                if not extracted_reference and ai_result.get('reference_number'):
+                    extracted_reference = str(ai_result['reference_number']).strip().upper()
+                    ai_used_for.append('reference')
+                if not extracted_bank and ai_result.get('bank_name'):
+                    extracted_bank = ai_result['bank_name']
+                    ai_used_for.append('bank')
+                if not extracted_account and ai_result.get('account_number'):
+                    extracted_account = str(ai_result['account_number']).strip()
+                    ai_used_for.append('account')
+                if not extracted_date and ai_result.get('transaction_date'):
+                    extracted_date = ai_result['transaction_date']
+                    ai_used_for.append('date')
+                if not extracted_student_id and ai_result.get('student_reference'):
+                    extracted_student_id = ai_result['student_reference']
+                    ai_used_for.append('student_id')
+                if extracted_amount is None and ai_result.get('amount') is not None:
+                    try:
+                        extracted_amount = float(ai_result['amount'])
+                        ai_used_for.append('amount')
+                    except (TypeError, ValueError):
+                        pass
+
             confidence = 0
             amount_match = False
             bank_match = False
             student_id_match = False
             match_details = []
+            if ai_used_for:
+                match_details.append(f"AI-assisted fields: {', '.join(ai_used_for)}")
+
             
             # 1. Amount check (up to 50 points)
             if extracted_amount and expected_amount:

@@ -270,6 +270,15 @@ if not DEBUG:
 # ===== CHAPA =====
 CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY', '')
 
+# ===== AI SLIP READING (Claude) =====
+# ✅ NEW: used by ai_slip_extraction_service.py to read payment slip photos
+# directly (amount, bank, reference number) instead of relying only on
+# Tesseract + regex, which struggles with the low-quality phone photos
+# parents actually upload. Leave unset and the slip flow falls back to the
+# existing OCR-only behavior automatically — nothing breaks if this key
+# isn't configured yet.
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
+
 
 # ===== EMAIL CONFIGURATION =====
 
