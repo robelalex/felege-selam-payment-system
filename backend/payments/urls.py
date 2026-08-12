@@ -5,6 +5,7 @@ from .views.views import PaymentViewSet, PaymentDeadlineViewSet
 from .views import ReminderViewSet, send_reminders, send_payment_confirmation
 from .views.report_views import monthly_report, student_report, annual_summary, monthly_detailed_report
 from .views import PaymentLandingView, OtpVerifyView, PaymentInitiateView
+from .views.fee_override_views import StudentFeeOverrideViewSet
 from .views.receipt_views import get_receipt
 from .views.slip_views import (
     upload_slip, pending_slips, verify_slip, ai_stats, slip_status,
@@ -36,6 +37,12 @@ from .views.reminder_views import pending_reminders_filtered
 router = DefaultRouter()
 router.register(r'deadlines', PaymentDeadlineViewSet)
 router.register(r'reminders', ReminderViewSet, basename='reminder')
+# ✅ Jimma request #1 — fee exceptions. Registered via the router (unlike
+# PaymentViewSet — see the comment above payment_viewset) because this
+# viewset has no legacy dash-style URLs to stay compatible with, and its
+# one custom @action (deactivate) is exactly what DRF's router already
+# handles for free: POST /api/fee-overrides/<pk>/deactivate/
+router.register(r'fee-overrides', StudentFeeOverrideViewSet, basename='fee-override')
 
 # DON'T register payments with router - use direct paths instead
 payment_viewset = PaymentViewSet.as_view({

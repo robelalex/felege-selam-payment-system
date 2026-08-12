@@ -17,6 +17,7 @@ from .chapa_views import (
     verify_chapa_payment, get_chapa_banks
 )
 from .anti_spoofing_views import PaymentLandingView, OtpVerifyView, PaymentInitiateView
+from .fee_override_views import StudentFeeOverrideViewSet
 
 __all__ = [
     'PaymentViewSet',
@@ -46,4 +47,5 @@ __all__ = [
     'PaymentLandingView',
     'OtpVerifyView',
     'PaymentInitiateView',
+    'StudentFeeOverrideViewSet',
 ]

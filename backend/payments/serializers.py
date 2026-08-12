@@ -1,6 +1,6 @@
 # backend/payments/serializers.py
 from rest_framework import serializers
-from .models import Payment, PaymentDeadline, PaymentReminder, PaymentSlip
+from .models import Payment, PaymentDeadline, PaymentReminder, PaymentSlip, StudentFeeOverride
 
 
 class PaymentDeadlineSerializer(serializers.ModelSerializer):
@@ -82,3 +82,38 @@ class PaymentSerializer(serializers.ModelSerializer):
         if obj.status == 'pending':
             return timezone.now() - obj.created_at < timedelta(hours=24)
         return False
+
+
+class StudentFeeOverrideSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    student_id_display = serializers.CharField(source='student.student_id', read_only=True)
+    academic_year_name = serializers.CharField(source='academic_year.name', read_only=True)
+    override_type_display = serializers.CharField(source='get_override_type_display', read_only=True)
+    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+
+    class Meta:
+        model = StudentFeeOverride
+        fields = [
+            'id', 'student', 'student_name', 'student_id_display',
+            'academic_year', 'academic_year_name',
+            'override_type', 'override_type_display', 'amount',
+            'supporting_document', 'reason', 'is_active',
+            'created_by', 'created_by_username',
+            'deactivated_by', 'deactivated_at',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = [
+            'id', 'created_by', 'deactivated_by', 'deactivated_at',
+            'created_at', 'updated_at',
+        ]
+
+    def validate(self, attrs):
+        # supporting_document is required on CREATE, but shouldn't be
+        # force-required on partial updates (e.g. an admin flipping
+        # is_active off doesn't need to re-upload the letter).
+        is_create = self.instance is None
+        if is_create and not attrs.get('supporting_document'):
+            raise serializers.ValidationError({
+                'supporting_document': 'A supporting document (kebele/NGO letter) is required to create a fee exception.'
+            })
+        return attrs

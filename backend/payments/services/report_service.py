@@ -6,6 +6,7 @@ from collections import defaultdict
 from datetime import datetime
 import calendar
 from django.db import models
+from payments.services.fee_override_service import get_effective_deadline_amount
 
 
 class ReportService:
@@ -248,16 +249,32 @@ class ReportService:
                 })
         
         # Calculate pending
+        # ✅ Fee exceptions (Jimma request #1): a student with an active
+        # StudentFeeOverride for this academic year owes the override
+        # amount, not deadline.amount — see fee_override_service.py for
+        # the 'waiver' (one-time, first month only) vs 'partial' (every
+        # month) rules. get_effective_deadline_amount() falls back to
+        # deadline.amount untouched when there's no override, so this is
+        # a no-op for every student without one.
         paid_months = set(p.deadline_id for p in payments if p.status == 'verified')
         pending = []
         for deadline in deadlines:
             if deadline.id not in paid_months:
+                effective_amount = get_effective_deadline_amount(student, deadline)
+                if effective_amount <= 0:
+                    # 'waiver' students: every month except the one the
+                    # one-time amount is charged against is already $0
+                    # due — don't list it as pending.
+                    continue
                 pending.append({
                     'month': deadline.get_month_display(),
-                    'amount': float(deadline.amount),
+                    'amount': float(effective_amount),
                     'due_date': deadline.due_date.strftime('%Y-%m-%d')
                 })
         
+        from payments.services.fee_override_service import describe_override_for_student
+        fee_override = describe_override_for_student(student, student_year_obj)
+
         return {
             'student': {
                 'id': student.student_id,
@@ -266,7 +283,8 @@ class ReportService:
                 'section': student.section,
                 'parent_phone': student.parent_phone,
                 'monthly_fee': float(student.monthly_fee),
-                'school_id': student.school_id
+                'school_id': student.school_id,
+                'fee_override': fee_override,
             },
             'summary': {
                 'total_paid': float(total_paid),

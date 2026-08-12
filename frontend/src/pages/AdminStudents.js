@@ -19,13 +19,15 @@ import {
   User,
   MoreVertical,
   Image as ImageIcon,
-  FileText
+  FileText,
+  HeartHandshake
 } from 'lucide-react';
 import api from '../services/api';
 import StudentRegistrationForm from '../components/Admin/StudentRegistrationForm';
 import BulkImport from '../components/Admin/BulkImport';
 import BulkPhotoUpload from '../components/Admin/BulkPhotoUpload';
 import StudentDocumentsModal from '../components/Admin/StudentDocumentsModal';
+import FeeExceptionsModal from '../components/Admin/FeeExceptionsModal';
 import { useYear } from '../context/YearContext';
 
 function AdminStudents() {
@@ -41,6 +43,7 @@ function AdminStudents() {
   // ✅ NEW: bulk photo upload + per-student document management
   const [showBulkPhotoUpload, setShowBulkPhotoUpload] = useState(false);
   const [documentsStudent, setDocumentsStudent] = useState(null);
+  const [feeExceptionStudent, setFeeExceptionStudent] = useState(null);
   const [viewMode, setViewMode] = useState('table'); // 'table' or 'grid'
   const itemsPerPage = 10;
   
@@ -482,6 +485,14 @@ function AdminStudents() {
                               >
                                 <FileText className="h-4 w-4 text-gray-600" />
                               </button>
+                              {/* ✅ NEW: fee exceptions (waiver / partial monthly plan) */}
+                              <button
+                                onClick={() => setFeeExceptionStudent(student)}
+                                className="p-1 hover:bg-gray-100 rounded transition-colors tap-target"
+                                title="Fee Exception"
+                              >
+                                <HeartHandshake className="h-4 w-4 text-gray-600" />
+                              </button>
                               <button 
                                 onClick={() => handleDeleteStudent(student.id)}
                                 className="p-1 hover:bg-gray-100 rounded transition-colors tap-target"
@@ -611,6 +622,17 @@ function AdminStudents() {
           <StudentDocumentsModal
             student={documentsStudent}
             onClose={() => setDocumentsStudent(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ✅ NEW: Fee Exception Modal */}
+      <AnimatePresence>
+        {feeExceptionStudent && (
+          <FeeExceptionsModal
+            student={feeExceptionStudent}
+            academicYear={selectedYear}
+            onClose={() => setFeeExceptionStudent(null)}
           />
         )}
       </AnimatePresence>

@@ -181,6 +181,93 @@ class Payment(models.Model):
         return self.receipt_token
 
 
+class StudentFeeOverride(models.Model):
+    """
+    ✅ NEW (Jimma request #1 — fee exceptions & flexible payment plans).
+
+    A per-student, per-academic-year exception to the normal monthly fee
+    (PaymentDeadline.amount / Student.monthly_fee), for students the
+    school has approved a reduced arrangement for. Two kinds:
+
+      - 'waiver'  — one single one-time amount for the WHOLE year,
+        replacing every monthly charge. Modeled as applying to only the
+        first active deadline of that academic year (for the student's
+        grade) — every other month in that year is $0 due. This keeps
+        the existing month-by-month PaymentDeadline architecture intact
+        instead of inventing a parallel non-monthly billing concept.
+      - 'partial' — a reduced amount charged EVERY month instead of the
+        normal deadline amount (e.g. deadline says 500 Birr, this
+        student pays 200 Birr/month all year).
+
+    Deliberately its own table rather than reusing Student.monthly_fee:
+    monthly_fee is silently overwritten by
+    payments.signals.sync_student_fees_on_deadline_change every time an
+    admin edits ANY PaymentDeadline for that grade (see that file's
+    docstring) — any customization stored there would be wiped out by
+    the next unrelated deadline edit. This table is never touched by
+    that signal.
+
+    Only one ACTIVE override per student per academic year — a school
+    either grants a waiver or a partial arrangement for a given year,
+    not both at once. Deactivate (is_active=False) rather than delete,
+    to keep the approval history and the supporting document on file
+    for audit/inspection purposes, same convention as StudentDocument.
+    """
+    OVERRIDE_TYPE_CHOICES = [
+        ('waiver', 'One-Time Waiver Amount (replaces all monthly fees for the year)'),
+        ('partial', 'Partial Monthly Payment (reduced amount every month)'),
+    ]
+
+    student = models.ForeignKey(
+        Student, on_delete=models.CASCADE, related_name='fee_overrides'
+    )
+    academic_year = models.ForeignKey(
+        'academics.AcademicYear', on_delete=models.CASCADE, related_name='fee_overrides'
+    )
+    override_type = models.CharField(max_length=10, choices=OVERRIDE_TYPE_CHOICES)
+    amount = models.DecimalField(
+        max_digits=10, decimal_places=2, validators=[MinValueValidator(0)],
+        help_text=(
+            "For 'waiver': the single total amount charged for the whole "
+            "academic year. For 'partial': the reduced amount charged "
+            "every month instead of the normal deadline amount."
+        )
+    )
+    supporting_document = models.FileField(
+        upload_to='fee_exception_documents/%Y/%m/',
+        help_text="Required — kebele/NGO letter or other proof supporting this exception."
+    )
+    reason = models.CharField(max_length=255, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        'auth.User', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='fee_overrides_created'
+    )
+    deactivated_by = models.ForeignKey(
+        'auth.User', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='fee_overrides_deactivated'
+    )
+    deactivated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['student', 'academic_year'],
+                condition=models.Q(is_active=True),
+                name='unique_active_fee_override_per_student_year',
+            )
+        ]
+        indexes = [
+            models.Index(fields=['student', 'academic_year', 'is_active']),
+        ]
+
+    def __str__(self):
+        return f"{self.student.student_id} - {self.get_override_type_display()} ({self.academic_year}) - {self.amount} Birr"
+
+
 class PaymentReminder(models.Model):
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='reminders')
     deadline = models.ForeignKey(PaymentDeadline, on_delete=models.CASCADE)

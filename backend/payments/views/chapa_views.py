@@ -58,11 +58,20 @@ def initiate_chapa_payment(request):
         data = request.data
         student_id  = data.get('student_id')
         deadline_id = data.get('deadline_id')
-        amount      = data.get('amount')
         email       = data.get('email', '')
         first_name  = data.get('first_name', 'Parent')
         last_name   = data.get('last_name', 'User')
         platform    = data.get('platform', 'web')
+
+        # ✅ SECURITY / MONEY-SAFETY FIX: `amount` used to be taken directly
+        # from the request body (`data.get('amount')`) and trusted as-is —
+        # any authenticated parent could set it to any number they wanted
+        # (e.g. pay 1 Birr against a 500 Birr deadline) and the Chapa
+        # checkout, webhook, and verified Payment row would all silently
+        # go along with it, since nothing here ever compared it to what
+        # was actually owed. The amount actually charged is now ALWAYS
+        # computed server-side below, from the deadline (and any active
+        # fee override) — the client is not trusted for this value at all.
 
         # ✅ Get school from header
         school_id = request.headers.get('X-School-ID')
@@ -72,9 +81,9 @@ def initiate_chapa_payment(request):
                 status=400
             )
 
-        if not all([student_id, deadline_id, amount]):
+        if not all([student_id, deadline_id]):
             return JsonResponse(
-                {'success': False, 'error': 'student_id, deadline_id and amount are required'},
+                {'success': False, 'error': 'student_id and deadline_id are required'},
                 status=400
             )
 
@@ -159,6 +168,22 @@ def initiate_chapa_payment(request):
                 status=400
             )
 
+        # ✅ Fee exceptions (Jimma request #1): the authoritative amount
+        # owed for this deadline, accounting for an active
+        # StudentFeeOverride ('waiver' or 'partial'). See
+        # fee_override_service.py — falls back to deadline.amount
+        # unchanged for every student without an override.
+        from ..services.fee_override_service import get_effective_deadline_amount
+        amount = get_effective_deadline_amount(student, deadline)
+
+        if amount <= 0:
+            # 'waiver' students: every month except the one the one-time
+            # amount is charged against is already fully covered.
+            return JsonResponse(
+                {'success': False, 'error': 'Nothing is due for this month — already covered by a fee waiver.'},
+                status=400
+            )
+
         # Reuse existing pending payment or create new one
         payment = Payment.objects.filter(
             student=student, deadline=deadline, status='pending',
@@ -175,6 +200,14 @@ def initiate_chapa_payment(request):
                 paid_by=f"{first_name} {last_name}",
                 paid_by_phone=student.parent_phone or '',
             )
+        elif payment.amount != amount:
+            # An override could have been granted/changed after this
+            # pending row was first created (e.g. late-approved waiver) —
+            # keep the charge in sync with what's actually owed right now
+            # rather than re-charging a stale amount.
+            payment.amount = amount
+            payment.save(update_fields=['amount'])
+
 
         # Define return_url base depending on platform
         if platform == 'mobile':
