@@ -60,6 +60,22 @@ function ParentLogin() {
 
       // ✅ FIXED: Backend only returns "success" (no "students")
       if (response.data.success) {
+        // ✅ FIX: /parent/verify/ also issues a real JWT (response.data.token /
+        // response.data.refresh) so parent requests stay authenticated the
+        // same way admin/staff requests do. This was never being saved, so
+        // every later api call (e.g. /students/search_by_id/) went out with
+        // no Authorization header, got a 401 from the backend's
+        // IsAuthenticated check, and the global response interceptor treated
+        // that 401 as "admin session expired" — clearing localStorage
+        // (wiping this very parentSession) and hard-redirecting to
+        // /admin/login. Saving the token here is what fixes that redirect.
+        if (response.data.token) {
+          localStorage.setItem('access_token', response.data.token);
+        }
+        if (response.data.refresh) {
+          localStorage.setItem('refresh_token', response.data.refresh);
+        }
+
         // Store parent session
         localStorage.setItem('parentSession', JSON.stringify({
           email: email,

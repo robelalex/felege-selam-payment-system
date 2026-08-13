@@ -96,9 +96,27 @@ function AdminDeadlines() {
       fetchDeadlines();
     } catch (err) {
       console.error('Error saving deadline:', err.response?.data);
+
+      // ✅ FIX: DRF validation errors come back as either
+      // { "non_field_errors": ["..."] } (e.g. duplicate deadline) or
+      // { "<field>": ["..."] } (e.g. { "due_date": ["This field may not be null."] }) —
+      // never as `.error` or `.message`. The old code only checked those two
+      // keys, so real validation errors were silently discarded and the user
+      // always saw a generic "Failed to save deadline" with no explanation.
+      const data = err.response?.data;
+      let errorText = data?.error || data?.message;
+
+      if (!errorText && data && typeof data === 'object') {
+        const parts = Object.entries(data).map(([field, msgs]) => {
+          const text = Array.isArray(msgs) ? msgs.join(' ') : msgs;
+          return field === 'non_field_errors' ? text : `${field}: ${text}`;
+        });
+        if (parts.length) errorText = parts.join(' ');
+      }
+
       setMessage({
         type: 'error',
-        text: err.response?.data?.error || err.response?.data?.message || 'Failed to save deadline'
+        text: errorText || 'Failed to save deadline'
       });
     } finally {
       setSubmitting(false);
@@ -315,12 +333,13 @@ function AdminDeadlines() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Due Date *</label>
                   <input
                     type="date"
                     value={formData.due_date}
                     onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
                     className="input-field"
+                    required
                   />
                 </div>
 
