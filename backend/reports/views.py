@@ -10,6 +10,7 @@ from datetime import date
 from collections import defaultdict
 from authentication.permissions import CanViewReports
 from common.utils import get_verified_school_id
+from payments.services.fee_override_service import get_effective_deadline_amount
 
 # ✅ SECURITY FIX: all three endpoints below were AllowAny and resolved the
 # school from the client-supplied X-School-ID header — anyone on the
@@ -225,6 +226,10 @@ def pending_payments_report(request):
             is_unpaid = (student.id, deadline.id) not in paid_set
 
             if is_overdue and is_unpaid:
+                # ✅ Fee exceptions (Jimma request #1)
+                effective_amount = get_effective_deadline_amount(student, deadline)
+                if effective_amount <= 0:
+                    continue
                 student_pending.append({
                     'month': deadline.month,
                     'month_name': (
@@ -232,7 +237,7 @@ def pending_payments_report(request):
                         if deadline.month <= len(months)
                         else f"Month {deadline.month}"
                     ),
-                    'amount': float(deadline.amount),
+                    'amount': float(effective_amount),
                     'due_date': (
                         deadline.due_date.strftime('%Y-%m-%d')
                         if deadline.due_date else None

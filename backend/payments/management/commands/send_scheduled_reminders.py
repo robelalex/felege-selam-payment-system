@@ -109,9 +109,17 @@ class Command(BaseCommand):
                         ))
                         continue
 
+                    # ✅ Fee exceptions (Jimma request #1): don't remind a
+                    # waiver student about a month already fully covered,
+                    # and quote partial students their real amount.
+                    from payments.services.fee_override_service import get_effective_deadline_amount
+                    effective_amount = get_effective_deadline_amount(student, deadline)
+                    if effective_amount <= 0:
+                        continue
+
                     message = (
                         f"Payment Reminder: {student.full_name}'s tuition for "
-                        f"{month_name} (ETB {deadline.amount:,.2f}) is due {due_phrase} "
+                        f"{month_name} (ETB {effective_amount:,.2f}) is due {due_phrase} "
                         f"on {deadline.due_date.strftime('%b %d, %Y')}. "
                         f"Please pay via the parent portal or bank transfer. "
                         f"— {school.name}"

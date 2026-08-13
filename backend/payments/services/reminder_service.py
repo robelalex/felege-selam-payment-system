@@ -5,6 +5,7 @@ from academics.models import AcademicYear
 from datetime import date, timedelta
 from collections import defaultdict
 from django.db import models
+from payments.services.fee_override_service import get_effective_deadline_amount
 
 
 class ReminderService:
@@ -111,6 +112,13 @@ class ReminderService:
             
             for deadline in applicable:
                 if (student.id, deadline.id) not in paid_set:
+                    # ✅ Fee exceptions (Jimma request #1): don't flag a
+                    # waiver/partial student as overdue for more than they
+                    # actually owe — see fee_override_service.py.
+                    effective_amount = get_effective_deadline_amount(student, deadline)
+                    if effective_amount <= 0:
+                        continue
+
                     days_overdue = (today - deadline.due_date).days
                     penalty_rate = 0.10 if days_overdue > 30 else (0.05 if days_overdue > 7 else 0)
                     severity = "critical" if days_overdue > 30 else ("warning" if days_overdue > 7 else "recent")
@@ -122,11 +130,11 @@ class ReminderService:
                         'parent_phone': student.parent_phone, 'parent_name': student.parent_full_name,
                         'parent_email': getattr(student, 'parent_email', ''),
                         'month': deadline.month, 'month_name': self.get_month_name(deadline.month),
-                        'amount': float(deadline.amount),
+                        'amount': float(effective_amount),
                         'due_date': deadline.due_date.strftime('%Y-%m-%d'),
                         'days_overdue': days_overdue,
-                        'penalty_amount': round(float(deadline.amount) * penalty_rate, 2),
-                        'total_due_with_penalty': round(float(deadline.amount) * (1 + penalty_rate), 2),
+                        'penalty_amount': round(float(effective_amount) * penalty_rate, 2),
+                        'total_due_with_penalty': round(float(effective_amount) * (1 + penalty_rate), 2),
                         'severity': severity, 'deadline_id': deadline.id
                     })
             
@@ -263,6 +271,12 @@ class ReminderService:
                 is_unpaid = (student.id, deadline.id) not in paid_set
                 
                 if is_unpaid:
+                    # ✅ Fee exceptions (Jimma request #1): skip a month
+                    # already fully covered by a waiver's one-time amount.
+                    effective_amount = get_effective_deadline_amount(student, deadline)
+                    if effective_amount <= 0:
+                        continue
+
                     # ✅ Calculate deadline status
                     days_until_due = (deadline.due_date - today).days if deadline.due_date else None
                     
@@ -294,7 +308,7 @@ class ReminderService:
                         'month': deadline.month,
                         'month_name': self.get_month_name(deadline.month),
                         'academic_year': deadline.academic_year.name if deadline.academic_year else year_name,
-                        'amount': float(deadline.amount),
+                        'amount': float(effective_amount),
                         'due_date': deadline.due_date.strftime('%Y-%m-%d') if deadline.due_date else None,
                         'days_until_due': days_until_due,
                         'status_label': status_label,

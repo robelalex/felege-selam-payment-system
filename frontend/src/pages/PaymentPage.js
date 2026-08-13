@@ -8,7 +8,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 function PaymentPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { studentId, deadline, studentName } = location.state || {};
+  const { studentId, deadline: rawDeadline, studentName } = location.state || {};
 
   const [paymentMethod, setPaymentMethod] = useState('telebirr');
   const [paidBy, setPaidBy] = useState('');
@@ -17,6 +17,34 @@ function PaymentPage() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
   const [paymentResponse, setPaymentResponse] = useState(null);
+
+  // ✅ Fee exceptions (Jimma request #1): `rawDeadline` is whatever the
+  // caller passed via router state, which may be a plain PaymentDeadline
+  // object (base amount, no override awareness). Re-fetch this
+  // student's pending list (already override-aware server-side — see
+  // students/views.py's pending_payments) and use the matching entry's
+  // amount for display, so this page can't show a stale/wrong amount
+  // even though the backend already refuses to charge the wrong amount
+  // regardless (see PaymentViewSet.initiate_payment).
+  const [deadline, setDeadline] = useState(rawDeadline);
+  useEffect(() => {
+    if (!studentId || !rawDeadline) return;
+    api.get(`/students/${studentId}/pending_payments/`)
+      .then(res => {
+        const match = (res.data || []).find(
+          (p) => String(p.deadline_id) === String(rawDeadline.id)
+        );
+        if (match) {
+          setDeadline((prev) => ({ ...prev, amount: match.amount }));
+        }
+      })
+      .catch(() => {
+        // Non-fatal — fall back to whatever amount was passed in. The
+        // backend never trusts this value for the actual charge either
+        // way (see PaymentViewSet.initiate_payment).
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studentId, rawDeadline?.id]);
 
   // ✅ NEW: Bank Transfer / Slip Upload State
   const [slipFile, setSlipFile] = useState(null);

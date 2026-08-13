@@ -559,23 +559,35 @@ def send_deadline_reminder_email(recipient_email, student, deadline, school, pay
         tuple: (success: bool, message: str)
     """
     
+    # ✅ Fee exceptions (Jimma request #1): the amount actually owed for
+    # this deadline, used both for the tokenized payment record below
+    # AND for what's displayed in the email body — computed once here so
+    # the two can never disagree with each other.
+    from payments.services.fee_override_service import get_effective_deadline_amount
+    display_amount = get_effective_deadline_amount(student, deadline)
+
     # ✅ ENFORCE SECURE TOKEN GENERATION - No legacy fallback allowed
     if not payment_link:
         from payments.tokens import generate_payment_token
         from payments.models import Payment
-        
+        if display_amount <= 0:
+            return False, 'Nothing due for this deadline — already covered by a fee waiver.'
+
         # Create or get payment record for this deadline
         payment, created = Payment.objects.get_or_create(
             student=student,
             deadline=deadline,
             defaults={
-                'amount': deadline.amount,
+                'amount': display_amount,
                 'payment_method': 'chapa',
                 'paid_by': student.full_name,
                 'paid_by_phone': student.parent_phone,
                 'status': 'pending'
             }
         )
+        if not created and payment.status == 'pending' and payment.amount != display_amount:
+            payment.amount = display_amount
+            payment.save(update_fields=['amount'])
         
         # Generate secure anti-spoofing token (same function used by SMS)
         token, record = generate_payment_token(payment, student.parent_phone, channel="email")
@@ -610,7 +622,7 @@ def send_deadline_reminder_email(recipient_email, student, deadline, school, pay
                 <div style="background: #FEE2E2; padding: 20px; border-radius: 12px; margin: 20px 0; border-left: 4px solid #DC2626;">
                     <p style="margin: 0 0 5px 0;"><strong>📅 Month:</strong> {deadline.get_month_display()}</p>
                     <p style="margin: 0 0 5px 0;"><strong>📖 Academic Year:</strong> {deadline.academic_year}</p>
-                    <p style="margin: 0 0 5px 0;"><strong>💰 Amount Due:</strong> <span style="font-size: 20px; font-weight: bold;">{deadline.amount} ETB</span></p>
+                    <p style="margin: 0 0 5px 0;"><strong>💰 Amount Due:</strong> <span style="font-size: 20px; font-weight: bold;">{display_amount} ETB</span></p>
                     <p style="margin: 0;"><strong>⏰ Due Date:</strong> {due_date_str}</p>
                 </div>
                 
@@ -653,7 +665,7 @@ def send_deadline_reminder_email(recipient_email, student, deadline, school, pay
 Student: {student.full_name} (Grade {student.grade})
 Month: {deadline.get_month_display()}
 Academic Year: {deadline.academic_year}
-Amount Due: {deadline.amount} ETB
+Amount Due: {display_amount} ETB
 Due Date: {due_date_str}
 
 {'=' * 40}

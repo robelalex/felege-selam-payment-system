@@ -114,17 +114,36 @@ class MultiSchoolSendPaymentReminderView(APIView):
                 return Response({'error': 'Student already paid for this deadline'}, status=400)
             
 
+            # ✅ MONEY-SAFETY FIX (Jimma request #1 — fee exceptions): this
+            # used to always create the pending Payment with
+            # `deadline.amount`. That Payment row is exactly what gets
+            # charged later when the parent clicks the SMS payment link
+            # (PaymentInitiateView -> initiate_payment_checkout reads
+            # payment.amount as-is) — so a waiver/partial student texted
+            # this link would have been charged the full normal fee,
+            # silently overriding their approved exception. Now computed
+            # the same way as the Chapa "Pay Now" button.
+            from ..services.fee_override_service import get_effective_deadline_amount
+            effective_amount = get_effective_deadline_amount(student, deadline)
+            if effective_amount <= 0:
+                return Response({'error': 'Nothing is due for this month — already covered by a fee waiver.'}, status=400)
+
             payment_obj, created = PaymentModel.objects.get_or_create(
                 student=student,
                 deadline=deadline,
                 defaults={
-                    'amount': deadline.amount,
+                    'amount': effective_amount,
                     'payment_method': 'chapa',
                     'paid_by': student.full_name,
                     'paid_by_phone': student.parent_phone,
                     'status': 'pending'
                 }
             )
+            if not created and payment_obj.status == 'pending' and payment_obj.amount != effective_amount:
+                # An override could have been granted/changed after this
+                # pending row was first created — keep it in sync.
+                payment_obj.amount = effective_amount
+                payment_obj.save(update_fields=['amount'])
             token, record = generate_payment_token(payment_obj, student.parent_phone, channel="sms")
             payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
             
@@ -132,7 +151,7 @@ class MultiSchoolSendPaymentReminderView(APIView):
             message = f"""የትምህርት ክፍያ ማስታወሻ - {deadline.get_month_display()} {deadline.academic_year}
 
 ለ: {student.full_name}
-ክፍያ: {deadline.amount} ብር
+ክፍያ: {effective_amount} ብር
 የማስከፈያ ቀን: {deadline.due_date}
 
 እባክዎ በመስመር ላይ ለመክፈል ይህን አገናኝ ይጫኑ:
@@ -144,7 +163,7 @@ class MultiSchoolSendPaymentReminderView(APIView):
 Payment Reminder - {deadline.academic_year} {deadline.get_month_display()}
 
 Student: {student.full_name}
-Amount: {deadline.amount} ETB
+Amount: {effective_amount} ETB
 Due: {deadline.due_date}
 
 Click here to pay online: {payment_link}
@@ -248,18 +267,36 @@ class MultiSchoolSendBulkRemindersView(APIView):
                     })
                     continue
                 
+                # ✅ Fee exceptions (Jimma request #1) + money-safety, same
+                # reasoning as the single-reminder view above — skip
+                # students already fully covered, and always compute the
+                # charged amount server-side.
+                from ..services.fee_override_service import get_effective_deadline_amount
+                effective_amount = get_effective_deadline_amount(student, deadline)
+                if effective_amount <= 0:
+                    results.append({
+                        'student_id': student.student_id,
+                        'name': student.full_name,
+                        'success': False,
+                        'message': 'Covered by fee waiver — nothing due'
+                    })
+                    continue
+
                 # Generate secure payment link
                 payment_obj, created = PaymentModel.objects.get_or_create(
                     student=student,
                     deadline=deadline,
                     defaults={
-                        'amount': deadline.amount,
+                        'amount': effective_amount,
                         'payment_method': 'chapa',
                         'paid_by': student.full_name,
                         'paid_by_phone': student.parent_phone,
                         'status': 'pending'
                     }
                 )
+                if not created and payment_obj.status == 'pending' and payment_obj.amount != effective_amount:
+                    payment_obj.amount = effective_amount
+                    payment_obj.save(update_fields=['amount'])
                 token, record = generate_payment_token(payment_obj, student.parent_phone, channel="sms")
                 payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
                 
@@ -270,7 +307,7 @@ class MultiSchoolSendBulkRemindersView(APIView):
                     message = f"""የትምህርት ክፍያ ማስታወሻ - {deadline.academic_year} {deadline.get_month_display()}
 
 ለ: {student.full_name}
-ክፍያ: {deadline.amount} ብር
+ክፍያ: {effective_amount} ብር
 የማስከፈያ ቀን: {deadline.due_date}
 
 እባክዎ በመስመር ላይ ይክፈሉ: {payment_link}
@@ -374,14 +411,23 @@ class MultiSchoolSMSPendingRemindersView(APIView):
         # Only include students with phone numbers
         pending_students = pending_students.exclude(parent_phone__isnull=True).exclude(parent_phone='')
         
-        data = [{
-            'student_id': s.student_id,
-            'name': s.full_name,
-            'grade': s.grade,
-            'parent_phone': s.parent_phone,
-            'parent_email': s.parent_email,
-            'amount': float(deadline.amount)
-        } for s in pending_students]
+        # ✅ Fee exceptions (Jimma request #1): show staff the real amount
+        # each student owes (waiver/partial), not the blanket deadline
+        # amount — this list is what staff pick reminder recipients from.
+        from ..services.fee_override_service import get_effective_deadline_amount
+        data = []
+        for s in pending_students:
+            effective_amount = get_effective_deadline_amount(s, deadline)
+            if effective_amount <= 0:
+                continue
+            data.append({
+                'student_id': s.student_id,
+                'name': s.full_name,
+                'grade': s.grade,
+                'parent_phone': s.parent_phone,
+                'parent_email': s.parent_email,
+                'amount': float(effective_amount)
+            })
         
         return Response({
             'deadline': {

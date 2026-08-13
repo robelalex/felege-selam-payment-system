@@ -334,6 +334,30 @@ class StudentViewSet(viewsets.ModelViewSet):
 
             print(f"📚 Found {len(filtered_deadlines)} pending deadlines for grade {student.grade}")
 
+            # ✅ Fee exceptions (Jimma request #1): this is the actual
+            # endpoint the parent app / admin "pending payments" screen
+            # calls — it was still reading deadline.amount directly, so a
+            # waiver/partial student's fee override wasn't visible here
+            # even though it was already applied on report_service.py and
+            # (critically) the Chapa charge itself. Fixed the same way.
+            from payments.services.fee_override_service import get_effective_deadline_amount, get_active_override
+
+            # 🔍 DIAGNOSTIC (temporary): print exactly what override lookup
+            # sees for this student/year, so a "why isn't my override
+            # showing up" report can be root-caused from the server log
+            # alone, without needing DB access. Safe to remove later.
+            _debug_override = get_active_override(student, academic_year_obj)
+            print(
+                f"🔍 FeeOverride check — student.id={student.id} "
+                f"academic_year_obj.id={academic_year_obj.id} ({academic_year_obj.name}) -> "
+                + (
+                    f"FOUND override id={_debug_override.id} type={_debug_override.override_type} "
+                    f"amount={_debug_override.amount} is_active={_debug_override.is_active} "
+                    f"override.academic_year_id={_debug_override.academic_year_id}"
+                    if _debug_override else "NO ACTIVE OVERRIDE FOUND for this (student, academic_year) pair"
+                )
+            )
+
             # ✅ NEW: Also get pending payments from slip uploads (not yet verified)
             pending_slip_payments = Payment.objects.filter(
                 student=student,
@@ -346,13 +370,24 @@ class StudentViewSet(viewsets.ModelViewSet):
 
             # Add regular pending deadlines
             for deadline in filtered_deadlines:
+                effective_amount = get_effective_deadline_amount(student, deadline)
+                if effective_amount <= 0:
+                    # 'waiver' students: covered by the one-time amount
+                    # charged on the year's first deadline — nothing else
+                    # to show as pending for this month.
+                    continue
                 data.append({
                     'id': deadline.id,
                     'deadline_id': deadline.id,
                     'month_name': deadline.get_month_display(),
                     'month_number': deadline.month,
                     'academic_year': deadline.academic_year.name if deadline.academic_year else student.academic_year,
-                    'amount': str(deadline.amount),
+                    'amount': str(effective_amount),
+                    # 🔍 DIAGNOSTIC (temporary): visible in the browser
+                    # Network tab response — confirms whether the backend
+                    # is actually seeing an override for this deadline.
+                    'original_amount': str(deadline.amount),
+                    'has_fee_override': effective_amount != deadline.amount,
                     'due_date': deadline.due_date,
                     'description': deadline.description,
                     'grade': deadline.grade,

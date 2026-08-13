@@ -101,7 +101,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
         """Parent initiates a payment for a specific student and deadline (one at a time)"""
         student_id = request.data.get('student_id')
         deadline_id = request.data.get('deadline_id')
-        amount = request.data.get('amount')
         payment_method = request.data.get('payment_method', 'telebirr')
         paid_by = request.data.get('paid_by')
         paid_by_phone = request.data.get('paid_by_phone')
@@ -111,8 +110,13 @@ class PaymentViewSet(viewsets.ModelViewSet):
             return Response({'error': 'student_id is required'}, status=status.HTTP_400_BAD_REQUEST)
         if not deadline_id:
             return Response({'error': 'deadline_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-        if not amount:
-            return Response({'error': 'amount is required'}, status=status.HTTP_400_BAD_REQUEST)
+        # ✅ MONEY-SAFETY FIX (Jimma request #1 — fee exceptions): `amount`
+        # used to be taken straight from the request body and trusted —
+        # this endpoint is deliberately AllowAny ("parent pays without an
+        # account"), so anyone could POST any amount they liked for any
+        # student/deadline. It's always computed server-side now, same
+        # fix as the Chapa initiate endpoint (chapa_views.py) and the
+        # SMS/email reminder payment-link creation.
 
         try:
             student = Student.objects.get(student_id=student_id)
@@ -124,6 +128,11 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
             if school_id and str(deadline.school_id) != school_id:
                 return Response({'error': 'Deadline does not belong to your school'}, status=403)
+
+            from payments.services.fee_override_service import get_effective_deadline_amount
+            amount = get_effective_deadline_amount(student, deadline)
+            if amount <= 0:
+                return Response({'error': 'Nothing is due for this month — already covered by a fee waiver.'}, status=400)
 
             if not paid_by:
                 if request.user and request.user.is_authenticated:

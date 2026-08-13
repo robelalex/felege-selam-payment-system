@@ -218,9 +218,16 @@ class ReminderViewSet(viewsets.ViewSet):
             
             for deadline in student_deadlines:
                 if deadline.id not in paid_deadline_ids:
+                    # ✅ Fee exceptions (Jimma request #1): skip a month
+                    # already fully covered by a waiver, and quote the
+                    # real amount owed for partial arrangements.
+                    from ..services.fee_override_service import get_effective_deadline_amount
+                    effective_amount = get_effective_deadline_amount(student, deadline)
+                    if effective_amount <= 0:
+                        continue
                     month_name = self.get_month_name(deadline.month)
-                    pending_months_list.append(f"{month_name} - {float(deadline.amount)} Birr")
-                    total_due += float(deadline.amount)
+                    pending_months_list.append(f"{month_name} - {float(effective_amount)} Birr")
+                    total_due += float(effective_amount)
                     pending_deadlines.append(deadline)
             
             if not pending_months_list:
@@ -242,18 +249,23 @@ class ReminderViewSet(viewsets.ViewSet):
 
                 from payments.tokens import generate_payment_token
                 from payments.models import Payment as PaymentModel
+                from ..services.fee_override_service import get_effective_deadline_amount
+                first_deadline_amount = get_effective_deadline_amount(student, first_deadline)
 
                 payment_obj, created = PaymentModel.objects.get_or_create(
                     student=student,
                     deadline=first_deadline,
                     defaults={
-                        'amount': first_deadline.amount,
+                        'amount': first_deadline_amount,
                         'payment_method': 'chapa',
                         'paid_by': student.full_name,
                         'paid_by_phone': student.parent_phone,
                         'status': 'pending'
                         }
                 )
+                if not created and payment_obj.status == 'pending' and payment_obj.amount != first_deadline_amount:
+                    payment_obj.amount = first_deadline_amount
+                    payment_obj.save(update_fields=['amount'])
 
                 token, record = generate_payment_token(payment_obj, student.parent_phone, channel="email")
                 payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
@@ -484,10 +496,15 @@ def pending_reminders_filtered(request):
             
             for deadline in student_deadlines:
                 if (student.id, deadline.id) not in paid_set:
+                    # ✅ Fee exceptions (Jimma request #1)
+                    from ..services.fee_override_service import get_effective_deadline_amount
+                    effective_amount = get_effective_deadline_amount(student, deadline)
+                    if effective_amount <= 0:
+                        continue
                     student_pending.append({
                         'month': deadline.month,
                         'month_name': deadline.get_month_display(),
-                        'amount': float(deadline.amount),
+                        'amount': float(effective_amount),
                         'due_date': deadline.due_date,
                         'deadline_id': deadline.id,
                         'days_overdue': (date.today() - deadline.due_date).days if deadline.due_date and deadline.due_date < date.today() else 0
