@@ -20,10 +20,20 @@ export const YearProvider = ({ children }) => {
   const [selectedYear, setSelectedYear] = useState(null);
 
   useEffect(() => {
-    // ✅ Only fetch if we actually have a token — avoids firing this on
-    // public/unauthenticated pages (parent login, receipt page, etc.)
-    // where it would just 401 every time.
-    if (localStorage.getItem('access_token')) {
+    // ✅ FIX: this used to gate on the raw 'access_token' key, which is
+    // admin/staff-only now that parent sessions use their own
+    // 'parent_access_token' key (see services/api.js / ParentLogin.js).
+    // YearProvider wraps the whole app (including /parent/* routes) even
+    // though no parent-facing page actually calls useYear(). A leftover
+    // admin access_token in localStorage was enough to make this fire
+    // fetchYears() on parent pages too — that request then correctly used
+    // the (missing) parent token, got a 401, and the response interceptor's
+    // hard `window.location.href` redirect caused a full remount, which
+    // hit this same check again, causing an infinite reload loop. Skipping
+    // entirely on the parent portal fixes it at the source.
+    const isParentPortal = window.location.pathname.startsWith('/parent');
+
+    if (!isParentPortal && localStorage.getItem('access_token')) {
       fetchYears();
     } else {
       setLoading(false);
@@ -34,7 +44,7 @@ export const YearProvider = ({ children }) => {
     // listener, years would only ever be fetched (or skipped) based on
     // whatever auth state existed on the very first page load.
     const handleAuthChanged = () => {
-      if (localStorage.getItem('access_token')) {
+      if (!window.location.pathname.startsWith('/parent') && localStorage.getItem('access_token')) {
         setLoading(true);
         fetchYears();
       }
