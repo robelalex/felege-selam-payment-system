@@ -291,13 +291,33 @@ def parent_login_step1(request):
         username=username,
         defaults={'email': email, 'is_active': True}
     )
-    
+
+    # ✅ FIX: parent UserProfiles were being created with no school_id at
+    # all, even though `students` (already fetched above from parent_email)
+    # tells us exactly which school this parent belongs to. Without it,
+    # get_school_for_user() — used by /schools/chapa-config/, bank-accounts,
+    # etc. — can't resolve a school for parent accounts and returns 403,
+    # which the parent dashboard silently treats as "Online Payments
+    # Unavailable". This was previously masked because parent requests had
+    # no JWT and got redirected to /admin/login before ever reaching a
+    # school-scoped endpoint; now that parents authenticate correctly,
+    # this pre-existing gap needs to be filled too.
+    student_school_id = students.first().school_id
+
     if created:
         UserProfile.objects.create(
             user=user,
             role='parent',
-            is_email_verified=True
+            is_email_verified=True,
+            school_id=student_school_id
         )
+    else:
+        # Backfill existing parent accounts created before this fix, or
+        # whose linked student's school has since changed.
+        profile = user.profile
+        if profile.school_id != student_school_id:
+            profile.school_id = student_school_id
+            profile.save(update_fields=['school_id'])
     
     profile = user.profile
     profile.otp_code = otp_code
