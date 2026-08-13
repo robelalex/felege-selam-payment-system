@@ -15,6 +15,7 @@ import ParentLayout from '../components/Layout/ParentLayout';
 import UploadSlipModal from '../components/UploadSlipModal';
 import ReceiptModal from '../components/ReceiptModal';
 import RegistrationCompletionCard from '../components/RegistrationCompletionCard';
+import { isParentSessionValid, clearParentSession } from '../utils/parentSession';
 
 function ParentDashboard() {
   const { studentId } = useParams();
@@ -43,6 +44,17 @@ function ParentDashboard() {
   const [loadingReportCards, setLoadingReportCards] = useState(true);
 
   useEffect(() => {
+    // ✅ FIX: this page previously trusted whatever was in localStorage
+    // indefinitely — no check that a session existed, was actually
+    // verified, or hadn't expired. A tab left open, or a bookmark to a
+    // dashboard URL, would keep working forever. Now the same 24-hour
+    // expiry used at login-entry is enforced here too.
+    if (!isParentSessionValid()) {
+      clearParentSession();
+      navigate('/parent/login');
+      return;
+    }
+
     fetchStudentData();
     fetchAcademicYear();
     fetchPendingSlips();

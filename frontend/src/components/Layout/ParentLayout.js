@@ -1,14 +1,24 @@
 // src/components/Layout/ParentLayout.js
 import React, { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { School, Home } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { School, Home, LogOut } from 'lucide-react';
+import { clearParentSession } from '../../utils/parentSession';
 
 const ParentLayout = ({ children }) => {
   const [schoolName, setSchoolName] = useState('School');
   const [schoolLogo, setSchoolLogo] = useState(null);
   const [isVerified, setIsVerified] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const currentYear = new Date().getFullYear();
+
+  // ✅ NEW: there was no way for a parent to sign out — the session just
+  // sat in localStorage until someone manually cleared it, which matters
+  // on a shared or borrowed device.
+  const handleLogout = () => {
+    clearParentSession();
+    navigate('/parent/login');
+  };
 
   useEffect(() => {
     // Check if we are in verified state (student selected or dashboard page)
@@ -41,7 +51,7 @@ const ParentLayout = ({ children }) => {
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
       {/* Simple Header - Generic during verification, School name after */}
       <header className="bg-white/80 backdrop-blur-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 py-4">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <Link to="/" className="flex items-center space-x-2 w-fit">
             {schoolLogo && isVerified ? (
               <img 
@@ -58,6 +68,16 @@ const ParentLayout = ({ children }) => {
               {isVerified ? schoolName : 'Parent Portal'}
             </span>
           </Link>
+          {isVerified && (
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 tap-target"
+              title="Sign out"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign Out
+            </button>
+          )}
         </div>
       </header>
 

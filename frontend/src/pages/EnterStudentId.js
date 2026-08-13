@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Key, ArrowRight, AlertCircle, Loader, Shield, GraduationCap, CheckCircle } from 'lucide-react';
 import api from '../services/api';
+import { getParentSession, isParentSessionValid, clearParentSession } from '../utils/parentSession';
 
 function EnterStudentId() {
   const navigate = useNavigate();
@@ -12,13 +13,17 @@ function EnterStudentId() {
   const [parentEmail, setParentEmail] = useState('');
 
   useEffect(() => {
-    const parentSession = localStorage.getItem('parentSession');
-    if (!parentSession) {
+    // ✅ FIX: was a raw truthiness check with no expiry — a session
+    // written once stayed valid in localStorage forever. Now also
+    // rejects a stale/expired session and sends the parent back through
+    // OTP verification instead of silently trusting old data.
+    if (!isParentSessionValid()) {
+      clearParentSession();
       navigate('/parent/login');
       return;
     }
-    
-    const session = JSON.parse(parentSession);
+
+    const session = getParentSession();
     setParentEmail(session.email);
   }, [navigate]);
 
@@ -33,10 +38,10 @@ function EnterStudentId() {
       
       if (response.data) {
         const student = response.data;
-        const parentSession = JSON.parse(localStorage.getItem('parentSession'));
+        const parentSession = getParentSession();
         
-        if (student.parent_email !== parentSession.email) {
-          setError(`This student ID (${studentId}) is not linked to ${parentSession.email}. Please contact your school.`);
+        if (!parentSession || student.parent_email !== parentSession.email) {
+          setError(`This student ID (${studentId}) is not linked to ${parentSession?.email || 'your account'}. Please contact your school.`);
           setLoading(false);
           return;
         }
