@@ -46,4 +46,11 @@ export function isParentSessionValid() {
 export function clearParentSession() {
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(STUDENT_KEY);
+  // ✅ FIX: also clear the parent JWT (see services/api.js) — without this,
+  // logging out (or a session simply expiring) left a valid access/refresh
+  // token behind, so the next person on a shared device could still make
+  // authenticated parent requests even though the visible session looked
+  // logged out.
+  localStorage.removeItem('parent_access_token');
+  localStorage.removeItem('parent_refresh_token');
 }

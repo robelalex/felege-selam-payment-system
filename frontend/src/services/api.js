@@ -62,7 +62,19 @@ api.interceptors.request.use(
       config.url.includes('/verify/') ||
       config.url.includes('/token/refresh/')
     );
-    const token = localStorage.getItem('access_token');
+    // ✅ FIX: admin/staff and the parent portal both used the SAME
+    // 'access_token' localStorage key. Since localStorage is shared across
+    // every tab on this origin, logging into the parent portal in one tab
+    // silently overwrote the admin's token in every other tab — an admin
+    // mid-session would suddenly start sending the parent's JWT and get
+    // "You do not have permission to perform this action." on admin-only
+    // actions (e.g. creating a student). Using a separate token namespace
+    // for the parent portal, picked by which portal the current page is on,
+    // keeps the two sessions from clobbering each other.
+    const isParentPortal = window.location.pathname.startsWith('/parent');
+    const token = isParentPortal
+      ? localStorage.getItem('parent_access_token')
+      : localStorage.getItem('access_token');
     if (token && !isAuthEndpoint) {
       config.headers['Authorization'] = `Bearer ${token}`;
     }
@@ -168,7 +180,7 @@ api.interceptors.response.use(
       originalRequest.url?.includes('/token/refresh/');
 
     if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
-      
+
       if (isRefreshing) {
         // Queue this request until token is refreshed
         return new Promise((resolve, reject) => {
@@ -182,12 +194,25 @@ api.interceptors.response.use(
       originalRequest._retry = true;
       isRefreshing = true;
 
-      const refreshToken = localStorage.getItem('refresh_token');
+      // ✅ FIX: pick the refresh token / storage keys / login redirect for
+      // whichever portal this request actually belongs to, instead of
+      // always using the admin's 'refresh_token' and always redirecting to
+      // '/admin/login'. Previously a parent whose session expired got
+      // bounced to the admin login page (confusing/wrong), and a full
+      // `localStorage.clear()` here would also silently log out the OTHER
+      // portal's session if both happened to be open in different tabs.
+      const isParentPortal = window.location.pathname.startsWith('/parent');
+      const accessKey = isParentPortal ? 'parent_access_token' : 'access_token';
+      const refreshKey = isParentPortal ? 'parent_refresh_token' : 'refresh_token';
+      const loginPath = isParentPortal ? '/parent/login' : '/admin/login';
+
+      const refreshToken = localStorage.getItem(refreshKey);
 
       if (!refreshToken) {
         console.log('❌ No refresh token found — logging out');
-        localStorage.clear();
-        window.location.href = '/admin/login';
+        localStorage.removeItem(accessKey);
+        localStorage.removeItem(refreshKey);
+        window.location.href = loginPath;
         return Promise.reject(error);
       }
 
@@ -200,7 +225,7 @@ api.interceptors.response.use(
         );
 
         const newAccessToken = response.data.access;
-        localStorage.setItem('access_token', newAccessToken);
+        localStorage.setItem(accessKey, newAccessToken);
         console.log('✅ Token refreshed successfully');
 
         processQueue(null, newAccessToken);
@@ -210,8 +235,9 @@ api.interceptors.response.use(
       } catch (refreshError) {
         console.log('❌ Token refresh failed — logging out');
         processQueue(refreshError, null);
-        localStorage.clear();
-        window.location.href = '/admin/login';
+        localStorage.removeItem(accessKey);
+        localStorage.removeItem(refreshKey);
+        window.location.href = loginPath;
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

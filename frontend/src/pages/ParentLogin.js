@@ -69,11 +69,16 @@ function ParentLogin() {
         // that 401 as "admin session expired" — clearing localStorage
         // (wiping this very parentSession) and hard-redirecting to
         // /admin/login. Saving the token here is what fixes that redirect.
+        // ✅ FIX: use parent-specific keys, NOT 'access_token'/'refresh_token' —
+        // those are shared with the admin/staff login (services/api.js) and
+        // localStorage is shared across every tab on this origin. Reusing
+        // the same keys meant logging into the parent portal in one tab
+        // silently overwrote an admin's token in every other open tab.
         if (response.data.token) {
-          localStorage.setItem('access_token', response.data.token);
+          localStorage.setItem('parent_access_token', response.data.token);
         }
         if (response.data.refresh) {
-          localStorage.setItem('refresh_token', response.data.refresh);
+          localStorage.setItem('parent_refresh_token', response.data.refresh);
         }
 
         // Store parent session
