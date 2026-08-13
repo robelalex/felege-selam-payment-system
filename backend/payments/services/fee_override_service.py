@@ -13,11 +13,18 @@ Rather than editing every one of those ~15 call sites individually
 poverty-waiver family), call sites should go through
 get_effective_deadline_amount() below.
 
-Wired in so far: Chapa payment initiation (chapa_views.py) and
-ReportService.get_student_report(). The remaining call sites
-(SMS/email reminder text, students/views.py enrollment fee preview,
-reports/views.py) still read deadline.amount directly — see the
-conversation notes / TODOs left at each for the follow-up pass.
+Wired in: Chapa payment initiation (chapa_views.py), the public
+Telebirr/cash endpoint (views/views.py), on-demand and scheduled SMS
+reminders (sms_views_v2.py, reminder_views.py,
+send_scheduled_reminders.py), email reminders (reminder_service.py),
+the pending-payments list (students/views.py), and reports
+(report_service.py, reports/views.py).
+
+✅ Jimma request #2 — registration fees: get_effective_deadline_amount()
+now also handles deadline_type == 'registration' deadlines (delegating
+to registration_fee_service), so every one of the call sites above
+picked up registration-fee support automatically with no changes needed
+at the call site itself.
 """
 from decimal import Decimal
 
@@ -78,7 +85,16 @@ def get_effective_deadline_amount(student, deadline):
       calendar-first deadline of that academic year for this student's
       grade; Decimal('0.00') on every other deadline that year (already
       "paid" by the one-time amount).
+
+    ✅ Jimma request #2: for a 'registration' deadline, delegates to
+    registration_fee_service instead — fee overrides (waiver/partial)
+    are a monthly-fee concept and don't apply to the one-time
+    registration charge.
     """
+    if deadline.deadline_type == 'registration':
+        from payments.services.registration_fee_service import get_effective_registration_amount
+        return get_effective_registration_amount(student, deadline)
+
     override = get_active_override(student, deadline.academic_year)
     if override is None:
         return deadline.amount

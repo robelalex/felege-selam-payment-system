@@ -6,6 +6,7 @@ from .views import ReminderViewSet, send_reminders, send_payment_confirmation
 from .views.report_views import monthly_report, student_report, annual_summary, monthly_detailed_report
 from .views import PaymentLandingView, OtpVerifyView, PaymentInitiateView
 from .views.fee_override_views import StudentFeeOverrideViewSet
+from .views.registration_views import RegistrationFeeConfigViewSet, StudentRegistrationTypeViewSet
 from .views.receipt_views import get_receipt
 from .views.slip_views import (
     upload_slip, pending_slips, verify_slip, ai_stats, slip_status,
@@ -43,6 +44,13 @@ router.register(r'reminders', ReminderViewSet, basename='reminder')
 # one custom @action (deactivate) is exactly what DRF's router already
 # handles for free: POST /api/fee-overrides/<pk>/deactivate/
 router.register(r'fee-overrides', StudentFeeOverrideViewSet, basename='fee-override')
+
+# ✅ Jimma request #2 — registration fees. Same router-registration
+# reasoning as fee-overrides above: no legacy dash-style URLs to keep
+# compatible, and the custom actions (for-student, set-type) are plain
+# DRF @action-decorated methods the router wires up automatically.
+router.register(r'registration-fee-configs', RegistrationFeeConfigViewSet, basename='registration-fee-config')
+router.register(r'student-registration-types', StudentRegistrationTypeViewSet, basename='student-registration-type')
 
 # DON'T register payments with router - use direct paths instead
 payment_viewset = PaymentViewSet.as_view({

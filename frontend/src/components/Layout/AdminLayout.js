@@ -26,7 +26,8 @@ import {
   BookOpen,
   Trophy,
   FileText,
-  Users as UsersIcon
+  Users as UsersIcon,
+  DollarSign
 } from 'lucide-react';
 import api from '../../services/api';
 import { getMediaUrl } from '../../utils/imageUrl';
@@ -259,6 +260,7 @@ const getLogoUrl = () => {
     { path: '/admin/results-awards', label: t('nav_results_awards'), icon: Trophy },
     { path: '/admin/report-cards', label: t('nav_report_cards'), icon: FileText },
     { path: '/admin/deadlines', label: t('nav_payment_deadlines'), icon: Calendar },
+    { path: '/admin/registration-fees', label: t('nav_registration_fees'), icon: DollarSign },
     { path: '/admin/sections', label: t('nav_sections'), icon: Grid },
     { path: '/admin/staff', label: t('nav_staff'), icon: UsersIcon },
     { path: '/admin/activity-log', label: t('nav_activity_log'), icon: History },
@@ -298,6 +300,7 @@ const getLogoUrl = () => {
         { path: '/admin/payments', label: t('nav_payments'), icon: CreditCard },
         { path: '/admin/slips', label: t('nav_bank_slips'), icon: Eye },
         { path: '/admin/deadlines', label: t('nav_payment_deadlines'), icon: Calendar },
+        { path: '/admin/registration-fees', label: t('nav_registration_fees'), icon: DollarSign },
         { path: '/admin-dashboard/payment-history', label: t('nav_payment_history'), icon: Archive },
         { path: '/admin/chapa-settings', label: t('nav_chapa_payment'), icon: CreditCard, badge: <ChapaStatusBadge /> },
       ],
@@ -332,6 +335,7 @@ const getLogoUrl = () => {
     { path: '/admin/payments', label: 'Payments', icon: CreditCard },
     { path: '/admin/slips', label: 'Bank Slips', icon: Eye },
     { path: '/admin/deadlines', label: 'Payment Deadlines', icon: Calendar },
+    { path: '/admin/registration-fees', label: 'Registration Fees', icon: DollarSign },
   ];
 
   // Reporting Manager Navigation

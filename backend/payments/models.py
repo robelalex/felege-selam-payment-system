@@ -23,6 +23,17 @@ class PaymentDeadline(models.Model):
         (13, 'ጳጉሜ'),
     ]
 
+    # ✅ NEW (Jimma request #2 — registration fees). 'monthly' is every
+    # deadline that existed before this feature (unchanged behavior).
+    # 'registration' is a new one-time-per-academic-year charge — see
+    # RegistrationFeeConfig below for why it isn't just another monthly
+    # row with a bigger amount: the amount differs per student (new vs.
+    # continuing), which a flat PaymentDeadline.amount can't express.
+    DEADLINE_TYPE_CHOICES = [
+        ('monthly', 'Monthly Fee'),
+        ('registration', 'One-Time Registration Fee'),
+    ]
+
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='deadlines')
 
     # ✅ FIX: Changed from CharField to ForeignKey so payments are anchored
@@ -38,26 +49,66 @@ class PaymentDeadline(models.Model):
         help_text="The academic year this deadline belongs to"
     )
 
-    month = models.IntegerField(choices=MONTH_CHOICES)
+    deadline_type = models.CharField(
+        max_length=20, choices=DEADLINE_TYPE_CHOICES, default='monthly',
+        help_text="'monthly' = a regular monthly fee deadline. 'registration' "
+                   "= the one-time per-academic-year registration charge."
+    )
+
+    # ✅ CHANGED: nullable so a 'registration' deadline (one-time, not tied
+    # to a Meskerem/Tikimt/... month) can leave this blank. Still required
+    # in practice for 'monthly' deadlines — enforced in clean() below
+    # rather than at the DB level, since the DB-level requirement differs
+    # per deadline_type and Django doesn't support conditional NOT NULL.
+    month = models.IntegerField(choices=MONTH_CHOICES, null=True, blank=True)
     due_date = models.DateField()
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    amount = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        help_text="For 'monthly': the amount due. For 'registration': "
+                   "informational only — the real per-student amount comes "
+                   "from RegistrationFeeConfig (new vs. continuing), not this field."
+    )
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     grade = models.IntegerField(
         choices=Student.GRADE_CHOICES, null=True, blank=True,
-        help_text="Leave blank to apply to all grades"
+        help_text="Leave blank to apply to all grades. Registration deadlines "
+                   "must leave this blank — registration isn't grade-specific."
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        # ✅ Updated unique_together to use academic_year FK
-        unique_together = ['school', 'academic_year', 'month', 'grade']
+        # ✅ UPDATED for registration deadlines: adding deadline_type to the
+        # tuple is what lets one registration row (month=None, grade=None)
+        # coexist with monthly rows for the same school/academic_year
+        # without the old ['school','academic_year','month','grade']
+        # constraint treating (school, year, None, None) as already taken
+        # after the first grade-less monthly deadline. Existing monthly
+        # rows are unaffected: their uniqueness behavior is identical
+        # because deadline_type is constant ('monthly') across all of them.
+        unique_together = ['school', 'academic_year', 'deadline_type', 'month', 'grade']
         ordering = ['academic_year', 'month', 'grade']
 
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.deadline_type == 'monthly' and self.month is None:
+            raise ValidationError({'month': "Monthly deadlines require a month."})
+        if self.deadline_type == 'registration':
+            if self.month is not None:
+                raise ValidationError({'month': "Registration deadlines must not set a month."})
+            if self.grade is not None:
+                raise ValidationError({'grade': "Registration deadlines must not be grade-specific."})
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        month_name = dict(self.MONTH_CHOICES)[self.month]
         year_name = self.academic_year.name if self.academic_year else 'No Year'
+        if self.deadline_type == 'registration':
+            return f"{year_name} - Registration Fee"
+        month_name = dict(self.MONTH_CHOICES)[self.month]
         if self.grade:
             return f"{year_name} - {month_name} (Grade {self.grade})"
         return f"{year_name} - {month_name} (All Grades)"
@@ -266,6 +317,109 @@ class StudentFeeOverride(models.Model):
 
     def __str__(self):
         return f"{self.student.student_id} - {self.get_override_type_display()} ({self.academic_year}) - {self.amount} Birr"
+
+
+class RegistrationFeeConfig(models.Model):
+    """
+    ✅ NEW (Jimma request #2 — registration fees).
+
+    School-configurable, one row per school per academic year — set fresh
+    every year (NOT hardcoded), matching the request: "different for new
+    vs. continuing/senior students, settable fresh every academic year."
+
+    Deliberately separate from PaymentDeadline.amount: a registration
+    PaymentDeadline exists (deadline_type='registration') so registration
+    charges flow through the exact same Payment/Chapa/reminder/report
+    machinery every monthly fee already uses, but the AMOUNT a given
+    student owes depends on whether they're new or continuing — a single
+    flat deadline.amount can't express that, so the real amount is looked
+    up here via registration_fee_service.get_effective_registration_amount(),
+    which fee_override_service.get_effective_deadline_amount() (the one
+    function ~15 call sites already go through) now delegates to whenever
+    deadline_type == 'registration'. No existing call site needed to
+    change to support registration fees.
+    """
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='registration_fee_configs')
+    academic_year = models.ForeignKey(
+        'academics.AcademicYear', on_delete=models.CASCADE, related_name='registration_fee_configs'
+    )
+    new_student_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, validators=[MinValueValidator(0)],
+        help_text="One-time registration fee for a NEW student this academic year."
+    )
+    continuing_student_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, validators=[MinValueValidator(0)],
+        help_text="One-time registration fee for a CONTINUING/senior student this academic year."
+    )
+    created_by = models.ForeignKey(
+        'auth.User', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='registration_fee_configs_created'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['school', 'academic_year']
+        ordering = ['-academic_year']
+
+    def __str__(self):
+        return f"{self.school.name} - {self.academic_year} Registration Fees (New: {self.new_student_amount}, Continuing: {self.continuing_student_amount})"
+
+
+class StudentRegistrationType(models.Model):
+    """
+    ✅ NEW (Jimma request #2 — registration fees).
+
+    Whether a specific student is billed the 'new' or 'continuing' rate
+    for a specific academic year. Rows are created two ways:
+
+      - Auto-detected and cached (is_manual_override=False) the first
+        time registration_fee_service needs a type for a student who
+        doesn't have a row yet: 'continuing' if the student has any
+        VERIFIED payment in a strictly earlier academic year at this
+        school, otherwise 'new'. Cached so the classification doesn't
+        silently change mid-year if the student's payment history
+        changes later (e.g. an old payment gets archived).
+      - Explicitly set by an admin (is_manual_override=True) via
+        StudentRegistrationTypeViewSet — e.g. a transfer student who is
+        new to THIS school but the auto-detection logic can't know that
+        from payment history alone, or any other case staff want to
+        correct by hand.
+
+    One row per student per academic year — a student is unambiguously
+    one or the other for a given year.
+    """
+    REGISTRATION_TYPE_CHOICES = [
+        ('new', 'New Student'),
+        ('continuing', 'Continuing/Senior Student'),
+    ]
+
+    student = models.ForeignKey(
+        Student, on_delete=models.CASCADE, related_name='registration_types'
+    )
+    academic_year = models.ForeignKey(
+        'academics.AcademicYear', on_delete=models.CASCADE, related_name='student_registration_types'
+    )
+    registration_type = models.CharField(max_length=20, choices=REGISTRATION_TYPE_CHOICES)
+    is_manual_override = models.BooleanField(
+        default=False,
+        help_text="True if an admin explicitly set this. False if it was auto-detected from payment history."
+    )
+    set_by = models.ForeignKey(
+        'auth.User', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='registration_types_set',
+        help_text="Which admin set this manually. Null for auto-detected rows."
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['student', 'academic_year']
+        ordering = ['-created_at']
+
+    def __str__(self):
+        origin = 'manual' if self.is_manual_override else 'auto'
+        return f"{self.student.student_id} - {self.academic_year} - {self.get_registration_type_display()} ({origin})"
 
 
 class PaymentReminder(models.Model):

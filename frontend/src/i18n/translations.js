@@ -35,6 +35,7 @@ const translations = {
     // and the nav literally showed "nav_academics_setup".
     nav_academics_setup: 'Academic Setups',
     nav_payment_deadlines: 'Payment Deadlines',
+    nav_registration_fees: 'Registration Fees',
     nav_sections: 'Sections',
     nav_staff: 'Staff & Teachers',
     nav_activity_log: 'Activity Log',
@@ -112,6 +113,7 @@ const translations = {
     nav_report_cards: 'የውጤት ካርድ',
     nav_academics_setup: 'የትምህርት ዝግጅት',
     nav_payment_deadlines: 'የክፍያ ቀነ-ገደቦች',
+    nav_registration_fees: 'የምዝገባ ክፍያ',
     nav_sections: 'ክፍሎች',
     nav_staff: 'ሰራተኞች እና መምህራን',
     nav_activity_log: 'የእንቅስቃሴ ምዝገባ',
@@ -186,6 +188,7 @@ const translations = {
     nav_report_cards: 'Kaardii Bu\'aa',
     nav_academics_setup: 'Qophii Barnootaa',
     nav_payment_deadlines: 'Beellama Kaffaltii',
+    nav_registration_fees: 'Kaffaltii Galmee',
     nav_sections: 'Kutaalee',
     nav_staff: 'Hojjettoota fi Barsiisota',
     nav_activity_log: 'Galmee Sochii',

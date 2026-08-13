@@ -35,6 +35,7 @@ import SMSDashboard from './pages/SMSDashboard';
 import AdminSlips from './pages/AdminSlips';
 import PaymentSuccess from './pages/PaymentSuccess';
 import AdminDeadlines from './pages/AdminDeadlines';
+import AdminRegistrationFees from './pages/AdminRegistrationFees';
 import ParentLogin from './pages/ParentLogin';
 import SelectStudent from './pages/SelectStudent';
 import ParentDashboard from './pages/ParentDashboard';
@@ -286,6 +287,20 @@ function App() {
                     </ChapaWarningProvider>
                   </ProtectedRoute>
                 } 
+              />
+
+              {/* Registration Fees — Jimma request #2 */}
+              <Route
+                path="/admin/registration-fees"
+                element={
+                  <ProtectedRoute>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <AdminRegistrationFees />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
+                  </ProtectedRoute>
+                }
               />
 
               {/* Registrar Dashboard */}
