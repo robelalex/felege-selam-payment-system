@@ -63,6 +63,29 @@ def student_report(request, student_id):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, CanViewReports])
+def registration_report(request):
+    """
+    ✅ NEW — Registration Fee Report for the current school. Separate
+    endpoint from monthly_report/annual_summary on purpose: registration
+    is a one-time-per-year charge with its own New/Continuing/Transferred
+    breakdown, not a monthly collection figure — mixing them would hide
+    exactly the distinction Jimma asked to see.
+    """
+
+    school_id = get_verified_school_id(request)
+    year = request.query_params.get('year')
+
+    if not school_id:
+        return Response({'error': 'No school associated with this account'}, status=400)
+
+    service = ReportService()
+    report = service.get_registration_report(year, school_id=school_id)
+
+    return Response(report)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, CanViewReports])
 def annual_summary(request):
     """Get annual summary report for the current school"""
     

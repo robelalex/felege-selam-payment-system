@@ -82,6 +82,13 @@ function Reports() {
           params.append('year', selectedYear.name);
         }
         endpoint = `/reports/annual/?${params.toString()}`;
+      }
+      else if (reportType === 'registration') {
+        const params = new URLSearchParams();
+        if (selectedYear && selectedYear.name) {
+          params.append('year', selectedYear.name);
+        }
+        endpoint = `/reports/registration/?${params.toString()}`;
       } 
       else if (reportType === 'student') {
         if (!selectedStudent) {
@@ -147,6 +154,26 @@ function Reports() {
       });
       
       csvContent += `\nTotal,,${reportData.total_collected || 0}\n`;
+
+    } else if (reportType === 'registration' && reportData.students) {
+      csvContent = 'Student ID,Name,Grade,Section,Type,Status,Amount (Birr),Payment Date,Reference\n';
+
+      reportData.students.forEach(s => {
+        csvContent += `${s.student_id},${s.student_name},${s.grade},${s.section || ''},${s.registration_type},${s.status},${s.amount},${s.payment_date || ''},${s.transaction_reference || ''}\n`;
+      });
+
+      csvContent += `\nBreakdown by Type\n`;
+      csvContent += `Type,Total,Paid,Collected (Birr)\n`;
+      Object.entries(reportData.by_type || {}).forEach(([key, data]) => {
+        csvContent += `${data.label},${data.total},${data.paid},${data.collected}\n`;
+      });
+
+      csvContent += `\nSummary\n`;
+      csvContent += `Academic Year,${reportData.academic_year || 'N/A'}\n`;
+      csvContent += `Total Students,${reportData.summary.total_students}\n`;
+      csvContent += `Total Paid,${reportData.summary.total_paid}\n`;
+      csvContent += `Total Pending,${reportData.summary.total_pending}\n`;
+      csvContent += `Total Collected,${reportData.summary.total_collected} Birr\n`;
     }
     
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -205,6 +232,7 @@ function Reports() {
             >
               <option value="monthly">Monthly Report</option>
               <option value="annual">Annual Summary</option>
+              <option value="registration">Registration Fees</option>
               <option value="student">Student Report</option>
             </select>
           </div>
@@ -333,7 +361,7 @@ function Reports() {
                         <Download className="h-4 w-4" />
                         Download CSV
                       </button>
-                      <button className="btn-outline flex items-center gap-2">
+                      <button onClick={() => window.print()} className="btn-outline flex items-center gap-2">
                         <Printer className="h-4 w-4" />
                         Print
                       </button>
@@ -496,6 +524,162 @@ function Reports() {
                     </table>
                   </div>
                 </div>
+              </>
+            )}
+
+            {/* Registration Fees Report */}
+            {reportType === 'registration' && reportData.summary && (
+              <>
+                {/* Report Header */}
+                <div className="bg-white rounded-xl shadow-lg p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-xl font-bold text-gray-900">
+                        Registration Fee Report
+                      </h2>
+                      <p className="text-gray-600 mt-1">
+                        {reportData.academic_year || selectedYear?.name || 'Academic Year'}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => window.print()} className="btn-outline flex items-center gap-2">
+                        <Printer className="h-4 w-4" />
+                        Print
+                      </button>
+                      <button
+                        onClick={downloadCSV}
+                        className="btn-outline flex items-center gap-2"
+                      >
+                        <Download className="h-4 w-4" />
+                        Download CSV
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {!reportData.configured ? (
+                  <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="h-5 w-5 text-yellow-500" />
+                      <p className="text-yellow-700">{reportData.message}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="bg-white rounded-xl shadow-lg p-4">
+                        <p className="text-gray-500 text-sm">Total Students</p>
+                        <p className="text-2xl font-bold text-gray-900">{reportData.summary.total_students}</p>
+                      </div>
+                      <div className="bg-white rounded-xl shadow-lg p-4">
+                        <p className="text-gray-500 text-sm">Paid</p>
+                        <p className="text-2xl font-bold text-green-600">{reportData.summary.total_paid}</p>
+                      </div>
+                      <div className="bg-white rounded-xl shadow-lg p-4">
+                        <p className="text-gray-500 text-sm">Pending</p>
+                        <p className="text-2xl font-bold text-red-600">{reportData.summary.total_pending}</p>
+                      </div>
+                      <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-4 text-white">
+                        <p className="text-purple-100 text-sm">Total Collected</p>
+                        <p className="text-2xl font-bold">{reportData.summary.total_collected?.toLocaleString()} Birr</p>
+                      </div>
+                    </div>
+
+                    {/* Breakdown by Type */}
+                    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                      <div className="px-6 py-4 border-b border-gray-200">
+                        <h3 className="font-semibold text-gray-900">Breakdown by Registration Type</h3>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          New, Continuing, and Transferred are billed at separately configured amounts — see the
+                          Student Classification screen to correct a student's type.
+                        </p>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Configured Amount</th>
+                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Students</th>
+                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Paid</th>
+                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Collected (Birr)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {Object.entries(reportData.by_type || {}).map(([key, data]) => (
+                              <tr key={key} className="hover:bg-gray-50">
+                                <td className="px-4 py-3 text-sm text-gray-900">
+                                  <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
+                                    key === 'new' ? 'bg-blue-100 text-blue-700'
+                                      : key === 'continuing' ? 'bg-green-100 text-green-700'
+                                      : 'bg-purple-100 text-purple-700'
+                                  }`}>
+                                    {data.label}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-600 text-right">
+                                  {data.configured_amount !== null ? `${data.configured_amount.toLocaleString()} Birr` : (
+                                    <span className="text-yellow-600">Not set</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-600 text-right">{data.total}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600 text-right">{data.paid}</td>
+                                <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
+                                  {data.collected?.toLocaleString()} Birr
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Student-level Table */}
+                    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                      <div className="px-6 py-4 border-b border-gray-200">
+                        <h3 className="font-semibold text-gray-900">Students</h3>
+                      </div>
+                      <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                        <table className="w-full">
+                          <thead className="bg-gray-50 sticky top-0">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Student</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Grade/Section</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount (Birr)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {reportData.students.map((s) => (
+                              <tr key={s.student_id} className="hover:bg-gray-50">
+                                <td className="px-4 py-3 text-sm">
+                                  <p className="font-medium text-gray-900">{s.student_name}</p>
+                                  <p className="text-xs text-gray-500 font-mono">{s.student_id}</p>
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-600">Grade {s.grade}{s.section ? ` - ${s.section}` : ''}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600 capitalize">
+                                  {s.registration_type}{s.is_manual_override && ' (manual)'}
+                                </td>
+                                <td className="px-4 py-3 text-sm">
+                                  <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
+                                    s.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                  }`}>
+                                    {s.status === 'paid' ? 'Paid' : 'Pending'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
+                                  {s.amount?.toLocaleString()} Birr
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                )}
               </>
             )}
 

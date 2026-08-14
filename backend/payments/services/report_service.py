@@ -295,6 +295,127 @@ class ReportService:
             'pending': pending
         }
     
+    def get_registration_report(self, year=None, school_id=None):
+        """
+        ✅ NEW — Registration Fee Report (separate from monthly/annual
+        tuition on purpose, see the Reports.js "Registration" tab
+        docstring for why). Reports on the ONE-TIME per-academic-year
+        registration deadline only: who's paid, who hasn't, broken down
+        by New / Continuing / Transferred — never mixed with monthly
+        collection figures.
+
+        Deliberately does NOT reuse get_monthly_report's by_grade logic:
+        registration isn't grade-specific (the deadline itself has
+        grade=None, enforced in PaymentDeadline.clean()), so the
+        meaningful breakdown here is by registration_type, not by grade.
+        """
+        from payments.models import RegistrationFeeConfig
+        from payments.services.registration_fee_service import get_registration_type
+
+        academic_year_obj = self._resolve_academic_year(year, school_id)
+        if not academic_year_obj:
+            return {'error': 'No current academic year set' if year is None else f'Academic year "{year}" not found'}
+
+        try:
+            deadline = PaymentDeadline.objects.get(
+                school_id=school_id,
+                academic_year=academic_year_obj,
+                deadline_type='registration',
+            )
+        except PaymentDeadline.DoesNotExist:
+            return {
+                'academic_year': academic_year_obj.name,
+                'configured': False,
+                'message': 'No registration fee has been configured for this academic year yet.',
+                'summary': {'total_students': 0, 'total_paid': 0, 'total_pending': 0, 'total_collected': 0.0},
+                'by_type': {},
+                'students': [],
+            }
+
+        config = RegistrationFeeConfig.objects.filter(
+            school_id=school_id, academic_year=academic_year_obj
+        ).first()
+
+        students = Student.objects.filter(school_id=school_id, status='active')
+
+        verified_payments = Payment.objects.filter(
+            deadline=deadline, status='verified'
+        ).select_related('student')
+        payment_by_student = {p.student_id: p for p in verified_payments}
+
+        by_type = {
+            'new': {'label': 'New Student', 'total': 0, 'paid': 0, 'collected': 0.0, 'configured_amount': float(config.new_student_amount) if config else None},
+            'continuing': {'label': 'Continuing/Senior', 'total': 0, 'paid': 0, 'collected': 0.0, 'configured_amount': float(config.continuing_student_amount) if config else None},
+            'transferred': {'label': 'Transferred', 'total': 0, 'paid': 0, 'collected': 0.0, 'configured_amount': float(config.transferred_student_amount) if (config and config.transferred_student_amount is not None) else None},
+        }
+
+        detailed_students = []
+        total_collected = 0.0
+        paid_count = 0
+
+        for student in students:
+            reg_type_obj = get_registration_type(student, academic_year_obj)
+            reg_type = reg_type_obj.registration_type if reg_type_obj else 'new'
+            if reg_type not in by_type:
+                # Defensive — shouldn't happen given the model's choices,
+                # but a report should never crash on unexpected data.
+                reg_type = 'new'
+
+            by_type[reg_type]['total'] += 1
+
+            payment = payment_by_student.get(student.id)
+            if payment:
+                by_type[reg_type]['paid'] += 1
+                by_type[reg_type]['collected'] += float(payment.amount)
+                total_collected += float(payment.amount)
+                paid_count += 1
+                detailed_students.append({
+                    'student_id': student.student_id,
+                    'student_name': student.full_name,
+                    'grade': student.grade,
+                    'section': student.section,
+                    'registration_type': reg_type,
+                    'is_manual_override': reg_type_obj.is_manual_override if reg_type_obj else False,
+                    'status': 'paid',
+                    'amount': float(payment.amount),
+                    'payment_method': payment.payment_method,
+                    'payment_date': payment.created_at.strftime('%Y-%m-%d') if payment.created_at else None,
+                    'transaction_reference': payment.transaction_reference,
+                })
+            else:
+                owed = get_effective_deadline_amount(student, deadline)
+                detailed_students.append({
+                    'student_id': student.student_id,
+                    'student_name': student.full_name,
+                    'grade': student.grade,
+                    'section': student.section,
+                    'registration_type': reg_type,
+                    'is_manual_override': reg_type_obj.is_manual_override if reg_type_obj else False,
+                    'status': 'pending',
+                    'amount': float(owed),
+                    'payment_method': None,
+                    'payment_date': None,
+                    'transaction_reference': None,
+                })
+
+        detailed_students.sort(key=lambda x: (x['grade'] or 0, x['student_name'] or ''))
+        total_students = students.count()
+
+        return {
+            'academic_year': academic_year_obj.name,
+            'configured': True,
+            'due_date': deadline.due_date.strftime('%Y-%m-%d') if deadline.due_date else None,
+            'summary': {
+                'total_students': total_students,
+                'total_paid': paid_count,
+                'total_pending': total_students - paid_count,
+                'total_collected': total_collected,
+                'collection_rate': round((paid_count / total_students * 100) if total_students > 0 else 0, 1),
+            },
+            'by_type': by_type,
+            'students': detailed_students,
+        }
+
     def get_annual_summary(self, year=None, school_id=None):
         """Get annual summary report for a specific school"""
         print(f"📊 get_annual_summary - school_id: {school_id}")
