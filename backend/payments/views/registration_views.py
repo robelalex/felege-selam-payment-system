@@ -14,7 +14,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied, NotFound
 
-from ..models import RegistrationFeeConfig, StudentRegistrationType
+from ..models import RegistrationFeeConfig, StudentRegistrationType, PaymentDeadline
 from ..serializers import RegistrationFeeConfigSerializer, StudentRegistrationTypeSerializer
 from ..services.registration_fee_service import (
     get_registration_type,
@@ -22,6 +22,50 @@ from ..services.registration_fee_service import (
 )
 from authentication.permissions import CanManagePayments
 from common.utils import get_verified_school_id
+
+
+def _sync_registration_deadline(config):
+    """
+    ✅ FIX (Jimma request #2 — the missing link): saving a
+    RegistrationFeeConfig used to only store the new/continuing amounts.
+    Nothing ever created the matching PaymentDeadline row
+    (deadline_type='registration'), so every downstream screen that
+    finds charges by looping over PaymentDeadline — parent pending
+    payments, Chapa checkout, the public Telebirr/cash endpoint,
+    SMS/email reminders — had nothing to find. An admin could fill in
+    this form, save it successfully, and no student would ever actually
+    be billed.
+
+    get_or_create is keyed on exactly the fields the model's
+    unique_together already enforces (school, academic_year,
+    deadline_type, month=None, grade=None), so this is safe to call on
+    every create/update without ever producing a duplicate row.
+
+    deadline.amount is kept equal to new_student_amount purely as a
+    readable placeholder for admin list screens (e.g. AdminDeadlines.js)
+    — the real per-student charge is still computed fresh from
+    RegistrationFeeConfig every time via
+    registration_fee_service.get_effective_registration_amount(), which
+    ignores this field entirely. Nothing about how the amount is
+    actually charged changes here.
+    """
+    deadline, created = PaymentDeadline.objects.get_or_create(
+        school=config.school,
+        academic_year=config.academic_year,
+        deadline_type='registration',
+        month=None,
+        grade=None,
+        defaults={
+            'due_date': config.academic_year.start_date,
+            'amount': config.new_student_amount,
+            'description': 'One-time registration fee (auto-generated from Registration Fee settings)',
+            'is_active': True,
+        },
+    )
+    if not created and (deadline.amount != config.new_student_amount or not deadline.is_active):
+        deadline.amount = config.new_student_amount
+        deadline.is_active = True
+        deadline.save()
 
 
 class RegistrationFeeConfigViewSet(viewsets.ModelViewSet):
@@ -59,7 +103,110 @@ class RegistrationFeeConfigViewSet(viewsets.ModelViewSet):
         school_id = get_verified_school_id(self.request)
         if not school_id:
             raise PermissionDenied("No school associated with this account.")
-        serializer.save(school_id=school_id, created_by=self.request.user)
+        config = serializer.save(school_id=school_id, created_by=self.request.user)
+        _sync_registration_deadline(config)
+
+    def perform_update(self, serializer):
+        # ✅ FIX: PATCH (the frontend's "Update Amounts" path once a config
+        # already exists) previously used ModelViewSet's default
+        # perform_update, which never touched PaymentDeadline — so
+        # changing the amount here didn't reach the actual billing row.
+        config = serializer.save()
+        _sync_registration_deadline(config)
+
+    @action(detail=False, methods=['get'], url_path='unpaid-students')
+    def unpaid_students(self, request):
+        """
+        ✅ Admin-facing "who hasn't paid registration" list, filterable by
+        grade/section — a separate view from the existing monthly-fee
+        unpaid list (MultiSchoolSMSPendingRemindersView), because that
+        one filters by deadline.grade, and a registration deadline is
+        intentionally never grade-specific (enforced in
+        PaymentDeadline.clean()). Grade/section filtering here happens
+        against the Student rows directly instead.
+
+        GET /api/registration-fee-configs/unpaid-students/
+            ?academic_year_id=<id>&grade=<int>&section=<letter>
+        grade and section are both optional.
+        """
+        from students.models import Student
+        from payments.models import Payment, PaymentDeadline
+        from payments.services.fee_override_service import get_effective_deadline_amount
+
+        school_id = get_verified_school_id(request)
+        if not school_id:
+            raise PermissionDenied("No school associated with this account.")
+
+        academic_year_id = request.query_params.get('academic_year_id')
+        if not academic_year_id:
+            return Response(
+                {'error': 'academic_year_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            deadline = PaymentDeadline.objects.select_related('academic_year').get(
+                school_id=school_id,
+                academic_year_id=academic_year_id,
+                deadline_type='registration',
+            )
+        except PaymentDeadline.DoesNotExist:
+            # Not an error — the admin just hasn't set registration fees
+            # for this year yet (see RegistrationFeeConfigViewSet above).
+            return Response({
+                'deadline': None,
+                'message': 'No registration fee has been configured for this academic year yet.',
+                'total_unpaid': 0,
+                'students': [],
+            })
+
+        students = Student.objects.filter(school_id=school_id, status='active')
+
+        grade = request.query_params.get('grade')
+        if grade and grade not in ('all', 'None'):
+            try:
+                students = students.filter(grade=int(grade))
+            except (ValueError, TypeError):
+                pass
+
+        section = request.query_params.get('section')
+        if section and section not in ('all', 'None'):
+            students = students.filter(section=section)
+
+        paid_student_ids = Payment.objects.filter(
+            deadline=deadline,
+            status='verified',
+        ).values_list('student_id', flat=True)
+
+        unpaid = students.exclude(id__in=paid_student_ids).order_by('grade', 'section', 'first_name')
+
+        data = []
+        for s in unpaid:
+            effective_amount = get_effective_deadline_amount(s, deadline)
+            if effective_amount <= 0:
+                # e.g. a manually-set $0 amount for this year — nothing owed.
+                continue
+            reg_type = get_registration_type(s, deadline.academic_year)
+            data.append({
+                'student_id': s.student_id,
+                'name': s.full_name,
+                'grade': s.grade,
+                'section': s.section,
+                'parent_phone': s.parent_phone,
+                'parent_email': s.parent_email,
+                'registration_type': reg_type.registration_type if reg_type else None,
+                'amount': float(effective_amount),
+            })
+
+        return Response({
+            'deadline': {
+                'id': deadline.id,
+                'due_date': deadline.due_date,
+                'academic_year': deadline.academic_year.name if deadline.academic_year else None,
+            },
+            'total_unpaid': len(data),
+            'students': data,
+        })
 
 
 class StudentRegistrationTypeViewSet(viewsets.ModelViewSet):

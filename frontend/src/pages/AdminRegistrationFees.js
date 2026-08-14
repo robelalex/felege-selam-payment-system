@@ -15,7 +15,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   DollarSign, Save, Loader, CheckCircle, XCircle, Search,
-  UserCheck, UserPlus, RefreshCw, ShieldCheck
+  UserCheck, UserPlus, RefreshCw, ShieldCheck, AlertTriangle, Phone
 } from 'lucide-react';
 import api from '../services/api';
 import { useYear } from '../context/YearContext';
@@ -39,6 +39,47 @@ function AdminRegistrationFees() {
   const [typeLoading, setTypeLoading] = useState(false);
   const [savingType, setSavingType] = useState(false);
   const [typeMessage, setTypeMessage] = useState(null);
+
+  // --- Section 3: unpaid registration fees (grade/section filterable) ----
+  const [allSections, setAllSections] = useState([]);
+  const [unpaidGrade, setUnpaidGrade] = useState('all');
+  const [unpaidSection, setUnpaidSection] = useState('all');
+  const [unpaidData, setUnpaidData] = useState(null);
+  const [unpaidLoading, setUnpaidLoading] = useState(false);
+
+  useEffect(() => {
+    api.get('/sections/').then((res) => setAllSections(res.data || [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (selectedYear?.id) {
+      fetchUnpaid();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedYear, unpaidGrade, unpaidSection]);
+
+  const fetchUnpaid = async () => {
+    setUnpaidLoading(true);
+    try {
+      const response = await api.get('/registration-fee-configs/unpaid-students/', {
+        params: {
+          academic_year_id: selectedYear.id,
+          grade: unpaidGrade,
+          section: unpaidSection,
+        }
+      });
+      setUnpaidData(response.data);
+    } catch (err) {
+      console.error('Error fetching unpaid registration students:', err);
+      setUnpaidData(null);
+    } finally {
+      setUnpaidLoading(false);
+    }
+  };
+
+  const sectionOptionsForGrade = unpaidGrade === 'all'
+    ? allSections
+    : allSections.filter((s) => String(s.grade) === String(unpaidGrade));
 
   useEffect(() => {
     if (selectedYear?.id) {
@@ -341,6 +382,102 @@ function AdminRegistrationFees() {
                 <UserCheck className="h-4 w-4" /> Mark as Continuing/Senior
               </button>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* ===== Section 3: Unpaid registration fees ===== */}
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <div className="flex items-center gap-2 mb-1">
+          <AlertTriangle className="h-5 w-5 text-amber-600" />
+          <h2 className="text-lg font-semibold text-gray-900">Unpaid Registration Fees</h2>
+        </div>
+        <p className="text-sm text-gray-500 mb-4">
+          Students who still owe {selectedYear?.name || 'this year'}'s registration fee — filter by grade and section.
+        </p>
+
+        <div className="flex flex-wrap gap-3 mb-4">
+          <select
+            value={unpaidGrade}
+            onChange={(e) => { setUnpaidGrade(e.target.value); setUnpaidSection('all'); }}
+            className="input-field w-auto"
+          >
+            <option value="all">All Grades</option>
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((g) => (
+              <option key={g} value={g}>Grade {g}</option>
+            ))}
+          </select>
+
+          <select
+            value={unpaidSection}
+            onChange={(e) => setUnpaidSection(e.target.value)}
+            className="input-field w-auto"
+            disabled={unpaidGrade === 'all'}
+          >
+            <option value="all">All Sections</option>
+            {sectionOptionsForGrade.map((s) => (
+              <option key={s.id} value={s.name}>Section {s.name}</option>
+            ))}
+          </select>
+        </div>
+
+        {!selectedYear?.id ? (
+          <p className="text-gray-500 text-sm">Select an academic year first.</p>
+        ) : unpaidLoading ? (
+          <div className="flex items-center gap-2 text-gray-500">
+            <RefreshCw className="h-4 w-4 animate-spin" /> Loading...
+          </div>
+        ) : !unpaidData ? (
+          <p className="text-sm text-red-600">Failed to load. Try again.</p>
+        ) : unpaidData.deadline === null ? (
+          <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+            {unpaidData.message}
+          </p>
+        ) : unpaidData.students.length === 0 ? (
+          <div className="text-center py-6 text-green-700 flex flex-col items-center gap-2">
+            <CheckCircle className="h-6 w-6" />
+            <p className="text-sm">Every student in this filter has paid registration.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 border-b border-gray-200">
+                  <th className="py-2 pr-3">Student</th>
+                  <th className="py-2 pr-3">Grade / Section</th>
+                  <th className="py-2 pr-3">Type</th>
+                  <th className="py-2 pr-3">Amount Owed</th>
+                  <th className="py-2 pr-3">Parent Contact</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unpaidData.students.map((s) => (
+                  <tr key={s.student_id} className="border-b border-gray-100">
+                    <td className="py-2 pr-3">
+                      <p className="font-medium text-gray-900">{s.name}</p>
+                      <p className="text-xs text-gray-500 font-mono">{s.student_id}</p>
+                    </td>
+                    <td className="py-2 pr-3">Grade {s.grade}{s.section ? ` - ${s.section}` : ''}</td>
+                    <td className="py-2 pr-3">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
+                        s.registration_type === 'new' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                      }`}>
+                        {s.registration_type === 'new' ? 'New' : 'Continuing'}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-3 font-semibold text-red-600">{s.amount} Birr</td>
+                    <td className="py-2 pr-3 text-gray-600">
+                      {s.parent_phone && (
+                        <span className="inline-flex items-center gap-1">
+                          <Phone className="h-3 w-3" /> {s.parent_phone}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="text-xs text-gray-500 mt-3">{unpaidData.total_unpaid} student(s) unpaid.</p>
           </div>
         )}
       </div>

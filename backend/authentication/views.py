@@ -53,10 +53,21 @@ def check_password_history(user, new_password):
             return False, "You cannot reuse a recent password. Please choose a different password."
     return True, ""
 
-def send_otp_via_email(email, otp_code):
-    """Send OTP code via Resend/django-anymail"""
+def send_otp_via_email(email, otp_code, school_name=None):
+    """
+    Send OTP code via Resend/django-anymail.
+
+    ✅ FIX (Jimma request #3): this used to hardcode "Felege Selam
+    Payment System" in the subject and body for every school, regardless
+    of which school the logging-in user actually belongs to. Callers now
+    resolve the real school name (see get_school_name_for_otp below) and
+    pass it in. Falls back to a generic, non-branded label — never to
+    "Felege Selam" — when no school can be resolved (e.g. a super admin
+    with no school_id), so no school is ever shown the wrong school's name.
+    """
+    display_name = school_name or "your school"
     try:
-        subject = f"Your Felege Selam Verification Code: {otp_code}"
+        subject = f"Your {display_name} Verification Code: {otp_code}"
         message = f"""
         Hello,
         
@@ -67,7 +78,7 @@ def send_otp_via_email(email, otp_code):
         If you did not request this code, please ignore this email.
         
         Best regards,
-        Felege Selam Payment System
+        {display_name}
         """
         send_mail(
             subject=subject,
@@ -80,6 +91,23 @@ def send_otp_via_email(email, otp_code):
     except Exception as e:
         print(f"❌ Failed to send OTP email to {email}: {e}")
         return False
+
+
+def get_school_name_for_otp(school_id):
+    """
+    Resolves a UserProfile.school_id to that school's display name for
+    OTP emails. Returns None (not a hardcoded name) when school_id is
+    None or the school can't be found, so send_otp_via_email falls back
+    to its own generic, non-misleading default instead of ever showing
+    one school's name to another school's user.
+    """
+    if not school_id:
+        return None
+    from schools.models import School
+    try:
+        return School.objects.get(id=school_id).name
+    except School.DoesNotExist:
+        return None
 
 
 # ===== OTP 2FA: ADMIN LOGIN WITH 2FA =====
@@ -146,8 +174,9 @@ def admin_login_step1(request):
     profile.otp_created_at = timezone.now()
     profile.save()
     
-    # ✅ SEND REAL EMAIL VIA RESEND
-    email_sent = send_otp_via_email(user.email, otp_code)
+    # ✅ SEND REAL EMAIL VIA RESEND — school-branded (Jimma request #3)
+    school_name = get_school_name_for_otp(profile.school_id)
+    email_sent = send_otp_via_email(user.email, otp_code, school_name)
     
     if not email_sent:
         return Response({
@@ -324,8 +353,12 @@ def parent_login_step1(request):
     profile.otp_created_at = timezone.now()
     profile.save()
     
-    # ✅ SEND REAL EMAIL VIA RESEND
-    email_sent = send_otp_via_email(user.email, otp_code)
+    # ✅ SEND REAL EMAIL VIA RESEND — school-branded (Jimma request #3).
+    # student_school_id was already resolved above from the parent's
+    # student record, so this is always the parent's own school, not
+    # whatever school_id happened to be on a stale profile.
+    school_name = get_school_name_for_otp(student_school_id)
+    email_sent = send_otp_via_email(user.email, otp_code, school_name)
     
     if not email_sent:
         return Response({

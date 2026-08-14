@@ -148,7 +148,10 @@ class MultiSchoolSendPaymentReminderView(APIView):
             payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
             
             # Create bilingual message with payment link
-            message = f"""የትምህርት ክፍያ ማስታወሻ - {deadline.get_month_display()} {deadline.academic_year}
+            # ✅ FIX: display_label -> "Registration Fee" for registration
+            # deadlines instead of get_month_display() showing a blank
+            # month value.
+            message = f"""የትምህርት ክፍያ ማስታወሻ - {deadline.display_label} {deadline.academic_year}
 
 ለ: {student.full_name}
 ክፍያ: {effective_amount} ብር
@@ -160,7 +163,7 @@ class MultiSchoolSendPaymentReminderView(APIView):
 ለማንኛውም ጥያቄ ወደ ትምህርት ቤቱ ይደውሉ: {school.phone}
 
 ---
-Payment Reminder - {deadline.academic_year} {deadline.get_month_display()}
+Payment Reminder - {deadline.academic_year} {deadline.display_label}
 
 Student: {student.full_name}
 Amount: {effective_amount} ETB
@@ -304,7 +307,7 @@ class MultiSchoolSendBulkRemindersView(APIView):
                 if custom_message:
                     message = f"{custom_message}\n\nPay here: {payment_link}"
                 else:
-                    message = f"""የትምህርት ክፍያ ማስታወሻ - {deadline.academic_year} {deadline.get_month_display()}
+                    message = f"""የትምህርት ክፍያ ማስታወሻ - {deadline.academic_year} {deadline.display_label}
 
 ለ: {student.full_name}
 ክፍያ: {effective_amount} ብር
@@ -366,7 +369,7 @@ class MultiSchoolSendBulkRemindersView(APIView):
             'failed': len(results) - successful_count,
             'deadline': {
                 'id': deadline.id,
-                'month': deadline.get_month_display(),
+                'month': deadline.display_label,
                 'amount': float(deadline.amount)
             },
             'results': results
@@ -432,7 +435,7 @@ class MultiSchoolSMSPendingRemindersView(APIView):
         return Response({
             'deadline': {
                 'id': deadline.id,
-                'month': deadline.get_month_display(),
+                'month': deadline.display_label,
                 'academic_year': deadline.academic_year,
                 'amount': float(deadline.amount),
                 'due_date': deadline.due_date

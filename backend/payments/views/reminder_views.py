@@ -225,7 +225,10 @@ class ReminderViewSet(viewsets.ViewSet):
                     effective_amount = get_effective_deadline_amount(student, deadline)
                     if effective_amount <= 0:
                         continue
-                    month_name = self.get_month_name(deadline.month)
+                    # ✅ FIX: display_label handles 'registration' deadlines
+                    # ("Registration Fee") correctly — get_month_name(None)
+                    # would otherwise show "All Months" for them.
+                    month_name = deadline.display_label
                     pending_months_list.append(f"{month_name} - {float(effective_amount)} Birr")
                     total_due += float(effective_amount)
                     pending_deadlines.append(deadline)

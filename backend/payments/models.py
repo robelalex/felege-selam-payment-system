@@ -113,6 +113,23 @@ class PaymentDeadline(models.Model):
             return f"{year_name} - {month_name} (Grade {self.grade})"
         return f"{year_name} - {month_name} (All Grades)"
 
+    @property
+    def display_label(self):
+        """
+        ✅ FIX: label for SMS/email reminder text and reports. A
+        'registration' deadline has month=None by design, so the plain
+        get_month_display() call every reminder/report call site already
+        uses would render as a blank value or the literal word "None" —
+        e.g. an SMS reading "None - 1500 Birr" instead of "Registration
+        Fee - 1500 Birr". This doesn't change get_month_display() itself
+        (still correct for monthly deadlines, and anything else that
+        calls it directly is unaffected) — it's a separate property call
+        sites can opt into.
+        """
+        if self.deadline_type == 'registration':
+            return 'Registration Fee'
+        return self.get_month_display()
+
 
 class Payment(models.Model):
     PAYMENT_METHODS = [
