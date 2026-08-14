@@ -368,6 +368,19 @@ class RegistrationFeeConfig(models.Model):
         max_digits=10, decimal_places=2, validators=[MinValueValidator(0)],
         help_text="One-time registration fee for a CONTINUING/senior student this academic year."
     )
+    # ✅ NEW: a transfer student (new to THIS school, but not "new" in the
+    # sense of never having attended school before) is its own billing
+    # tier, distinct from both new_student_amount and
+    # continuing_student_amount — deliberately nullable/optional because
+    # it's "settable fresh every year" like the other two, and a school
+    # that hasn't configured it yet should fail safe to charging nothing
+    # for a transfer student rather than silently falling back to the
+    # new-student rate (see get_effective_registration_amount()).
+    transferred_student_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, validators=[MinValueValidator(0)],
+        null=True, blank=True,
+        help_text="One-time registration fee for a student TRANSFERRED IN from another school this academic year. Leave blank if not yet decided — transferred students won't be charged until this is set."
+    )
     created_by = models.ForeignKey(
         'auth.User', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='registration_fee_configs_created'
@@ -380,7 +393,7 @@ class RegistrationFeeConfig(models.Model):
         ordering = ['-academic_year']
 
     def __str__(self):
-        return f"{self.school.name} - {self.academic_year} Registration Fees (New: {self.new_student_amount}, Continuing: {self.continuing_student_amount})"
+        return f"{self.school.name} - {self.academic_year} Registration Fees (New: {self.new_student_amount}, Continuing: {self.continuing_student_amount}, Transferred: {self.transferred_student_amount})"
 
 
 class StudentRegistrationType(models.Model):
@@ -398,17 +411,27 @@ class StudentRegistrationType(models.Model):
         silently change mid-year if the student's payment history
         changes later (e.g. an old payment gets archived).
       - Explicitly set by an admin (is_manual_override=True) via
-        StudentRegistrationTypeViewSet — e.g. a transfer student who is
-        new to THIS school but the auto-detection logic can't know that
-        from payment history alone, or any other case staff want to
-        correct by hand.
+        StudentRegistrationTypeViewSet — either one at a time, or in
+        bulk via bulk_set_type for a whole grade/section at once. This
+        is the ONLY way a student is ever classified as 'transferred' —
+        auto-detection never produces that value, because "this student
+        has history at a DIFFERENT school" isn't something payment
+        history in this system can ever show. It's also the main
+        real-world escape hatch for a case auto-detection gets wrong
+        silently: a student promoted from last grade whose PRIOR YEAR
+        payments were never digitized into this system (e.g. entered
+        for the first time this year, or paid in cash and recorded on
+        paper) auto-detects as 'new' even though they're clearly
+        continuing — an admin fixes that here, ideally in bulk by
+        grade/section rather than hunting student-by-student.
 
     One row per student per academic year — a student is unambiguously
-    one or the other for a given year.
+    one of the three for a given year.
     """
     REGISTRATION_TYPE_CHOICES = [
         ('new', 'New Student'),
         ('continuing', 'Continuing/Senior Student'),
+        ('transferred', 'Transferred from Another School'),
     ]
 
     student = models.ForeignKey(

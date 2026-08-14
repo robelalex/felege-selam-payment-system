@@ -179,7 +179,7 @@ class RegistrationFeeConfigSerializer(serializers.ModelSerializer):
         model = RegistrationFeeConfig
         fields = [
             'id', 'school', 'academic_year', 'academic_year_name',
-            'new_student_amount', 'continuing_student_amount',
+            'new_student_amount', 'continuing_student_amount', 'transferred_student_amount',
             'created_by', 'created_by_username', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'school', 'created_by', 'created_at', 'updated_at']

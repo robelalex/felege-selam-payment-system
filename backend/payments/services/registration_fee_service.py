@@ -106,6 +106,13 @@ def get_effective_registration_amount(student, deadline):
     rather than falling back to some arbitrary number. This mirrors the
     "fail safe toward not overcharging" posture the fee-override service
     already takes.
+
+    Same fail-safe applies per-tier: 'transferred' is optional on
+    RegistrationFeeConfig (transferred_student_amount can be None even
+    when new/continuing are set, since it was added later and a school
+    may not have decided that price yet) — a transferred student is
+    charged Decimal('0.00') until an admin sets it, rather than silently
+    billing them at the new-student rate.
     """
     config = get_registration_fee_config(deadline.school, deadline.academic_year)
     if config is None:
@@ -117,6 +124,8 @@ def get_effective_registration_amount(student, deadline):
 
     if reg_type.registration_type == 'new':
         return config.new_student_amount
+    if reg_type.registration_type == 'transferred':
+        return config.transferred_student_amount or Decimal('0.00')
     return config.continuing_student_amount
 
 

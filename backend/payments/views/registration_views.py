@@ -277,6 +277,143 @@ class StudentRegistrationTypeViewSet(viewsets.ModelViewSet):
         reg_type = get_registration_type(student, academic_year)
         return Response(StudentRegistrationTypeSerializer(reg_type).data)
 
+    @action(detail=False, methods=['get'], url_path='for-grade')
+    def for_grade(self, request):
+        """
+        GET /api/student-registration-types/for-grade/
+            ?academic_year_id=<id>&grade=<int|'all'>&section=<letter|'all'>
+
+        ✅ NEW — the bulk-classification screen. list()/retrieve() above
+        only return rows that already exist; this endpoint is the one
+        that powers "show me every student in Grade 7B so I can bulk-fix
+        the ones auto-detection got wrong". It auto-detects-and-caches a
+        classification for every matching active student (via
+        get_registration_type, same as for_student), so the admin always
+        sees a real New/Continuing/Transferred value to correct, never a
+        blank.
+
+        Root problem this exists for: auto-detection only sees payment
+        history recorded IN THIS SYSTEM. A student promoted from last
+        grade whose prior-year payments were never digitized here (paper
+        records, cash paid at the office, or simply entered into this
+        system for the first time this year) auto-detects as 'new' even
+        though they're clearly continuing — this list is how an admin
+        finds and bulk-corrects a whole grade/section of those at once
+        instead of hunting student by student.
+        """
+        from students.models import Student
+        from academics.models import AcademicYear
+
+        academic_year_id = request.query_params.get('academic_year_id')
+        if not academic_year_id:
+            return Response(
+                {'error': 'academic_year_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        school_id = get_verified_school_id(request)
+        if not school_id:
+            raise PermissionDenied("No school associated with this account.")
+
+        try:
+            academic_year = AcademicYear.objects.get(id=academic_year_id, school_id=school_id)
+        except AcademicYear.DoesNotExist:
+            return Response({'error': 'Academic year not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        students = Student.objects.filter(school_id=school_id, status='active')
+
+        grade = request.query_params.get('grade')
+        if grade and grade not in ('all', 'None'):
+            try:
+                students = students.filter(grade=int(grade))
+            except (ValueError, TypeError):
+                pass
+
+        section = request.query_params.get('section')
+        if section and section not in ('all', 'None'):
+            students = students.filter(section=section)
+
+        students = students.order_by('grade', 'section', 'first_name')
+
+        data = []
+        for s in students:
+            reg_type = get_registration_type(s, academic_year)
+            data.append({
+                'student_id': s.student_id,
+                'name': s.full_name,
+                'grade': s.grade,
+                'section': s.section,
+                'registration_type': reg_type.registration_type if reg_type else None,
+                'is_manual_override': reg_type.is_manual_override if reg_type else False,
+            })
+
+        return Response({'academic_year_id': academic_year.id, 'students': data})
+
+    @action(detail=False, methods=['post'], url_path='bulk-set-type')
+    def bulk_set_type(self, request):
+        """
+        POST /api/student-registration-types/bulk-set-type/
+        Body: {student_ids: [<student_id str>, ...], academic_year_id, registration_type}
+
+        ✅ NEW — bulk version of set_type, for correcting a whole
+        grade/section at once from the for-grade screen above. Reuses
+        set_registration_type_override() per student, unchanged, so the
+        single-student path and the audit trail (is_manual_override,
+        set_by) stay exactly as trustworthy as they already were —
+        nothing about how one override is applied or recorded is
+        different here, this just loops it. student_ids not belonging to
+        this school (or not found) are skipped and reported back, never
+        silently dropped.
+        """
+        from students.models import Student
+        from academics.models import AcademicYear
+
+        student_ids = request.data.get('student_ids')
+        academic_year_id = request.data.get('academic_year_id')
+        registration_type = request.data.get('registration_type')
+
+        if not student_ids or not isinstance(student_ids, list):
+            return Response(
+                {'error': 'student_ids must be a non-empty list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if not academic_year_id or not registration_type:
+            return Response(
+                {'error': 'academic_year_id and registration_type are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if registration_type not in ('new', 'continuing', 'transferred'):
+            return Response(
+                {'error': "registration_type must be 'new', 'continuing', or 'transferred'"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        school_id = get_verified_school_id(request)
+        if not school_id:
+            raise PermissionDenied("No school associated with this account.")
+
+        try:
+            academic_year = AcademicYear.objects.get(id=academic_year_id, school_id=school_id)
+        except AcademicYear.DoesNotExist:
+            return Response({'error': 'Academic year not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        updated = []
+        not_found = []
+        for student_id in student_ids:
+            try:
+                student = Student.objects.get(student_id=student_id, school_id=school_id)
+            except Student.DoesNotExist:
+                not_found.append(student_id)
+                continue
+            set_registration_type_override(student, academic_year, registration_type, request.user)
+            updated.append(student_id)
+
+        return Response({
+            'updated_count': len(updated),
+            'updated_student_ids': updated,
+            'not_found_student_ids': not_found,
+        })
+
     @action(detail=False, methods=['post'], url_path='set-type')
     def set_type(self, request):
         """
@@ -296,9 +433,9 @@ class StudentRegistrationTypeViewSet(viewsets.ModelViewSet):
                 {'error': 'student_id, academic_year_id, and registration_type are required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        if registration_type not in ('new', 'continuing'):
+        if registration_type not in ('new', 'continuing', 'transferred'):
             return Response(
-                {'error': "registration_type must be 'new' or 'continuing'"},
+                {'error': "registration_type must be 'new', 'continuing', or 'transferred'"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
