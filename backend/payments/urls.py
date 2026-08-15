@@ -3,7 +3,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views.views import PaymentViewSet, PaymentDeadlineViewSet
 from .views import ReminderViewSet, send_reminders, send_payment_confirmation
-from .views.report_views import monthly_report, student_report, annual_summary, monthly_detailed_report, registration_report
+from .views.report_views import monthly_report, student_report, annual_summary, monthly_detailed_report, registration_report, fee_exceptions_report
 from .views import PaymentLandingView, OtpVerifyView, PaymentInitiateView
 from .views.fee_override_views import StudentFeeOverrideViewSet
 from .views.registration_views import RegistrationFeeConfigViewSet, StudentRegistrationTypeViewSet
@@ -117,6 +117,7 @@ urlpatterns += [
     path('reports/student/<str:student_id>/', student_report, name='student-report'),
     path('reports/annual/', annual_summary, name='annual-summary'),
     path('reports/registration/', registration_report, name='registration-report'),
+    path('reports/fee-exceptions/', fee_exceptions_report, name='fee-exceptions-report'),
 ]
 
 # Slip API URLs

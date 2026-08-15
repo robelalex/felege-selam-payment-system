@@ -86,6 +86,28 @@ def registration_report(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, CanViewReports])
+def fee_exceptions_report(request):
+    """
+    ✅ NEW — Fee Exceptions (Waivers/Partial) Report for the current
+    school. Kept separate from every collections report — see
+    ReportService.get_fee_exceptions_report for why this is an audit
+    view, not a money-collected view.
+    """
+
+    school_id = get_verified_school_id(request)
+    year = request.query_params.get('year')
+
+    if not school_id:
+        return Response({'error': 'No school associated with this account'}, status=400)
+
+    service = ReportService()
+    report = service.get_fee_exceptions_report(year, school_id=school_id)
+
+    return Response(report)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, CanViewReports])
 def annual_summary(request):
     """Get annual summary report for the current school"""
     

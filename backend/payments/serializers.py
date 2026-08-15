@@ -91,6 +91,22 @@ class PaymentSerializer(serializers.ModelSerializer):
     student_grade = serializers.IntegerField(source='student.grade', read_only=True)
     deadline_month = serializers.CharField(source='deadline.get_month_display', read_only=True)
 
+    # ✅ NEW — exposes whether this payment is for a monthly tuition
+    # deadline or the one-time registration deadline, so Payment
+    # Management / Payment History can filter by fee type the same way
+    # they already filter by payment method (online/bank slip/cash).
+    deadline_type = serializers.SerializerMethodField(read_only=True)
+
+    # ✅ NEW — whether this payment's student has an ACTIVE fee
+    # exception (waiver/partial) for the deadline's academic year, so
+    # Payment Management / Payment History can filter "payments made
+    # under a waiver arrangement" the same way. Reflects the override's
+    # CURRENT active status, not necessarily what was in effect at the
+    # moment the payment was made historically — matches how the Fee
+    # Exceptions report itself defines "active".
+    has_fee_override = serializers.SerializerMethodField(read_only=True)
+    fee_override_type = serializers.SerializerMethodField(read_only=True)
+
     # ✅ Expose the academic year name through the deadline FK chain
     academic_year_name = serializers.SerializerMethodField(read_only=True)
 
@@ -103,6 +119,29 @@ class PaymentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payment
         fields = '__all__'
+
+    def get_deadline_type(self, obj):
+        try:
+            return obj.deadline.deadline_type if obj.deadline else None
+        except Exception:
+            return None
+
+    def _get_active_override(self, obj):
+        try:
+            if not obj.deadline or not obj.deadline.academic_year:
+                return None
+            return obj.student.fee_overrides.filter(
+                academic_year=obj.deadline.academic_year, is_active=True
+            ).first()
+        except Exception:
+            return None
+
+    def get_has_fee_override(self, obj):
+        return self._get_active_override(obj) is not None
+
+    def get_fee_override_type(self, obj):
+        override = self._get_active_override(obj)
+        return override.override_type if override else None
 
     def get_academic_year_name(self, obj):
         """Return the academic year name this payment belongs to via its deadline"""

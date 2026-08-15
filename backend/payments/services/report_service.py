@@ -1,6 +1,6 @@
 # backend/payments/services/report_service.py - FIXED year resolution
 from students.models import Student
-from payments.models import Payment, PaymentDeadline
+from payments.models import Payment, PaymentDeadline, StudentFeeOverride
 from academics.models import AcademicYear
 from collections import defaultdict
 from datetime import datetime
@@ -94,8 +94,15 @@ class ReportService:
                 pass
         
         # ✅ FIX: Use AcademicYear OBJECT instead of string
+        # ✅ FIX: Registration is a one-time charge with its own dedicated
+        # report (get_registration_report) — before this filter, a
+        # verified registration payment (deadline.month=None) was counted
+        # into this "monthly" report's totals/by_grade/monthly_breakdown,
+        # silently inflating collection numbers with money that was never
+        # a monthly tuition payment.
         payments = Payment.objects.filter(
             deadline__academic_year=academic_year_obj,
+            deadline__deadline_type='monthly',
             status='verified'
         )
         if school_id:
@@ -110,6 +117,7 @@ class ReportService:
             # ✅ FIX: Use AcademicYear OBJECT
             deadlines = PaymentDeadline.objects.filter(
                 academic_year=academic_year_obj,
+                deadline_type='monthly',
                 month=month,
                 is_active=True
             )
@@ -117,6 +125,7 @@ class ReportService:
             # ✅ FIX: Use AcademicYear OBJECT
             deadlines = PaymentDeadline.objects.filter(
                 academic_year=academic_year_obj,
+                deadline_type='monthly',
                 is_active=True
             )
         
@@ -170,6 +179,32 @@ class ReportService:
                 'count': month_payments.count(),
                 'total': float(sum(p.amount for p in month_payments))
             }
+
+        # ✅ NEW: per-student detail — "who paid what", same shape as
+        # get_registration_report's students list, so the admin can see
+        # exactly who's covered and who isn't instead of only aggregates.
+        # When `month` is given this is that month's students; otherwise
+        # it's every verified monthly payment for the whole year (can be
+        # a long list for a big school — matches the existing behavior of
+        # get_registration_report, which also lists every student rather
+        # than paginating).
+        detailed_payments = payments.select_related('student', 'deadline').order_by(
+            'student__grade', 'student__first_name', 'deadline__month'
+        )
+        students_detail = [
+            {
+                'student_id': p.student.student_id,
+                'student_name': f"{p.student.first_name} {p.student.last_name}",
+                'grade': p.student.grade,
+                'section': p.student.section,
+                'month_name': p.deadline.get_month_display(),
+                'amount': float(p.amount),
+                'payment_method': p.payment_method,
+                'payment_date': p.created_at.strftime('%Y-%m-%d') if p.created_at else None,
+                'transaction_reference': p.transaction_reference,
+            }
+            for p in detailed_payments
+        ]
         
         return {
             'year': year_display,
@@ -180,13 +215,14 @@ class ReportService:
                 'total_pending': total_students - total_paid,
                 'total_collected': float(total_collected),
                 'total_rejected': Payment.objects.filter(
-                    deadline__academic_year=academic_year_obj, status='rejected',
+                    deadline__academic_year=academic_year_obj, deadline__deadline_type='monthly', status='rejected',
                     **({'student__school_id': int(school_id)} if school_id else {})
                 ).count(),
                 'collection_rate': round((total_paid / total_students * 100) if total_students > 0 else 0, 1)
              },
             'by_grade': by_grade,
-            'monthly_breakdown': monthly_data
+            'monthly_breakdown': monthly_data,
+            'students': students_detail,
         }
     
     def get_student_report(self, student_id, school_id=None):
@@ -225,12 +261,20 @@ class ReportService:
             payments = payments.filter(deadline__academic_year=student_year_obj)
         else:
             payments = payments.filter(deadline__academic_year__name=student.academic_year)
+        # ✅ FIX: Registration is a separate one-time charge, not a month —
+        # it has its own dedicated report now (get_registration_report).
+        # Before this filter, a verified/pending registration payment (with
+        # deadline.month=None) leaked into this "monthly" payment history
+        # and pending list as a blank/garbled month row.
+        payments = payments.filter(deadline__deadline_type='monthly')
         payments = payments.order_by('-created_at')
         
         # Get deadlines for this student's specific GRADE only
         # ✅ FIX: Use resolved AcademicYear object
         
         deadlines = PaymentDeadline.objects.filter(**deadline_filter).filter(
+            deadline_type='monthly'
+        ).filter(
             models.Q(grade=student.grade) | models.Q(grade__isnull=True)
         ).order_by('month')
         
@@ -416,6 +460,69 @@ class ReportService:
             'students': detailed_students,
         }
 
+    def get_fee_exceptions_report(self, year=None, school_id=None):
+        """
+        ✅ NEW — Fee Exceptions (Waivers/Partial) Report. Separate from
+        every collections report on purpose — this is an AUDIT view, not
+        a money-collected view. The question it answers isn't "how much
+        did we collect" but "who has an active exception, why, who
+        approved it, and is the supporting document actually on file" —
+        the kind of thing a director or auditor checks, not a finance
+        officer doing daily collections.
+
+        Lists every StudentFeeOverride active for the given academic
+        year (waiver AND partial), regardless of payment status — an
+        override with zero payments yet is still something the school
+        needs visibility into (e.g. to confirm documentation is on file
+        before the deadline for it passes).
+        """
+        academic_year_obj = self._resolve_academic_year(year, school_id)
+        if not academic_year_obj:
+            return {'error': 'No current academic year set' if year is None else f'Academic year "{year}" not found'}
+
+        overrides = StudentFeeOverride.objects.filter(
+            academic_year=academic_year_obj, is_active=True
+        ).select_related('student', 'created_by')
+        if school_id:
+            try:
+                overrides = overrides.filter(student__school_id=int(school_id))
+            except ValueError:
+                pass
+        overrides = overrides.order_by('student__grade', 'student__first_name')
+
+        waiver_count = 0
+        partial_count = 0
+        detailed = []
+        for o in overrides:
+            if o.override_type == 'waiver':
+                waiver_count += 1
+            else:
+                partial_count += 1
+            detailed.append({
+                'student_id': o.student.student_id,
+                'student_name': f"{o.student.first_name} {o.student.last_name}",
+                'grade': o.student.grade,
+                'section': o.student.section,
+                'override_type': o.override_type,
+                'override_type_display': o.get_override_type_display(),
+                'amount': float(o.amount),
+                'reason': o.reason,
+                'has_supporting_document': bool(o.supporting_document),
+                'created_by': o.created_by.username if o.created_by else None,
+                'created_at': o.created_at.strftime('%Y-%m-%d') if o.created_at else None,
+            })
+
+        return {
+            'academic_year': academic_year_obj.name,
+            'summary': {
+                'total_exceptions': len(detailed),
+                'waiver_count': waiver_count,
+                'partial_count': partial_count,
+                'missing_documents': sum(1 for d in detailed if not d['has_supporting_document']),
+            },
+            'exceptions': detailed,
+        }
+
     def get_annual_summary(self, year=None, school_id=None):
         """Get annual summary report for a specific school"""
         print(f"📊 get_annual_summary - school_id: {school_id}")
@@ -439,11 +546,49 @@ class ReportService:
                     'paid_count': report['monthly_breakdown'][month]['count']
                 })
                 total_year += report['monthly_breakdown'][month]['total']
+
+        # ✅ NEW: per-student yearly rollup — "who paid what across the
+        # whole year", not just monthly totals summed. Excludes
+        # registration for the same reason get_monthly_report does — it's
+        # a one-time charge, not a recurring monthly one, and has its own
+        # report (get_registration_report).
+        year_payments = Payment.objects.filter(
+            deadline__academic_year=academic_year_obj,
+            deadline__deadline_type='monthly',
+            status='verified'
+        ).select_related('student')
+        if school_id:
+            try:
+                year_payments = year_payments.filter(student__school_id=int(school_id))
+            except ValueError:
+                pass
+
+        per_student = {}
+        for p in year_payments:
+            key = p.student_id
+            if key not in per_student:
+                per_student[key] = {
+                    'student_id': p.student.student_id,
+                    'student_name': f"{p.student.first_name} {p.student.last_name}",
+                    'grade': p.student.grade,
+                    'section': p.student.section,
+                    'months_paid': 0,
+                    'total_collected': 0.0,
+                    'last_payment_date': None,
+                }
+            per_student[key]['months_paid'] += 1
+            per_student[key]['total_collected'] += float(p.amount)
+            payment_date = p.created_at.strftime('%Y-%m-%d') if p.created_at else None
+            if payment_date and (per_student[key]['last_payment_date'] is None or payment_date > per_student[key]['last_payment_date']):
+                per_student[key]['last_payment_date'] = payment_date
+
+        students_yearly = sorted(per_student.values(), key=lambda x: (x['grade'] or 0, x['student_name'] or ''))
         
         return {
             'year': academic_year_obj.name,
             'total_collected': float(total_year),
-            'monthly_data': monthly_data
+            'monthly_data': monthly_data,
+            'students': students_yearly,
         }
     
     def get_school_summary(self, school_id):

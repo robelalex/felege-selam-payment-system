@@ -89,6 +89,13 @@ function Reports() {
           params.append('year', selectedYear.name);
         }
         endpoint = `/reports/registration/?${params.toString()}`;
+      }
+      else if (reportType === 'fee_exceptions') {
+        const params = new URLSearchParams();
+        if (selectedYear && selectedYear.name) {
+          params.append('year', selectedYear.name);
+        }
+        endpoint = `/reports/fee-exceptions/?${params.toString()}`;
       } 
       else if (reportType === 'student') {
         if (!selectedStudent) {
@@ -133,6 +140,14 @@ function Reports() {
       csvContent += `Total Pending,${reportData.summary.total_pending}\n`;
       csvContent += `Total Collected,${reportData.summary.total_collected} Birr\n`;
       csvContent += `Collection Rate,${reportData.summary.collection_rate}%\n`;
+
+      if (reportData.students && reportData.students.length > 0) {
+        csvContent += `\nStudent Payments\n`;
+        csvContent += `Student ID,Name,Grade,Section,Month,Method,Date,Reference,Amount (Birr)\n`;
+        reportData.students.forEach(s => {
+          csvContent += `${s.student_id},${s.student_name},${s.grade},${s.section || ''},${s.month_name},${s.payment_method},${s.payment_date || ''},${s.transaction_reference || ''},${s.amount}\n`;
+        });
+      }
       
     } else if (reportType === 'student' && reportData.payment_history) {
       csvContent = 'Month,Amount (Birr),Date,Method,Reference\n';
@@ -155,6 +170,14 @@ function Reports() {
       
       csvContent += `\nTotal,,${reportData.total_collected || 0}\n`;
 
+      if (reportData.students && reportData.students.length > 0) {
+        csvContent += `\nStudent Payments (Year Summary)\n`;
+        csvContent += `Student ID,Name,Grade,Section,Months Paid,Last Payment,Total Collected (Birr)\n`;
+        reportData.students.forEach(s => {
+          csvContent += `${s.student_id},${s.student_name},${s.grade},${s.section || ''},${s.months_paid},${s.last_payment_date || ''},${s.total_collected}\n`;
+        });
+      }
+
     } else if (reportType === 'registration' && reportData.students) {
       csvContent = 'Student ID,Name,Grade,Section,Type,Status,Amount (Birr),Payment Date,Reference\n';
 
@@ -174,6 +197,20 @@ function Reports() {
       csvContent += `Total Paid,${reportData.summary.total_paid}\n`;
       csvContent += `Total Pending,${reportData.summary.total_pending}\n`;
       csvContent += `Total Collected,${reportData.summary.total_collected} Birr\n`;
+
+    } else if (reportType === 'fee_exceptions' && reportData.exceptions) {
+      csvContent = 'Student ID,Name,Grade,Section,Type,Amount (Birr),Reason,Document On File,Approved By,Date\n';
+
+      reportData.exceptions.forEach(e => {
+        csvContent += `${e.student_id},${e.student_name},${e.grade},${e.section || ''},${e.override_type_display},${e.amount},${e.reason || ''},${e.has_supporting_document ? 'Yes' : 'NO - MISSING'},${e.created_by || ''},${e.created_at || ''}\n`;
+      });
+
+      csvContent += `\nSummary\n`;
+      csvContent += `Academic Year,${reportData.academic_year || 'N/A'}\n`;
+      csvContent += `Total Exceptions,${reportData.summary.total_exceptions}\n`;
+      csvContent += `Waivers,${reportData.summary.waiver_count}\n`;
+      csvContent += `Partial Arrangements,${reportData.summary.partial_count}\n`;
+      csvContent += `Missing Documents,${reportData.summary.missing_documents}\n`;
     }
     
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -233,6 +270,7 @@ function Reports() {
               <option value="monthly">Monthly Report</option>
               <option value="annual">Annual Summary</option>
               <option value="registration">Registration Fees</option>
+              <option value="fee_exceptions">Fee Exceptions (Waivers)</option>
               <option value="student">Student Report</option>
             </select>
           </div>
@@ -453,6 +491,54 @@ function Reports() {
                     ))}
                   </div>
                 </div>
+
+                {/* ✅ NEW: Per-student payment detail — "who paid what",
+                     same style as the Registration report. Registration
+                     payments are excluded here on purpose — see the
+                     Registration Fees report for those. */}
+                <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-200">
+                    <h3 className="font-semibold text-gray-900">Student Payments</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Monthly tuition payments only — registration fees are tracked separately in the Registration Fees report.
+                    </p>
+                  </div>
+                  {(!reportData.students || reportData.students.length === 0) ? (
+                    <p className="text-gray-500 text-sm p-6 text-center">No payments recorded for this period.</p>
+                  ) : (
+                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 sticky top-0">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Student</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Grade/Section</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Month</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Method</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reference</th>
+                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount (Birr)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {reportData.students.map((s, idx) => (
+                            <tr key={`${s.student_id}-${idx}`} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 text-sm">
+                                <p className="font-medium text-gray-900">{s.student_name}</p>
+                                <p className="text-xs text-gray-500 font-mono">{s.student_id}</p>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-600">Grade {s.grade}{s.section ? ` - ${s.section}` : ''}</td>
+                              <td className="px-4 py-3 text-sm text-gray-600">{s.month_name}</td>
+                              <td className="px-4 py-3 text-sm text-gray-600 capitalize">{s.payment_method}</td>
+                              <td className="px-4 py-3 text-sm text-gray-600">{s.payment_date}</td>
+                              <td className="px-4 py-3 text-sm text-gray-500 font-mono">{s.transaction_reference}</td>
+                              <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">{s.amount?.toLocaleString()} Birr</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </>
             )}
 
@@ -477,6 +563,10 @@ function Reports() {
                       >
                         <Download className="h-4 w-4" />
                         Download CSV
+                      </button>
+                      <button onClick={() => window.print()} className="btn-outline flex items-center gap-2">
+                        <Printer className="h-4 w-4" />
+                        Print
                       </button>
                     </div>
                   </div>
@@ -523,6 +613,50 @@ function Reports() {
                       </tfoot>
                     </table>
                   </div>
+                </div>
+
+                {/* ✅ NEW: Per-student yearly rollup — "who paid what
+                     across the whole year". Registration is excluded on
+                     purpose, same reasoning as the Monthly report. */}
+                <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-200">
+                    <h3 className="font-semibold text-gray-900">Student Payments (Year Summary)</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      One row per student — months paid this year, total collected, and their most recent payment.
+                      Monthly tuition only; registration fees are tracked separately in the Registration Fees report.
+                    </p>
+                  </div>
+                  {(!reportData.students || reportData.students.length === 0) ? (
+                    <p className="text-gray-500 text-sm p-6 text-center">No payments recorded for this year.</p>
+                  ) : (
+                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 sticky top-0">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Student</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Grade/Section</th>
+                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Months Paid</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Payment</th>
+                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Collected (Birr)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {reportData.students.map((s) => (
+                            <tr key={s.student_id} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 text-sm">
+                                <p className="font-medium text-gray-900">{s.student_name}</p>
+                                <p className="text-xs text-gray-500 font-mono">{s.student_id}</p>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-600">Grade {s.grade}{s.section ? ` - ${s.section}` : ''}</td>
+                              <td className="px-4 py-3 text-sm text-gray-600 text-right">{s.months_paid}</td>
+                              <td className="px-4 py-3 text-sm text-gray-600">{s.last_payment_date}</td>
+                              <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">{s.total_collected?.toLocaleString()} Birr</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -680,6 +814,117 @@ function Reports() {
                     </div>
                   </>
                 )}
+              </>
+            )}
+
+            {/* Fee Exceptions (Waivers) Report */}
+            {reportType === 'fee_exceptions' && reportData.summary && (
+              <>
+                {/* Report Header */}
+                <div className="bg-white rounded-xl shadow-lg p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-xl font-bold text-gray-900">
+                        Fee Exceptions Report
+                      </h2>
+                      <p className="text-gray-600 mt-1">
+                        {reportData.academic_year || selectedYear?.name || 'Academic Year'} — Waivers &amp; Partial Payment Arrangements
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => window.print()} className="btn-outline flex items-center gap-2">
+                        <Printer className="h-4 w-4" />
+                        Print
+                      </button>
+                      <button
+                        onClick={downloadCSV}
+                        className="btn-outline flex items-center gap-2"
+                      >
+                        <Download className="h-4 w-4" />
+                        Download CSV
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Summary Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white rounded-xl shadow-lg p-4">
+                    <p className="text-gray-500 text-sm">Total Exceptions</p>
+                    <p className="text-2xl font-bold text-gray-900">{reportData.summary.total_exceptions}</p>
+                  </div>
+                  <div className="bg-white rounded-xl shadow-lg p-4">
+                    <p className="text-gray-500 text-sm">Full Waivers</p>
+                    <p className="text-2xl font-bold text-blue-600">{reportData.summary.waiver_count}</p>
+                  </div>
+                  <div className="bg-white rounded-xl shadow-lg p-4">
+                    <p className="text-gray-500 text-sm">Partial Arrangements</p>
+                    <p className="text-2xl font-bold text-green-600">{reportData.summary.partial_count}</p>
+                  </div>
+                  <div className={`rounded-xl shadow-lg p-4 ${reportData.summary.missing_documents > 0 ? 'bg-gradient-to-br from-red-500 to-red-600 text-white' : 'bg-white'}`}>
+                    <p className={reportData.summary.missing_documents > 0 ? 'text-red-100 text-sm' : 'text-gray-500 text-sm'}>Missing Documents</p>
+                    <p className={`text-2xl font-bold ${reportData.summary.missing_documents > 0 ? '' : 'text-gray-900'}`}>{reportData.summary.missing_documents}</p>
+                  </div>
+                </div>
+
+                {/* Exceptions Table */}
+                <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-200">
+                    <h3 className="font-semibold text-gray-900">Active Exceptions</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      An audit view, not a collections view — shows who has an active exception and whether documentation is on file, regardless of payment status.
+                    </p>
+                  </div>
+                  {reportData.exceptions.length === 0 ? (
+                    <p className="text-gray-500 text-sm p-6 text-center">No active fee exceptions for this academic year.</p>
+                  ) : (
+                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 sticky top-0">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Student</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Grade/Section</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount (Birr)</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Document</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Approved By</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {reportData.exceptions.map((e, idx) => (
+                            <tr key={`${e.student_id}-${idx}`} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 text-sm">
+                                <p className="font-medium text-gray-900">{e.student_name}</p>
+                                <p className="text-xs text-gray-500 font-mono">{e.student_id}</p>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-600">Grade {e.grade}{e.section ? ` - ${e.section}` : ''}</td>
+                              <td className="px-4 py-3 text-sm">
+                                <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
+                                  e.override_type === 'waiver' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                                }`}>
+                                  {e.override_type_display}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">{e.amount?.toLocaleString()} Birr</td>
+                              <td className="px-4 py-3 text-sm text-gray-600">{e.reason || '—'}</td>
+                              <td className="px-4 py-3 text-sm">
+                                {e.has_supporting_document ? (
+                                  <span className="text-green-600 flex items-center gap-1"><CheckCircle className="h-4 w-4" /> On file</span>
+                                ) : (
+                                  <span className="text-red-600 flex items-center gap-1"><AlertCircle className="h-4 w-4" /> Missing</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-600">{e.created_by || '—'}</td>
+                              <td className="px-4 py-3 text-sm text-gray-600">{e.created_at}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </>
             )}
 

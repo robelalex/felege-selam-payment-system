@@ -18,6 +18,10 @@ function AdminPaymentHistory() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterMonth, setFilterMonth] = useState('all');
   const [filterGrade, setFilterGrade] = useState('all');
+  // ✅ NEW — filter by fee type (Monthly vs Registration) and waiver
+  // status, same pattern as AdminPayments.js.
+  const [filterFeeType, setFilterFeeType] = useState('all');
+  const [filterWaiver, setFilterWaiver] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
@@ -59,10 +63,21 @@ function AdminPaymentHistory() {
         return String(studentGrade) === filterGrade;
       });
     }
+
+    // ✅ NEW: Fee type filter (Monthly vs Registration)
+    if (filterFeeType !== 'all') {
+      filteredData = filteredData.filter(p => p.deadline_type === filterFeeType);
+    }
+
+    // ✅ NEW: Waiver filter — payments by a student currently under an
+    // active fee exception.
+    if (filterWaiver !== 'all') {
+      filteredData = filteredData.filter(p => p.has_fee_override === true);
+    }
     
     setFiltered(filteredData);
     setCurrentPage(1);
-  }, [searchTerm, filterStatus, filterMonth, filterGrade, payments]);
+  }, [searchTerm, filterStatus, filterMonth, filterGrade, filterFeeType, filterWaiver, payments]);
 
   const fetchHistory = async () => {
     setLoading(true);
@@ -136,6 +151,8 @@ function AdminPaymentHistory() {
     setFilterStatus('all');
     setFilterMonth('all');
     setFilterGrade('all');
+    setFilterFeeType('all');
+    setFilterWaiver('all');
   };
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage);
@@ -202,13 +219,13 @@ function AdminPaymentHistory() {
       <div className="bg-white rounded-xl shadow-lg p-4">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base md:text-lg font-semibold text-gray-900">Filters</h2>
-          {(searchTerm || filterStatus !== 'all' || filterMonth !== 'all' || filterGrade !== 'all') && (
+          {(searchTerm || filterStatus !== 'all' || filterMonth !== 'all' || filterGrade !== 'all' || filterFeeType !== 'all' || filterWaiver !== 'all') && (
             <button onClick={clearFilters} className="text-sm text-primary-600 hover:text-primary-700 font-medium tap-target">
               Clear Filters
             </button>
           )}
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
             <select 
@@ -246,6 +263,32 @@ function AdminPaymentHistory() {
               {grades.map((grade) => (
                 <option key={grade} value={grade}>Grade {grade}</option>
               ))}
+            </select>
+          </div>
+          {/* ✅ NEW: Fee Type — separates Registration from Monthly */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Fee Type</label>
+            <select
+              value={filterFeeType}
+              onChange={(e) => setFilterFeeType(e.target.value)}
+              className="input-field py-2 text-sm w-full"
+            >
+              <option value="all">All Fee Types</option>
+              <option value="monthly">Monthly Tuition</option>
+              <option value="registration">Registration Fee</option>
+            </select>
+          </div>
+          {/* ✅ NEW: Waiver — payments by a student currently under an
+               active fee exception (waiver or partial). */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Waiver</label>
+            <select
+              value={filterWaiver}
+              onChange={(e) => setFilterWaiver(e.target.value)}
+              className="input-field py-2 text-sm w-full"
+            >
+              <option value="all">All Payments</option>
+              <option value="waiver">Under Fee Exception</option>
             </select>
           </div>
         </div>

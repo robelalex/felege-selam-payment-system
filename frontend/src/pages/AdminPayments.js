@@ -19,6 +19,10 @@ function AdminPayments() {
   const [filterMonth, setFilterMonth] = useState('all');
   const [filterGrade, setFilterGrade] = useState('all');
   const [filterSource, setFilterSource] = useState('all');
+  // ✅ NEW — filter by fee type (Monthly vs Registration) and waiver
+  // status, same idea as the existing Source filter (online/slip/cash).
+  const [filterFeeType, setFilterFeeType] = useState('all');
+  const [filterWaiver, setFilterWaiver] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
@@ -38,7 +42,7 @@ function AdminPayments() {
 
   useEffect(() => {
     applyFilters();
-  }, [payments, searchTerm, filterStatus, filterMonth, filterGrade, filterSource]);
+  }, [payments, searchTerm, filterStatus, filterMonth, filterGrade, filterSource, filterFeeType, filterWaiver]);
 
   useEffect(() => {
     if (selectAll) {
@@ -122,6 +126,20 @@ function AdminPayments() {
       } else if (filterSource === 'cash') {
         filtered = filtered.filter(payment => payment.payment_method === 'cash');
       }
+    }
+
+    // ✅ NEW: Fee type filter (Monthly vs Registration) — mirrors the
+    // Source filter's shape. Uses deadline_type, now exposed by
+    // PaymentSerializer.
+    if (filterFeeType !== 'all') {
+      filtered = filtered.filter(payment => payment.deadline_type === filterFeeType);
+    }
+
+    // ✅ NEW: Waiver filter — "payments made by a student who currently
+    // has an active fee exception". Uses has_fee_override, now exposed
+    // by PaymentSerializer.
+    if (filterWaiver !== 'all') {
+      filtered = filtered.filter(payment => payment.has_fee_override === true);
     }
 
     setFilteredPayments(filtered);
@@ -292,6 +310,8 @@ function AdminPayments() {
     setFilterMonth('all');
     setFilterGrade('all');
     setFilterSource('all');
+    setFilterFeeType('all');
+    setFilterWaiver('all');
   };
 
 // In AdminPayments.js, replace getMonthName with this:
@@ -493,13 +513,13 @@ const getMonthName = (payment) => {
       <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base md:text-lg font-semibold text-gray-900">Filters</h2>
-          {(searchTerm || filterStatus !== 'all' || filterMonth !== 'all' || filterGrade !== 'all' || filterSource !== 'all') && (
+          {(searchTerm || filterStatus !== 'all' || filterMonth !== 'all' || filterGrade !== 'all' || filterSource !== 'all' || filterFeeType !== 'all' || filterWaiver !== 'all') && (
             <button onClick={clearFilters} className="text-sm text-primary-600 hover:text-primary-700 font-medium tap-target">
               Clear Filters
             </button>
           )}
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3 md:gap-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
@@ -533,6 +553,19 @@ const getMonthName = (payment) => {
             <option value="online">Online Payment</option>
             <option value="slip">Bank Slip</option>
             <option value="cash">Cash</option>
+          </select>
+          {/* ✅ NEW: Fee Type — separates Registration from Monthly, same
+               shape as the Source filter above. */}
+          <select value={filterFeeType} onChange={(e) => setFilterFeeType(e.target.value)} className="input-field py-2 text-sm">
+            <option value="all">All Fee Types</option>
+            <option value="monthly">Monthly Tuition</option>
+            <option value="registration">Registration Fee</option>
+          </select>
+          {/* ✅ NEW: Waiver — payments made by a student who currently
+               has an active fee exception (waiver or partial). */}
+          <select value={filterWaiver} onChange={(e) => setFilterWaiver(e.target.value)} className="input-field py-2 text-sm">
+            <option value="all">All Payments</option>
+            <option value="waiver">Under Fee Exception</option>
           </select>
         </div>
       </div>
