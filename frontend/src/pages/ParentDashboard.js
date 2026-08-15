@@ -1016,41 +1016,106 @@ function ParentAttendanceTab({ attendance, formatDate }) {
 
 function ParentMarksTab({ marks }) {
   const terms = marks?.terms || [];
+  const [selectedTermIdx, setSelectedTermIdx] = useState(0);
+  const [expandedSubject, setExpandedSubject] = useState(null);
 
   if (terms.length === 0) {
     return <p className="text-sm text-gray-500 py-4">No marks have been finalized yet for this academic year.</p>;
   }
 
+  const activeTerm = terms[selectedTermIdx] || terms[0];
+
+  // Group this term's flat marks list by subject, so each subject can be
+  // its own collapsed row instead of every assessment stacking up the
+  // page at once — the more subjects/terms a student has, the more this
+  // matters.
+  const subjectGroups = {};
+  (activeTerm.marks || []).forEach((m) => {
+    if (!subjectGroups[m.subject]) subjectGroups[m.subject] = [];
+    subjectGroups[m.subject].push(m);
+  });
+  const subjectNames = Object.keys(subjectGroups);
+
   return (
-    <div className="space-y-6">
-      {terms.map((t, i) => (
-        <div key={i}>
-          <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1.5">
-            <Star className="h-4 w-4 text-indigo-500" />
-            {t.term}
-          </h3>
-          <div className="border border-gray-100 rounded-xl divide-y divide-gray-100">
-            {(t.marks || []).map((m, j) => {
-              const pct = m.score != null && m.max_score ? (m.score / m.max_score) * 100 : null;
-              return (
-                <div key={j} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                  <div>
-                    <p className="font-medium text-gray-800">{m.subject}</p>
-                    <p className="text-xs text-gray-500">{m.assessment_type}</p>
-                  </div>
-                  <span
-                    className={`font-semibold ${
-                      pct == null ? 'text-gray-400' : pct >= 50 ? 'text-green-700' : 'text-red-700'
-                    }`}
-                  >
-                    {m.score != null ? `${m.score} / ${m.max_score}` : '—'}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+    <div>
+      {terms.length > 1 && (
+        <div className="mb-4">
+          <label className="block text-xs font-medium text-gray-500 mb-1">Term</label>
+          <select
+            value={selectedTermIdx}
+            onChange={(e) => {
+              setSelectedTermIdx(Number(e.target.value));
+              setExpandedSubject(null);
+            }}
+            className="input-field w-auto text-sm py-1.5"
+          >
+            {terms.map((t, i) => (
+              <option key={i} value={i}>{t.term}</option>
+            ))}
+          </select>
         </div>
-      ))}
+      )}
+
+      {subjectNames.length === 0 ? (
+        <p className="text-sm text-gray-500 py-4">No marks finalized yet for {activeTerm.term}.</p>
+      ) : (
+        <div className="border border-gray-100 rounded-xl divide-y divide-gray-100">
+          {subjectNames.map((subject) => {
+            const subjectMarks = subjectGroups[subject];
+            const isOpen = expandedSubject === subject;
+            return (
+              <div key={subject}>
+                <button
+                  type="button"
+                  onClick={() => setExpandedSubject(isOpen ? null : subject)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-sm hover:bg-gray-50 transition-colors"
+                >
+                  <span className="font-medium text-gray-800 flex items-center gap-1.5">
+                    <Star className="h-3.5 w-3.5 text-indigo-500" />
+                    {subject}
+                  </span>
+                  <span className="flex items-center gap-2 text-gray-400">
+                    <span className="text-xs">{subjectMarks.length} assessment{subjectMarks.length !== 1 ? 's' : ''}</span>
+                    <ChevronRight className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                  </span>
+                </button>
+
+                {isOpen && (
+                  <table className="w-full text-sm border-t border-gray-100">
+                    <thead>
+                      <tr className="bg-gray-50 text-gray-500 text-xs">
+                        <th className="text-left font-medium px-4 py-2">Assessment</th>
+                        <th className="text-right font-medium px-4 py-2">Score</th>
+                        <th className="text-right font-medium px-4 py-2">%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {subjectMarks.map((m, j) => {
+                        const pct = m.score != null && m.max_score ? (m.score / m.max_score) * 100 : null;
+                        return (
+                          <tr key={j} className="border-t border-gray-50">
+                            <td className="px-4 py-2 text-gray-700">{m.assessment_type}</td>
+                            <td className="px-4 py-2 text-right text-gray-700">
+                              {m.score != null ? `${m.score} / ${m.max_score}` : '—'}
+                            </td>
+                            <td
+                              className={`px-4 py-2 text-right font-semibold ${
+                                pct == null ? 'text-gray-400' : pct >= 50 ? 'text-green-700' : 'text-red-700'
+                              }`}
+                            >
+                              {pct != null ? `${pct.toFixed(0)}%` : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
