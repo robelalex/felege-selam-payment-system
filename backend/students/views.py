@@ -100,7 +100,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         # aren't limited to registrars. Same-school staff keep read
         # access as before; a parent is now restricted to their own
         # child instead of any student by ID.
-        if self.action in ('payment_history', 'pending_payments', 'pending_slips'):
+        if self.action in ('payment_history', 'pending_payments', 'pending_slips', 'child_record'):
             return [IsAuthenticated(), IsSameSchoolOrOwnParent()]
 
         if self.action in (
@@ -670,6 +670,153 @@ class StudentViewSet(viewsets.ModelViewSet):
 
         except Exception as e:
             print(f"❌ Error in pending_slips: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['get'], url_path='child_record')
+    def child_record(self, request, pk=None):
+        """
+        ✅ NEW — Jimma request #4 (part 1). "My child's record": daily
+        attendance, per-subject attendance, and marks — one connected
+        view, not two separate features, per how the school asked for it.
+
+        Scoped strictly to this one student via self.get_object(), which
+        triggers IsSameSchoolOrOwnParent.has_object_permission — a parent
+        can only ever reach their OWN child's row (matched by
+        parent_email), same guard already protecting payment_history/
+        pending_payments/pending_slips above. Staff at the student's
+        school keep read access too, same as those three.
+
+        Marks: only status='accepted' rows are returned. draft/submitted/
+        rejected are internal homeroom-review states — showing a parent
+        an unreviewed or corrected-away score would be actively
+        misleading, not just premature.
+
+        Groups marks by Term (Semester 1/2 today; this naturally extends
+        to Quarters later since Term already models "a grading period",
+        not "a semester" specifically — no rework needed here when item 7
+        lands). Assessment types created before Term existed have
+        term=None by design (backward compatibility) — grouped under
+        'Ungrouped' rather than silently dropped.
+        """
+        from exams.models import DailyAttendance, SubjectAttendance, Mark
+
+        try:
+            student = self.get_object()
+
+            try:
+                academic_year_obj = AcademicYear.objects.get(
+                    name=student.academic_year,
+                    school=student.school
+                )
+            except AcademicYear.DoesNotExist:
+                return Response({
+                    'student': {
+                        'student_id': student.student_id,
+                        'name': f"{student.first_name} {student.last_name}",
+                        'grade': student.grade,
+                        'section': student.section,
+                    },
+                    'academic_year': None,
+                    'attendance': {'daily': {'summary': {}, 'records': []}, 'subject': []},
+                    'marks': {'terms': []},
+                })
+
+            # ---- Daily (homeroom) attendance ---------------------------
+            daily_qs = DailyAttendance.objects.filter(
+                student=student, academic_year=academic_year_obj
+            ).order_by('-date')
+
+            daily_counts = {'present': 0, 'absent': 0, 'late': 0, 'excused': 0}
+            for row in daily_qs:
+                if row.status in daily_counts:
+                    daily_counts[row.status] += 1
+            daily_total = sum(daily_counts.values())
+
+            daily_records = [{
+                'date': a.date.isoformat(),
+                'status': a.status,
+                'status_display': a.get_status_display(),
+            } for a in daily_qs[:60]]  # most recent 60 school days — a full term's worth without an unbounded payload
+
+            # ---- Subject attendance, grouped per subject ----------------
+            subject_qs = SubjectAttendance.objects.filter(
+                student=student, academic_year=academic_year_obj
+            ).select_related('subject').order_by('subject__name', '-date')
+
+            subject_groups = {}
+            for row in subject_qs:
+                key = row.subject_id
+                if key not in subject_groups:
+                    subject_groups[key] = {
+                        'subject': row.subject.name,
+                        'summary': {'present': 0, 'absent': 0, 'late': 0, 'excused': 0},
+                        'records': [],
+                    }
+                if row.status in subject_groups[key]['summary']:
+                    subject_groups[key]['summary'][row.status] += 1
+                if len(subject_groups[key]['records']) < 30:  # recent 30 periods per subject
+                    subject_groups[key]['records'].append({
+                        'date': row.date.isoformat(),
+                        'status': row.status,
+                        'status_display': row.get_status_display(),
+                    })
+
+            # ---- Marks: accepted only, grouped by term -------------------
+            marks_qs = Mark.objects.filter(
+                student=student, academic_year=academic_year_obj, status='accepted'
+            ).select_related('subject', 'assessment_type', 'assessment_type__term').order_by(
+                'assessment_type__term__order', 'subject__name', 'assessment_type__order'
+            )
+
+            term_groups = {}
+            for m in marks_qs:
+                term = m.assessment_type.term
+                term_key = term.id if term else 'ungrouped'
+                if term_key not in term_groups:
+                    term_groups[term_key] = {
+                        'term': term.name if term else 'Ungrouped',
+                        'order': term.order if term else 9999,
+                        'marks': [],
+                    }
+                term_groups[term_key]['marks'].append({
+                    'subject': m.subject.name,
+                    'assessment_type': m.assessment_type.name,
+                    'score': float(m.score) if m.score is not None else None,
+                    'max_score': float(m.assessment_type.max_score),
+                    'reviewed_at': m.reviewed_at.strftime('%Y-%m-%d') if m.reviewed_at else None,
+                })
+
+            terms_sorted = sorted(term_groups.values(), key=lambda t: t['order'])
+
+            return Response({
+                'student': {
+                    'student_id': student.student_id,
+                    'name': f"{student.first_name} {student.last_name}",
+                    'grade': student.grade,
+                    'section': student.section,
+                },
+                'academic_year': academic_year_obj.name,
+                'attendance': {
+                    'daily': {
+                        'summary': {
+                            **daily_counts,
+                            'total_days': daily_total,
+                            'attendance_rate': round((daily_counts['present'] + daily_counts['late']) / daily_total * 100, 1) if daily_total else None,
+                        },
+                        'records': daily_records,
+                    },
+                    'subject': list(subject_groups.values()),
+                },
+                'marks': {'terms': terms_sorted},
+            })
+
+        except Exception as e:
+            print(f"❌ Error in child_record: {str(e)}")
             import traceback
             traceback.print_exc()
             return Response(

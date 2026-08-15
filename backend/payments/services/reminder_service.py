@@ -465,8 +465,46 @@ class ReminderService:
                     )
                     
                     if unpaid_deadlines.exists():
-                        total_due = sum(float(d.amount) for d in unpaid_deadlines)
-                        amount_str = f"Amount Due: {total_due:,.2f} ETB. "
+                        # ✅ FIX (regression — this was already fixed once before and
+                        # came back after another session's edits to this file): this
+                        # summed deadline.amount directly, bypassing fee overrides —
+                        # meaning a waiver/partial student gets an SMS quoting the
+                        # full, wrong amount due. Every other amount-facing spot in
+                        # this app goes through get_effective_deadline_amount(); this
+                        # manual/on-demand reminder text is the one place that keeps
+                        # drifting back to the raw amount. If you're reading this
+                        # after another rewrite of this file, please check this line
+                        # first. (get_effective_deadline_amount is already imported
+                        # at the top of this file.)
+                        #
+                        # ✅ Line-item breakdown (Jimma follow-up): this used to lump
+                        # monthly + registration into one "Amount Due" figure. For a
+                        # waiver/partial family especially, a bigger-than-expected
+                        # combined number with no explanation looks like their
+                        # reduced fee silently went up — even when the math is
+                        # correct. Now it's broken out by type so the parent can see
+                        # exactly what each part is, same as the school asked for
+                        # with the fee-exception feature in the first place.
+                        monthly_total = sum(
+                            float(get_effective_deadline_amount(student, d))
+                            for d in unpaid_deadlines if d.deadline_type == 'monthly'
+                        )
+                        registration_total = sum(
+                            float(get_effective_deadline_amount(student, d))
+                            for d in unpaid_deadlines if d.deadline_type == 'registration'
+                        )
+                        total_due = monthly_total + registration_total
+
+                        if monthly_total > 0 and registration_total > 0:
+                            amount_str = (
+                                f"Monthly Fee: {monthly_total:,.2f} ETB. "
+                                f"Registration Fee: {registration_total:,.2f} ETB. "
+                                f"Total Due: {total_due:,.2f} ETB. "
+                            )
+                        elif registration_total > 0:
+                            amount_str = f"Registration Fee: {registration_total:,.2f} ETB. "
+                        else:
+                            amount_str = f"Amount Due: {total_due:,.2f} ETB. "
                     
                     message = (
                         f"Payment Reminder - {month_display}\n"

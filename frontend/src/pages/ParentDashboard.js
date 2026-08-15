@@ -7,7 +7,8 @@ import {
   XCircle, AlertCircle, Loader, Eye, Download, 
   ChevronRight, User, Home, Receipt, TrendingUp,
   Shield, Smartphone, Building2, Lock, ArrowLeft,
-  Upload, Banknote, Trash2, AlertTriangle, FileText, Award
+  Upload, Banknote, Trash2, AlertTriangle, FileText, Award,
+  ClipboardCheck, Star
 } from 'lucide-react';
 import api from '../services/api';
 import { getMediaUrl } from '../utils/imageUrl';
@@ -42,6 +43,10 @@ function ParentDashboard() {
   // ✅ NEW: Released report cards
   const [reportCards, setReportCards] = useState([]);
   const [loadingReportCards, setLoadingReportCards] = useState(true);
+  // ✅ NEW: Jimma request #4 (part 1) — attendance + marks, "my child's record"
+  const [childRecord, setChildRecord] = useState(null);
+  const [loadingChildRecord, setLoadingChildRecord] = useState(true);
+  const [recordTab, setRecordTab] = useState('attendance'); // 'attendance' | 'marks'
 
   useEffect(() => {
     // ✅ FIX: this page previously trusted whatever was in localStorage
@@ -61,7 +66,25 @@ function ParentDashboard() {
     checkChapaStatus(); // ✅ Check if Chapa is configured
     fetchBankAccounts(); // ✅ Load school's bank accounts
     fetchReportCards(); // ✅ Load released report cards
+    fetchChildRecord(); // ✅ Load attendance + marks
   }, [studentId]);
+
+  // ✅ NEW: Jimma request #4 (part 1) — same backend endpoint the mobile
+  // app uses (GET /students/{id}/child_record/), scoped server-side to
+  // this parent's own child by IsSameSchoolOrOwnParent — nothing extra
+  // to enforce here on the frontend.
+  const fetchChildRecord = async () => {
+    setLoadingChildRecord(true);
+    try {
+      const response = await api.get(`/students/${studentId}/child_record/`);
+      setChildRecord(response.data);
+    } catch (err) {
+      console.error('Error fetching child record:', err);
+      setChildRecord(null);
+    } finally {
+      setLoadingChildRecord(false);
+    }
+  };
 
   // ✅ NEW: Fetch this student's released report cards
   const fetchReportCards = async () => {
@@ -468,6 +491,50 @@ const handleMakePayment = async (deadlineId, amount) => {
           </div>
         </div>
 
+        {/* ✅ NEW: Jimma request #4 (part 1) — Attendance & Marks, "my
+            child's record". Same data the mobile app's Attendance & Marks
+            screen shows, via the same backend endpoint — this is just the
+            web rendering of it, following this page's existing pattern of
+            inline sections rather than a separate route. */}
+        <div className="bg-white rounded-2xl shadow-lg p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <ClipboardCheck className="h-5 w-5 text-indigo-600" />
+              Attendance & Marks
+            </h2>
+            <div className="flex bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setRecordTab('attendance')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  recordTab === 'attendance' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500'
+                }`}
+              >
+                Attendance
+              </button>
+              <button
+                onClick={() => setRecordTab('marks')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  recordTab === 'marks' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500'
+                }`}
+              >
+                Marks
+              </button>
+            </div>
+          </div>
+
+          {loadingChildRecord ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader className="h-6 w-6 animate-spin text-indigo-600" />
+            </div>
+          ) : !childRecord ? (
+            <p className="text-sm text-gray-500 py-4">Couldn't load attendance/marks right now. Try refreshing the page.</p>
+          ) : recordTab === 'attendance' ? (
+            <ParentAttendanceTab attendance={childRecord.attendance} formatDate={formatDate} />
+          ) : (
+            <ParentMarksTab marks={childRecord.marks} />
+          )}
+        </div>
+
         {/* Report Cards Section */}
         {!loadingReportCards && reportCards.length > 0 && (
           <div className="bg-white rounded-2xl shadow-lg p-6">
@@ -858,6 +925,133 @@ const handleMakePayment = async (deadlineId, amount) => {
         />
       )}
     </ParentLayout>
+  );
+}
+
+// ✅ NEW: Jimma request #4 (part 1) — small presentational sub-components
+// for the Attendance & Marks card above. Kept outside ParentDashboard
+// (rather than inline in its render) since they're pure display of data
+// ParentDashboard already fetched — no state/effects of their own needed.
+
+function ParentAttendanceTab({ attendance, formatDate }) {
+  const daily = attendance?.daily || { summary: {}, records: [] };
+  const summary = daily.summary || {};
+  const records = daily.records || [];
+  const subjectGroups = attendance?.subject || [];
+
+  if (records.length === 0 && subjectGroups.length === 0) {
+    return <p className="text-sm text-gray-500 py-4">No attendance recorded yet for this academic year.</p>;
+  }
+
+  const statusColor = (s) => ({
+    present: 'text-green-700 bg-green-50',
+    absent: 'text-red-700 bg-red-50',
+    late: 'text-amber-700 bg-amber-50',
+    excused: 'text-slate-700 bg-slate-100',
+  }[s] || 'text-gray-600 bg-gray-50');
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="col-span-2 sm:col-span-1 bg-indigo-50 rounded-xl p-3 text-center">
+          <p className="text-2xl font-bold text-indigo-700">
+            {summary.attendance_rate != null ? `${summary.attendance_rate}%` : '—'}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">Attendance Rate</p>
+        </div>
+        {['present', 'absent', 'late', 'excused'].map((s) => (
+          <div key={s} className={`rounded-xl p-3 text-center ${statusColor(s)}`}>
+            <p className="text-2xl font-bold">{summary[s] ?? 0}</p>
+            <p className="text-xs mt-1 capitalize">{s}</p>
+          </div>
+        ))}
+      </div>
+
+      {records.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">Recent Daily Attendance</h3>
+          <div className="max-h-64 overflow-y-auto border border-gray-100 rounded-xl divide-y divide-gray-100">
+            {records.slice(0, 20).map((r, i) => (
+              <div key={i} className="flex items-center justify-between px-4 py-2 text-sm">
+                <span className="text-gray-600">{formatDate(r.date)}</span>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(r.status)}`}>
+                  {r.status_display}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {subjectGroups.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">By Subject</h3>
+          <div className="space-y-2">
+            {subjectGroups.map((g, i) => (
+              <details key={i} className="border border-gray-100 rounded-xl px-4 py-2">
+                <summary className="cursor-pointer flex items-center justify-between text-sm font-medium text-gray-700">
+                  <span>{g.subject}</span>
+                  <span className="text-xs text-gray-500 font-normal">
+                    Present {g.summary?.present ?? 0} · Absent {g.summary?.absent ?? 0} · Late {g.summary?.late ?? 0}
+                  </span>
+                </summary>
+                <div className="mt-2 space-y-1">
+                  {(g.records || []).slice(0, 10).map((r, j) => (
+                    <div key={j} className="flex items-center justify-between text-xs px-1 py-1">
+                      <span className="text-gray-500">{formatDate(r.date)}</span>
+                      <span className={`px-2 py-0.5 rounded-full font-medium ${statusColor(r.status)}`}>
+                        {r.status_display}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ParentMarksTab({ marks }) {
+  const terms = marks?.terms || [];
+
+  if (terms.length === 0) {
+    return <p className="text-sm text-gray-500 py-4">No marks have been finalized yet for this academic year.</p>;
+  }
+
+  return (
+    <div className="space-y-6">
+      {terms.map((t, i) => (
+        <div key={i}>
+          <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1.5">
+            <Star className="h-4 w-4 text-indigo-500" />
+            {t.term}
+          </h3>
+          <div className="border border-gray-100 rounded-xl divide-y divide-gray-100">
+            {(t.marks || []).map((m, j) => {
+              const pct = m.score != null && m.max_score ? (m.score / m.max_score) * 100 : null;
+              return (
+                <div key={j} className="flex items-center justify-between px-4 py-2.5 text-sm">
+                  <div>
+                    <p className="font-medium text-gray-800">{m.subject}</p>
+                    <p className="text-xs text-gray-500">{m.assessment_type}</p>
+                  </div>
+                  <span
+                    className={`font-semibold ${
+                      pct == null ? 'text-gray-400' : pct >= 50 ? 'text-green-700' : 'text-red-700'
+                    }`}
+                  >
+                    {m.score != null ? `${m.score} / ${m.max_score}` : '—'}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
