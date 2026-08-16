@@ -40,6 +40,17 @@ const SchoolSettings = () => {
     const [gradingSystem, setGradingSystem] = useState('percentage');
     const [savingGrading, setSavingGrading] = useState(false);
 
+    // ✅ Jimma item 6: School location state
+    const [location, setLocation] = useState({
+        region: '',
+        city: '',
+        address: '',
+        latitude: '',
+        longitude: '',
+        location_public: false,
+    });
+    const [savingLocation, setSavingLocation] = useState(false);
+
     useEffect(() => {
         fetchAllConfigs();
         fetchSchoolProfile();
@@ -54,6 +65,15 @@ const SchoolSettings = () => {
                 setSchoolId(school.id);
                 setLogoPreview(school.logo ? getMediaUrl(school.logo) : null);
                 setGradingSystem(school.grading_system || 'percentage');
+                // ✅ Jimma item 6: School location
+                setLocation({
+                    region: school.region || '',
+                    city: school.city || '',
+                    address: school.address || '',
+                    latitude: school.latitude ?? '',
+                    longitude: school.longitude ?? '',
+                    location_public: !!school.location_public,
+                });
             }
         } catch (error) {
             console.error('Error fetching school profile:', error);
@@ -118,6 +138,40 @@ const SchoolSettings = () => {
             alert('❌ Failed to save grading system');
         } finally {
             setSavingGrading(false);
+        }
+    };
+
+    // ✅ Jimma item 6: Location field handlers
+    const handleLocationChange = (e) => {
+        const { name, value, type, checked } = e.target;
+        setLocation(prev => ({
+            ...prev,
+            [name]: type === 'checkbox' ? checked : value,
+        }));
+    };
+
+    const handleLocationSave = async () => {
+        if (!schoolId) return;
+        setSavingLocation(true);
+        try {
+            // Empty string -> null for the nullable coordinate fields,
+            // so clearing a field actually clears it instead of sending "".
+            const payload = {
+                region: location.region,
+                city: location.city,
+                address: location.address,
+                latitude: location.latitude === '' ? null : location.latitude,
+                longitude: location.longitude === '' ? null : location.longitude,
+                location_public: location.location_public,
+            };
+            await api.patch(`/schools/${schoolId}/`, payload);
+            alert('✅ School location saved!');
+            await fetchSchoolProfile();
+        } catch (error) {
+            console.error('Error saving school location:', error);
+            alert('❌ Failed to save school location');
+        } finally {
+            setSavingLocation(false);
         }
     };
 
@@ -241,6 +295,111 @@ const SchoolSettings = () => {
     return (
         <div className="max-w-4xl mx-auto p-6 space-y-8">
             <h1 className="text-2xl font-bold mb-6">School Settings</h1>
+
+            {/* ==================== LOCATION SECTION — NEW (Jimma item 6) ==================== */}
+            <div className="bg-white shadow rounded-lg overflow-hidden">
+                <div className="bg-amber-50 border-l-4 border-amber-400 p-4">
+                    <p className="text-amber-800">
+                        📍 Region, city, and coordinates for your school. This is internal-only —
+                        visible to your own staff and the super admin, never shown publicly.
+                    </p>
+                </div>
+                <div className="p-6 space-y-4">
+                    <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Region</label>
+                            <input
+                                type="text"
+                                name="region"
+                                value={location.region}
+                                onChange={handleLocationChange}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-amber-500 focus:border-amber-500"
+                                placeholder="e.g. Oromia"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">City</label>
+                            <input
+                                type="text"
+                                name="city"
+                                value={location.city}
+                                onChange={handleLocationChange}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-amber-500 focus:border-amber-500"
+                                placeholder="e.g. Jimma"
+                            />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Address</label>
+                        <textarea
+                            name="address"
+                            value={location.address}
+                            onChange={handleLocationChange}
+                            rows={2}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-amber-500 focus:border-amber-500"
+                            placeholder="Street address / landmark"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">Also shown on report cards.</p>
+                    </div>
+
+                    <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Latitude</label>
+                            <input
+                                type="number"
+                                step="any"
+                                name="latitude"
+                                value={location.latitude}
+                                onChange={handleLocationChange}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-amber-500 focus:border-amber-500"
+                                placeholder="Optional, e.g. 7.6773"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Longitude</label>
+                            <input
+                                type="number"
+                                step="any"
+                                name="longitude"
+                                value={location.longitude}
+                                onChange={handleLocationChange}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-amber-500 focus:border-amber-500"
+                                placeholder="Optional, e.g. 36.8344"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex items-start gap-2 pt-2">
+                        <input
+                            type="checkbox"
+                            id="location_public"
+                            name="location_public"
+                            checked={location.location_public}
+                            onChange={handleLocationChange}
+                            className="mt-1"
+                        />
+                        <label htmlFor="location_public" className="text-sm text-gray-700">
+                            Allow this location to be shown publicly
+                            <span className="block text-xs text-gray-500">
+                                Off by default and has no effect yet — there is no public school page today.
+                                This is reserved for a possible future feature; leave it off unless you've
+                                specifically been asked to turn it on.
+                            </span>
+                        </label>
+                    </div>
+
+                    <div className="pt-2">
+                        <button
+                            onClick={handleLocationSave}
+                            disabled={savingLocation}
+                            className="px-6 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50"
+                        >
+                            {savingLocation ? 'Saving...' : 'Save Location'}
+                        </button>
+                    </div>
+                </div>
+            </div>
 
             {/* ==================== BRANDING (LOGO) SECTION — NEW ==================== */}
             <div className="bg-white shadow rounded-lg overflow-hidden">

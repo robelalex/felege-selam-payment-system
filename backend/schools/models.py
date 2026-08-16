@@ -8,6 +8,54 @@ class School(models.Model):
     phone = models.CharField(max_length=20)
     email = models.EmailField(blank=True)
 
+    # ✅ Jimma item 6 — School location. `address` above stays exactly as
+    # it was (free-text, already used on report cards / old admin_dashboard
+    # templates) — these are additive fields, not a replacement.
+    # region/city are separate free-text fields rather than folded into
+    # `address` so they can be filtered/searched on later (e.g. a future
+    # "schools in Jimma zone" list) without parsing free text.
+    region = models.CharField(
+        max_length=100, blank=True,
+        help_text="e.g. Oromia, Addis Ababa",
+    )
+    city = models.CharField(
+        max_length=100, blank=True,
+        help_text="e.g. Jimma",
+    )
+    # Nullable: not every school will have GPS coordinates immediately.
+    # 6 decimal places is ~11cm precision at the equator — far more than
+    # needed here, but it's the conventional default for lat/long and
+    # costs nothing.
+    latitude = models.DecimalField(
+        max_digits=9, decimal_places=6, null=True, blank=True,
+        validators=[MinValueValidator(-90), MaxValueValidator(90)],
+        help_text="GPS latitude, optional",
+    )
+    longitude = models.DecimalField(
+        max_digits=9, decimal_places=6, null=True, blank=True,
+        validators=[MinValueValidator(-180), MaxValueValidator(180)],
+        help_text="GPS longitude, optional",
+    )
+    # Future-proofing only — nothing reads this field yet. There is
+    # currently no endpoint that exposes School data to anyone other than
+    # a super admin or that school's own authenticated staff (SchoolViewSet
+    # requires IsAuthenticated and scopes non-super-admins to their own
+    # school in get_queryset()), so location data is already internal-only
+    # by construction. This flag exists so that IF a public-facing school
+    # page/directory is ever built, it has an explicit switch to check —
+    # defaulting to False means such a feature is hidden-by-default rather
+    # than accidentally public. Do not flip the default without confirming
+    # with the developer first (Jimma's explicit instruction).
+    location_public = models.BooleanField(
+        default=False,
+        help_text=(
+            "Whether region/city/coordinates may be shown outside this "
+            "school's own admin/staff and super admins. Not currently used "
+            "by any endpoint — reserved for a future public-facing feature. "
+            "Leave False unless specifically told to enable a public page."
+        ),
+    )
+
     # ✅ Grading system — the School Settings page already had a working
     # UI (percentage / letter_grade / both) that PATCHed these fields.
     # A previous session had already migrated them into the database

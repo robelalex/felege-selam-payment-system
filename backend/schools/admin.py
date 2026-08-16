@@ -5,9 +5,12 @@ from .models import School, SchoolAdminProfile, SchoolBankAccount
 
 @admin.register(School)
 class SchoolAdmin(admin.ModelAdmin):
-    list_display = ['name', 'code', 'phone', 'email', 'subscription_status', 'subscription_active']
-    search_fields = ['name', 'code', 'phone']
-    list_filter = ['subscription_status', 'subscription_active']
+    # ✅ Jimma item 6: region/city surfaced here since there's no frontend
+    # public-facing consumer of location_public yet — this is the only
+    # place a super admin can flip it today.
+    list_display = ['name', 'code', 'phone', 'email', 'region', 'city', 'subscription_status', 'subscription_active']
+    search_fields = ['name', 'code', 'phone', 'region', 'city']
+    list_filter = ['subscription_status', 'subscription_active', 'location_public']
     actions = ['approve_schools', 'reject_schools', 'suspend_schools']
 
     @admin.action(description='✅ Approve selected schools (activates their admin login)')
