@@ -1,7 +1,10 @@
 # staff/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import StaffMemberViewSet, TeacherClassAssignmentViewSet, my_assignments
+from .views import (
+    StaffMemberViewSet, TeacherClassAssignmentViewSet, my_assignments,
+    StaffDocumentViewSet,
+)
 
 router = DefaultRouter()
 # ✅ NOTE: intentionally "staff-members", NOT "staff" — the authentication
@@ -11,6 +14,10 @@ router = DefaultRouter()
 # gets included first in core/urls.py.
 router.register(r'staff-members', StaffMemberViewSet, basename='staff-member')
 router.register(r'class-assignments', TeacherClassAssignmentViewSet, basename='class-assignment')
+# ✅ Jimma item 5 — HR documents. 'staff-documents', not 'documents', to
+# stay unambiguous next to other unrelated "document" concepts elsewhere
+# in the codebase (e.g. bank slip uploads).
+router.register(r'staff-documents', StaffDocumentViewSet, basename='staff-document')
 
 urlpatterns = [
     path('', include(router.urls)),

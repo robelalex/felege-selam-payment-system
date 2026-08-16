@@ -15,10 +15,12 @@ import {
   ShieldOff,
   Copy,
   Check,
+  FolderOpen,
 } from 'lucide-react';
 import api from '../services/api';
 import { getMediaUrl } from '../utils/imageUrl';
 import StaffRegistrationForm from '../components/Admin/StaffRegistrationForm';
+import StaffDetailModal from '../components/Admin/StaffDetailModal';
 
 const ROLE_LABELS = {
   teacher: 'Teacher',
@@ -143,6 +145,7 @@ function AdminStaff() {
   const [showForm, setShowForm] = useState(false);
   const [editStaffMember, setEditStaffMember] = useState(null);
   const [loginModalMember, setLoginModalMember] = useState(null);
+  const [detailMember, setDetailMember] = useState(null);
 
   useEffect(() => {
     fetchStaff();
@@ -286,7 +289,7 @@ function AdminStaff() {
                       <div className="flex items-center gap-3">
                         <StaffAvatar member={member} size="w-9 h-9" />
                         <div>
-                          <p className="font-medium text-gray-900">{member.full_name}</p>
+                          <p className="font-medium text-gray-900">{member.display_name || member.full_name}</p>
                           {member.email && (
                             <p className="text-xs text-gray-500 flex items-center gap-1">
                               <Mail className="h-3 w-3" /> {member.email}
@@ -337,6 +340,13 @@ function AdminStaff() {
                     <td className="table-cell">
                       <div className="flex gap-1">
                         <button
+                          onClick={() => setDetailMember(member)}
+                          title="Documents & career history"
+                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                        >
+                          <FolderOpen className="h-4 w-4 text-gray-600" />
+                        </button>
+                        <button
                           onClick={() => { setEditStaffMember(member); setShowForm(true); }}
                           className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                         >
@@ -371,6 +381,12 @@ function AdminStaff() {
             member={loginModalMember}
             onClose={() => setLoginModalMember(null)}
             onCreated={fetchStaff}
+          />
+        )}
+        {detailMember && (
+          <StaffDetailModal
+            member={detailMember}
+            onClose={() => setDetailMember(null)}
           />
         )}
       </AnimatePresence>

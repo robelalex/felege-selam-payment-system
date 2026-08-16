@@ -1,16 +1,21 @@
 # staff/views.py
 import secrets
+from datetime import date
 
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import User
+from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework import serializers as drf_serializers
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import StaffMember, TeacherClassAssignment
-from .serializers import StaffMemberSerializer, TeacherClassAssignmentSerializer
+from .models import StaffMember, TeacherClassAssignment, StaffDocument, StaffCareerEvent
+from .serializers import (
+    StaffMemberSerializer, TeacherClassAssignmentSerializer,
+    StaffDocumentSerializer, StaffCareerEventSerializer,
+)
 from schools.models import School
 from common.utils import get_verified_school_id, is_super_admin, log_action
 from authentication.models import UserProfile
@@ -88,7 +93,7 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
         # read the list (e.g. a teacher looking up a colleague).
         if self.action in (
             'create', 'update', 'partial_update', 'destroy',
-            'create_login', 'revoke_login',
+            'create_login', 'revoke_login', 'add_career_note',
         ):
             return [IsAuthenticated(), CanManageStaff()]
         return [IsAuthenticated()]
@@ -267,6 +272,156 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
         )
 
         return Response({'success': True})
+
+    @action(detail=True, methods=['post'], url_path='career-notes')
+    def add_career_note(self, request, pk=None):
+        # Permission for this action is resolved via get_permissions()
+        # above (added to the CanManageStaff-gated action tuple) — not a
+        # decorator-level permission_classes kwarg, which would be
+        # silently ignored since this ViewSet overrides get_permissions().
+        """
+        ✅ Jimma item 5 — HR: manual career-history entries (e.g.
+        "Promoted to Head Teacher, effective next term — performance
+        review"), alongside the automatic role/title/status/salary
+        entries logged by staff/signals.py. Same permission as
+        create/update — only a school_admin (or super_admin) can add
+        one, same as everything else that touches a staff record.
+        """
+        staff = self.get_object()
+        note = (request.data.get('note') or '').strip()
+        if not note:
+            return Response({'error': 'A note is required.'}, status=400)
+
+        effective_date = request.data.get('effective_date') or date.today().isoformat()
+
+        event = StaffCareerEvent.objects.create(
+            staff=staff,
+            event_type='note',
+            note=note,
+            is_manual=True,
+            recorded_by=request.user,
+            effective_date=effective_date,
+        )
+        log_action(
+            request.user, 'STAFF_CAREER_NOTE',
+            f"Added career note for {staff.full_name}",
+            request,
+        )
+        return Response(StaffCareerEventSerializer(event).data, status=201)
+
+
+class StaffDocumentViewSet(viewsets.ModelViewSet):
+    """
+    ✅ Jimma item 5 — HR: official documents on file (National ID,
+    credentials, contracts — admin-defined type per upload). Tenant
+    scoping goes through staff__school, same verified-school-id pattern
+    as StaffMemberViewSet, so one school can never see or touch another
+    school's staff documents.
+
+    verified/verified_by/verified_at are read-only on the serializer and
+    only ever change through the dedicated verify/unverify actions below
+    — never a plain PATCH — so uploading a document can't also silently
+    mark it verified.
+    """
+    serializer_class = StaffDocumentSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = StaffDocument.objects.all()
+
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy', 'verify', 'unverify'):
+            return [IsAuthenticated(), CanManageStaff()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        queryset = StaffDocument.objects.all().select_related('staff', 'uploaded_by', 'verified_by')
+        user = self.request.user
+        school_id = get_verified_school_id(self.request)
+
+        if not is_super_admin(user):
+            if not school_id:
+                return StaffDocument.objects.none()
+            queryset = queryset.filter(staff__school_id=school_id)
+        elif school_id:
+            queryset = queryset.filter(staff__school_id=school_id)
+
+        staff_id = self.request.query_params.get('staff_id')
+        if staff_id:
+            queryset = queryset.filter(staff_id=staff_id)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        staff_id = self.request.data.get('staff')
+        if not staff_id:
+            raise drf_serializers.ValidationError({"error": "staff is required."})
+        try:
+            staff = StaffMember.objects.get(pk=staff_id)
+        except StaffMember.DoesNotExist:
+            raise drf_serializers.ValidationError({"error": "Staff member not found."})
+
+        # Same cross-tenant guard as StaffMemberViewSet.perform_create.
+        if not is_super_admin(self.request.user):
+            school_id = get_verified_school_id(self.request)
+            if str(staff.school_id) != str(school_id):
+                raise drf_serializers.ValidationError({
+                    "error": "That staff member does not belong to your school."
+                })
+
+        uploaded_file = self.request.FILES.get('file')
+        original_filename = uploaded_file.name if uploaded_file else ''
+
+        doc = serializer.save(
+            staff=staff,
+            uploaded_by=self.request.user,
+            original_filename=original_filename,
+        )
+        log_action(
+            self.request.user, 'STAFF_DOCUMENT_UPLOAD',
+            f"Uploaded {doc.document_type} for {staff.full_name}",
+            self.request,
+        )
+
+    def perform_destroy(self, instance):
+        if not is_super_admin(self.request.user):
+            school_id = get_verified_school_id(self.request)
+            if str(instance.staff.school_id) != str(school_id):
+                raise drf_serializers.ValidationError({
+                    "error": "You cannot delete a document from another school's staff member."
+                })
+        log_action(
+            self.request.user, 'STAFF_DOCUMENT_DELETE',
+            f"Deleted {instance.document_type} for {instance.staff.full_name}",
+            self.request,
+        )
+        instance.delete()
+
+    @action(detail=True, methods=['post'], url_path='verify')
+    def verify(self, request, pk=None):
+        doc = self.get_object()
+        doc.verified = True
+        doc.verified_by = request.user
+        doc.verified_at = timezone.now()
+        doc.save(update_fields=['verified', 'verified_by', 'verified_at'])
+        log_action(
+            request.user, 'STAFF_DOCUMENT_VERIFY',
+            f"Verified {doc.document_type} for {doc.staff.full_name}",
+            request,
+        )
+        return Response(StaffDocumentSerializer(doc).data)
+
+    @action(detail=True, methods=['post'], url_path='unverify')
+    def unverify(self, request, pk=None):
+        doc = self.get_object()
+        doc.verified = False
+        doc.verified_by = None
+        doc.verified_at = None
+        doc.save(update_fields=['verified', 'verified_by', 'verified_at'])
+        log_action(
+            request.user, 'STAFF_DOCUMENT_UNVERIFY',
+            f"Unverified {doc.document_type} for {doc.staff.full_name}",
+            request,
+        )
+        return Response(StaffDocumentSerializer(doc).data)
 
 
 class TeacherClassAssignmentViewSet(viewsets.ModelViewSet):

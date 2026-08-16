@@ -32,6 +32,17 @@ class StaffMember(models.Model):
         ('on_leave', 'On Leave'),
         ('terminated', 'Terminated'),
     ]
+    # ✅ Jimma item 5 — HR. Generic salutation set (not Ethiopian-specific
+    # titles like Ato/W/ro — the school asked for the plain Mr/Mrs/Ms/Dr
+    # set). Blank is allowed: this is being added to existing records via
+    # migration, so nobody's data becomes invalid just because they
+    # haven't set a title yet.
+    SALUTATION_CHOICES = [
+        ('mr', 'Mr.'),
+        ('mrs', 'Mrs.'),
+        ('ms', 'Ms.'),
+        ('dr', 'Dr.'),
+    ]
 
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='staff_members')
 
@@ -59,6 +70,10 @@ class StaffMember(models.Model):
         help_text="Staff/teacher profile photo (JPG, PNG)"
     )
 
+    salutation = models.CharField(
+        max_length=10, choices=SALUTATION_CHOICES, blank=True,
+        help_text="Title shown before the name (Mr./Mrs./Ms./Dr.) — optional"
+    )
     role = models.CharField(max_length=30, choices=ROLE_CHOICES, default='teacher')
     phone = models.CharField(max_length=20)
     email = models.EmailField(blank=True)
@@ -89,6 +104,17 @@ class StaffMember(models.Model):
     @property
     def full_name(self):
         return f"{self.first_name} {self.last_name}"
+
+    @property
+    def display_name(self):
+        """Full name with salutation prefixed, e.g. 'Dr. Abebe Kebede'.
+        Kept separate from full_name (used all over the codebase in log
+        messages, __str__, staff_id generation context, etc.) so adding
+        salutation doesn't change the meaning of existing full_name call
+        sites — this is purely for UI display."""
+        if self.salutation:
+            return f"{self.get_salutation_display()} {self.full_name}"
+        return self.full_name
 
     def _generate_staff_id(self):
         """Auto-generate staff ID: SCHOOLCODE-STF-YEAR-SEQUENCE, scoped per school."""
@@ -151,3 +177,98 @@ class TeacherClassAssignment(models.Model):
     def __str__(self):
         section_label = f" Sec {self.section}" if self.section else ""
         return f"{self.staff.full_name} - Grade {self.grade}{section_label} - {self.subject.name}"
+
+
+class StaffDocument(models.Model):
+    """
+    ✅ Jimma item 5 — HR. Official documents on file for a staff member:
+    National ID scan, teaching credential, employment contract, etc.
+
+    document_type is deliberately a free-text CharField, not a fixed
+    choices list — the school wants to define their own document types
+    per upload (e.g. "Teaching License", "Degree Certificate", "Signed
+    Contract 2026") rather than being boxed into 3 hardcoded categories.
+
+    verified is a simple boolean + who/when, not a full workflow state
+    machine — matches how fee overrides handle "is the document on
+    file" elsewhere in this codebase (see StudentFeeOverride).
+    """
+    staff = models.ForeignKey(StaffMember, on_delete=models.CASCADE, related_name='documents')
+    document_type = models.CharField(
+        max_length=100,
+        help_text="Admin-defined label, e.g. 'National ID', 'Teaching Credential', 'Employment Contract 2026'"
+    )
+    file = models.FileField(upload_to='staff_documents/%Y/%m/')
+    original_filename = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True, help_text="Optional context, e.g. expiry date, issuing authority")
+
+    uploaded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+'
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    verified = models.BooleanField(default=False)
+    verified_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+'
+    )
+    verified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+        indexes = [
+            models.Index(fields=['staff']),
+        ]
+
+    def __str__(self):
+        status = "verified" if self.verified else "unverified"
+        return f"{self.staff.full_name} - {self.document_type} ({status})"
+
+
+class StaffCareerEvent(models.Model):
+    """
+    ✅ Jimma item 5 — HR. Career history: role/title/status changes over
+    time, either logged automatically (see staff/signals.py, which
+    compares old vs new StaffMember on every save) or added manually by
+    an admin as a free-text note (e.g. "Promoted to Head Teacher —
+    performance review").
+
+    field_changed/old_value/new_value are only populated for automatic
+    entries (event_type != 'note'); a manual note only fills in `note`.
+    Both share one timeline so the UI can show a single chronological
+    history per staff member instead of two separate lists.
+    """
+    EVENT_TYPE_CHOICES = [
+        ('role_change', 'Role Changed'),
+        ('title_change', 'Title Changed'),
+        ('status_change', 'Status Changed'),
+        ('salary_change', 'Salary Changed'),
+        ('note', 'Note'),
+    ]
+
+    staff = models.ForeignKey(StaffMember, on_delete=models.CASCADE, related_name='career_events')
+    event_type = models.CharField(max_length=20, choices=EVENT_TYPE_CHOICES)
+
+    # Populated only for automatic (non-'note') events.
+    field_changed = models.CharField(max_length=30, blank=True)
+    old_value = models.CharField(max_length=255, blank=True)
+    new_value = models.CharField(max_length=255, blank=True)
+
+    note = models.TextField(blank=True)
+
+    is_manual = models.BooleanField(default=False)
+    recorded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+'
+    )
+    effective_date = models.DateField(help_text="When this change took effect")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-effective_date', '-created_at']
+        indexes = [
+            models.Index(fields=['staff']),
+        ]
+
+    def __str__(self):
+        if self.event_type == 'note':
+            return f"{self.staff.full_name} - note ({self.effective_date})"
+        return f"{self.staff.full_name} - {self.field_changed}: {self.old_value} → {self.new_value}"

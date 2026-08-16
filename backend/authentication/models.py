@@ -16,6 +16,22 @@ class UserProfile(models.Model):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='staff')
     phone = models.CharField(max_length=20, blank=True)
 
+    # ✅ Jimma item 5 — HR: "salutation applies to school admins too".
+    # A self-registered school_admin has NO StaffMember record at all
+    # (see authentication/serializers.py RegisterSerializer — only a
+    # User + UserProfile get created), so StaffMember.salutation alone
+    # can't cover them. This mirrors the same salutation choice set
+    # here. Whichever record an account has (StaffMember if linked,
+    # else this) is treated as the source of truth for display — see
+    # get_current_user's 'salutation' field and update_profile below.
+    SALUTATION_CHOICES = [
+        ('mr', 'Mr.'),
+        ('mrs', 'Mrs.'),
+        ('ms', 'Ms.'),
+        ('dr', 'Dr.'),
+    ]
+    salutation = models.CharField(max_length=10, choices=SALUTATION_CHOICES, blank=True)
+
     # Personal profile photo for the logged-in account itself. Added
     # because StaffMember.photo only exists for staff created through the
     # Staff module — a school_admin created via self-registration has no

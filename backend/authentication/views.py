@@ -790,6 +790,15 @@ def get_current_user(request):
                 'is_school_admin': is_school_admin,
                 'staff_id': getattr(getattr(user, 'staff_profile', None), 'id', None),
                 'photo': (user.profile.photo.url if getattr(user, 'profile', None) and user.profile.photo else None),
+                # ✅ Jimma item 5: prefer the linked StaffMember's
+                # salutation (kept in sync by update_profile below), fall
+                # back to UserProfile.salutation for accounts with no
+                # StaffMember record (e.g. self-registered school_admin).
+                'salutation': (
+                    getattr(user, 'staff_profile', None).salutation
+                    if getattr(user, 'staff_profile', None) and user.staff_profile.salutation
+                    else (user.profile.salutation if getattr(user, 'profile', None) else '')
+                ),
                 'school': school_info
             }
         })
@@ -830,6 +839,11 @@ def update_profile(request):
         last_name = request.data.get('last_name')
         phone = request.data.get('phone')
         photo = request.FILES.get('photo')
+        # ✅ Jimma item 5: salutation, same "only touch it if provided"
+        # pattern as the other fields here. Empty string is a valid,
+        # intentional value (clearing the title), so we check for the
+        # key's presence rather than truthiness.
+        salutation = request.data.get('salutation')
 
         if first_name is not None and first_name != '':
             user.first_name = first_name
@@ -839,6 +853,8 @@ def update_profile(request):
             profile.phone = phone
         if photo:
             profile.photo = photo
+        if salutation is not None:
+            profile.salutation = salutation
 
         user.save(update_fields=['first_name', 'last_name'])
         profile.save()
@@ -854,6 +870,8 @@ def update_profile(request):
                 staff.phone = phone
             if photo:
                 staff.photo = photo
+            if salutation is not None:
+                staff.salutation = salutation
             staff.save()
 
         return Response({

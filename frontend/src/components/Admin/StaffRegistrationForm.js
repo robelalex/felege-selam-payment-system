@@ -5,6 +5,15 @@ import { X, User, Save } from 'lucide-react';
 import api from '../../services/api';
 import { getMediaUrl } from '../../utils/imageUrl';
 
+// ✅ Jimma item 5 — HR: matches StaffMember.SALUTATION_CHOICES on the backend.
+const SALUTATION_OPTIONS = [
+  { value: '', label: '—' },
+  { value: 'mr', label: 'Mr.' },
+  { value: 'mrs', label: 'Mrs.' },
+  { value: 'ms', label: 'Ms.' },
+  { value: 'dr', label: 'Dr.' },
+];
+
 const ROLE_OPTIONS = [
   { value: 'teacher', label: 'Teacher' },
   { value: 'school_admin', label: 'School Admin' },
@@ -18,6 +27,7 @@ const ROLE_OPTIONS = [
 
 const StaffRegistrationForm = ({ editStaff, onClose, onSaved }) => {
   const [formData, setFormData] = useState({
+    salutation: editStaff?.salutation || '',
     first_name: editStaff?.first_name || '',
     last_name: editStaff?.last_name || '',
     role: editStaff?.role || 'teacher',
@@ -148,6 +158,15 @@ const StaffRegistrationForm = ({ editStaff, onClose, onSaved }) => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Salutation</label>
+                <select
+                  name="salutation" value={formData.salutation} onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                >
+                  {SALUTATION_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
                 <input
