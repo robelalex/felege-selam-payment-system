@@ -111,6 +111,11 @@ export const homeroomDecide = ({ accept, subjectId, assessmentTypeId, grade, sec
   return teacherApi.post(`/marks/${accept ? 'homeroom_accept' : 'homeroom_reject'}/`, body);
 };
 
+// ✅ NEW: "everything submitted and waiting on this homeroom teacher,
+// across all subjects" — backs the Pending Reviews rollup screen.
+export const getHomeroomPending = ({ grade, section }) =>
+  teacherApi.get('/marks/homeroom_pending/', { params: { grade, section } });
+
 // ─── Homeroom: daily attendance ─────────────────────────────────────────
 export const getAttendanceRoster = ({ grade, section, date }) =>
   teacherApi.get('/attendance/roster/', { params: { grade, section, date } });

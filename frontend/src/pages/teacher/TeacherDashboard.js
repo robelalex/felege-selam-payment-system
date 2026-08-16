@@ -1,15 +1,14 @@
 // src/pages/teacher/TeacherDashboard.js
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Home, BookOpen, ClipboardCheck, ListChecks, Trophy, LogOut, ChevronRight, Loader, X } from 'lucide-react';
-import { getMyAssignments, getClassAssignments, clearTeacherSession, extractError } from '../../services/teacherApi';
+import { Home, BookOpen, ClipboardCheck, ListChecks, Trophy, LogOut, ChevronRight, Loader } from 'lucide-react';
+import { getMyAssignments, clearTeacherSession, extractError } from '../../services/teacherApi';
 
 function TeacherDashboard() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
-  const [subjectPicker, setSubjectPicker] = useState(null); // { subjects, grade, section }
 
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -29,29 +28,6 @@ function TeacherDashboard() {
   const handleLogout = () => {
     clearTeacherSession();
     navigate('/teacher-login');
-  };
-
-  const pickSubjectForReview = async (grade, section) => {
-    try {
-      const response = await getClassAssignments(grade);
-      const all = response.data || [];
-      const relevant = all.filter((a) => !a.section || a.section === section);
-      const seen = new Set();
-      const subjects = [];
-      for (const a of relevant) {
-        if (!seen.has(a.subject)) {
-          seen.add(a.subject);
-          subjects.push({ id: a.subject, name: a.subject_name || 'Subject' });
-        }
-      }
-      if (subjects.length === 0) {
-        alert('No subjects are assigned to this class yet.');
-        return;
-      }
-      setSubjectPicker({ subjects, grade, section });
-    } catch (err) {
-      alert(extractError(err, 'Failed to load subjects'));
-    }
   };
 
   const openGradebook = (subjectId, subjectName, grade, section, isHomeroomView) => {
@@ -122,7 +98,7 @@ function TeacherDashboard() {
                   <ClipboardCheck className="h-4 w-4" /> Take Attendance
                 </button>
                 <button
-                  onClick={() => pickSubjectForReview(homeroom.grade, homeroom.section)}
+                  onClick={() => navigate(`/teacher/pending-reviews?grade=${homeroom.grade}&section=${encodeURIComponent(homeroom.section)}&academicYearId=${data?.current_academic_year_id || ''}`)}
                   className="flex-1 btn-secondary flex items-center justify-center gap-2 py-2.5"
                 >
                   <ListChecks className="h-4 w-4" /> Review Marks
@@ -177,32 +153,6 @@ function TeacherDashboard() {
           ))}
         </div>
       </div>
-
-      {subjectPicker && (
-        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50" onClick={() => setSubjectPicker(null)}>
-          <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-4" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-3">
-              <p className="font-semibold text-gray-900">Choose a subject to review</p>
-              <button onClick={() => setSubjectPicker(null)}><X className="h-5 w-5 text-gray-400" /></button>
-            </div>
-            <div className="space-y-1">
-              {subjectPicker.subjects.map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => {
-                    openGradebook(s.id, s.name, subjectPicker.grade, subjectPicker.section, true);
-                    setSubjectPicker(null);
-                  }}
-                  className="w-full text-left flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50"
-                >
-                  <BookOpen className="h-5 w-5 text-primary-600" />
-                  <span>{s.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

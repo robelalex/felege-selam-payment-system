@@ -31,12 +31,21 @@ class MarkSerializer(serializers.ModelSerializer):
     max_score = serializers.DecimalField(source='assessment_type.max_score', max_digits=6, decimal_places=2, read_only=True)
     entered_by_name = serializers.CharField(source='entered_by.full_name', read_only=True, default=None)
     reviewed_by_name = serializers.CharField(source='reviewed_by.full_name', read_only=True, default=None)
+    # ✅ NEW: so a caller (specifically the new homeroom "pending reviews"
+    # rollup screen) can deep-link straight into the gradebook for the
+    # right term, instead of only knowing the assessment_type and having
+    # to guess or look term up separately. assessment_type.term is
+    # nullable by design (backward compatibility) — SerializerMethodField
+    # so a null term never raises, it just returns None cleanly.
+    term_id = serializers.SerializerMethodField()
+    term_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Mark
         fields = [
             'id', 'school', 'academic_year', 'student', 'student_name', 'student_id_display',
             'subject', 'subject_name', 'assessment_type', 'assessment_type_name', 'max_score',
+            'term_id', 'term_name',
             'grade', 'section', 'score', 'entered_by', 'entered_by_name', 'status',
             'reviewed_by', 'reviewed_by_name', 'reviewed_at', 'homeroom_note',
             'created_at', 'updated_at',
@@ -45,6 +54,12 @@ class MarkSerializer(serializers.ModelSerializer):
 
     def get_student_name(self, obj):
         return f"{obj.student.first_name} {obj.student.last_name}"
+
+    def get_term_id(self, obj):
+        return obj.assessment_type.term_id if obj.assessment_type else None
+
+    def get_term_name(self, obj):
+        return obj.assessment_type.term.name if obj.assessment_type and obj.assessment_type.term_id else None
 
 
 class DailyAttendanceSerializer(serializers.ModelSerializer):

@@ -249,6 +249,7 @@ const getLogoUrl = () => {
   const schoolAdminNormalNavItems = [
     { path: '/admin/dashboard', label: t('nav_dashboard'), icon: LayoutDashboard },
     { path: '/admin/students', label: t('nav_students'), icon: Users },
+    { path: '/admin/attendance', label: t('nav_attendance'), icon: CalendarDays },
     { path: '/admin/payments', label: t('nav_payments'), icon: CreditCard },
     { path: '/admin/slips', label: t('nav_bank_slips'), icon: Eye },
     { path: '/admin/sms', label: t('nav_send_sms'), icon: MessageSquare },
@@ -287,6 +288,7 @@ const getLogoUrl = () => {
       items: [
         { path: '/admin/students', label: t('nav_students'), icon: Users },
         { path: '/admin/sections', label: t('nav_sections'), icon: Grid },
+        { path: '/admin/attendance', label: t('nav_attendance'), icon: CalendarDays },
         { path: '/admin/academics-setup', label: t('nav_academics_setup'), icon: BookOpen },
         { path: '/admin/academic-years', label: t('nav_academic_years'), icon: Calendar },
         { path: '/admin/results-awards', label: t('nav_results_awards'), icon: Trophy },
@@ -326,6 +328,7 @@ const getLogoUrl = () => {
   const registrarNavItems = [
     { path: '/admin/students', label: 'Students', icon: Users },
     { path: '/admin/sections', label: 'Sections', icon: Grid },
+    { path: '/admin/attendance', label: 'Attendance', icon: CalendarDays },
   ];
 
   // Accountant Navigation (Payments + Bank Slips + Deadlines — matches CanManagePayments)

@@ -30,6 +30,8 @@ const translations = {
     nav_academic_years: 'Academic Years',
     nav_results_awards: 'Results & Awards',
     nav_report_cards: 'Report Cards',
+    // ✅ NEW: Jimma item 4 (admin attendance lookup piece)
+    nav_attendance: 'Attendance',
     // ✅ FIX: this key was missing from the English block (only am/om had
     // it), so t('nav_academics_setup') fell through to the raw key string
     // and the nav literally showed "nav_academics_setup".
@@ -111,6 +113,7 @@ const translations = {
     nav_academic_years: 'የትምህርት ዓመታት',
     nav_results_awards: 'ውጤቶች እና ሽልማቶች',
     nav_report_cards: 'የውጤት ካርድ',
+    nav_attendance: 'ክትትል',
     nav_academics_setup: 'የትምህርት ዝግጅት',
     nav_payment_deadlines: 'የክፍያ ቀነ-ገደቦች',
     nav_registration_fees: 'የምዝገባ ክፍያ',
@@ -186,6 +189,7 @@ const translations = {
     nav_academic_years: 'Waggoota Barnootaa',
     nav_results_awards: 'Bu\'aa fi Badhaasa',
     nav_report_cards: 'Kaardii Bu\'aa',
+    nav_attendance: 'Hirmaannaa',
     nav_academics_setup: 'Qophii Barnootaa',
     nav_payment_deadlines: 'Beellama Kaffaltii',
     nav_registration_fees: 'Kaffaltii Galmee',

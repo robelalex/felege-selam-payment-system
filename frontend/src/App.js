@@ -36,6 +36,7 @@ import AdminSlips from './pages/AdminSlips';
 import PaymentSuccess from './pages/PaymentSuccess';
 import AdminDeadlines from './pages/AdminDeadlines';
 import AdminRegistrationFees from './pages/AdminRegistrationFees';
+import AdminAttendance from './pages/AdminAttendance';
 import ParentLogin from './pages/ParentLogin';
 import SelectStudent from './pages/SelectStudent';
 import ParentDashboard from './pages/ParentDashboard';
@@ -62,6 +63,7 @@ import TeacherGradebook from './pages/teacher/TeacherGradebook';
 import TeacherAttendance from './pages/teacher/TeacherAttendance';
 import TeacherSubjectAttendance from './pages/teacher/TeacherSubjectAttendance';
 import TeacherClassResults from './pages/teacher/TeacherClassResults';
+import TeacherPendingReviews from './pages/teacher/TeacherPendingReviews';
 // Styles
 import './index.css';
 
@@ -303,6 +305,20 @@ function App() {
                 }
               />
 
+              {/* Attendance — Jimma item 4 (admin lookup piece) */}
+              <Route
+                path="/admin/attendance"
+                element={
+                  <ProtectedRoute>
+                    <ChapaWarningProvider>
+                      <AdminLayout>
+                        <AdminAttendance />
+                      </AdminLayout>
+                    </ChapaWarningProvider>
+                  </ProtectedRoute>
+                }
+              />
+
               {/* Registrar Dashboard */}
               <Route 
                 path="/registrar/dashboard" 
@@ -477,6 +493,10 @@ function App() {
               <Route
                 path="/teacher/results"
                 element={<TeacherProtectedRoute><TeacherClassResults /></TeacherProtectedRoute>}
+              />
+              <Route
+                path="/teacher/pending-reviews"
+                element={<TeacherProtectedRoute><TeacherPendingReviews /></TeacherProtectedRoute>}
               />
 
             </Routes>

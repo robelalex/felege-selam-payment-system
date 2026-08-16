@@ -28,6 +28,11 @@ function TeacherGradebook() {
   const subjectName = params.get('subjectName') || 'Subject';
   const academicYearId = params.get('academicYearId');
   const isHomeroomView = params.get('homeroom') === '1';
+  // ✅ NEW: optional deep-link target term (from the Pending Reviews
+  // rollup screen, which knows exactly which term has pending marks).
+  // Falls back to the old behavior — first term in the list — when
+  // absent or when it doesn't match any term this school actually has.
+  const requestedTermId = params.get('termId');
 
   const [terms, setTerms] = useState([]);
   const [selectedTermId, setSelectedTermId] = useState(null);
@@ -78,8 +83,13 @@ function TeacherGradebook() {
         const list = response.data || [];
         setTerms(list);
         if (list.length > 0) {
-          setSelectedTermId(list[0].id);
-          await loadGradebook(list[0].id);
+          // ✅ NEW: honor a deep-linked termId when it's actually one of
+          // this school's terms; otherwise fall back to the first term,
+          // exactly like before this change.
+          const matchedTerm = requestedTermId && list.find((t) => String(t.id) === String(requestedTermId));
+          const initialTermId = matchedTerm ? matchedTerm.id : list[0].id;
+          setSelectedTermId(initialTermId);
+          await loadGradebook(initialTermId);
         }
       } catch (err) {
         setError(extractError(err, 'Failed to load terms'));
