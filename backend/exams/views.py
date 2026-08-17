@@ -1190,7 +1190,7 @@ class StudentSemesterResultViewSet(viewsets.ReadOnlyModelViewSet):
                     }
                     for sem in semesters
                 ],
-                'year_average': entry.get('overall_average'),
+                'average_of_semesters': entry.get('overall_average'),
                 'semesters_counted': entry.get('terms_counted', 0),
                 'is_passing': entry.get('is_passing'),
                 'letter_grade': entry.get('letter_grade', ''),

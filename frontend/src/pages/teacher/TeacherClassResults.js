@@ -16,10 +16,17 @@
 //
 // A student with nothing accepted yet for a given term shows "—" for
 // that term instead of a misleading 0%, same convention as before.
+//
+// ✅ Item 7 — for quarter-structure schools, a Quarter/Semester toggle
+// now sits above the table. 'term' mode is unchanged (still every
+// quarter side by side). 'semester' mode shows Semester 1 | Semester 2 |
+// year-average instead, via GET /semester-results/class_results_semesters/.
+// Semester-structure schools never see the toggle at all — this page
+// looks and behaves exactly as it did before Item 7 for them.
 import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader, RefreshCw, Trophy } from 'lucide-react';
-import { getClassResultsByTerms, extractError } from '../../services/teacherApi';
+import { getClassResultsByTerms, getClassResultsBySemesters, getSchoolInfo, extractError } from '../../services/teacherApi';
 
 function TeacherClassResults() {
   const [params] = useSearchParams();
@@ -29,10 +36,29 @@ function TeacherClassResults() {
   const section = params.get('section') || '';
   const academicYearId = params.get('academicYearId');
 
+  // ✅ Item 7 — 'term' or 'semester'. Only switchable for quarter-
+  // structure schools; semester-structure schools stay on 'term' and
+  // never see the toggle, exactly like before this feature existed.
+  const [termStructure, setTermStructure] = useState('semester');
+  const [periodType, setPeriodType] = useState('term');
   const [terms, setTerms] = useState([]);
+  const [semesters, setSemesters] = useState([]);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Fetch the school's term_structure once, so we know whether to show
+  // the Quarter/Semester toggle at all.
+  useEffect(() => {
+    getSchoolInfo()
+      .then((res) => {
+        const school = Array.isArray(res.data) ? res.data[0] : res.data;
+        setTermStructure(school?.term_structure || 'semester');
+      })
+      .catch(() => {
+        // Best-effort — if this fails, we just stay on the term-only view.
+      });
+  }, []);
 
   const load = useCallback(async () => {
     if (!academicYearId) {
@@ -43,15 +69,21 @@ function TeacherClassResults() {
     setLoading(true);
     setError('');
     try {
-      const response = await getClassResultsByTerms({ grade, section, academicYearId });
-      setTerms(response.data?.terms || []);
-      setResults(response.data?.results || []);
+      if (periodType === 'semester') {
+        const response = await getClassResultsBySemesters({ grade, section, academicYearId });
+        setSemesters(response.data?.semesters || []);
+        setResults(response.data?.results || []);
+      } else {
+        const response = await getClassResultsByTerms({ grade, section, academicYearId });
+        setTerms(response.data?.terms || []);
+        setResults(response.data?.results || []);
+      }
     } catch (err) {
       setError(extractError(err, 'Failed to load results'));
     } finally {
       setLoading(false);
     }
-  }, [grade, section, academicYearId]);
+  }, [grade, section, academicYearId, periodType]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -73,6 +105,20 @@ function TeacherClassResults() {
     return r.homeroom_rank_total ? `${r.homeroom_rank} / ${r.homeroom_rank_total}` : `${r.homeroom_rank}`;
   };
 
+  // Normalize so the table below can render either view identically —
+  // 'columns' is either the term list or the semester list, and each
+  // result's 'periods' is that student's per-column figures.
+  const columns = periodType === 'semester'
+    ? semesters.map((s) => ({ id: s.id, name: s.name }))
+    : terms.map((t) => ({ id: t.id, name: t.name }));
+
+  const periodsFor = (r) =>
+    periodType === 'semester'
+      ? (r.semesters || []).map((s) => ({ id: s.semester_id, average: s.average }))
+      : (r.terms || []).map((t) => ({ id: t.term_id, average: t.average }));
+
+  const overallAverage = (r) => (periodType === 'semester' ? r.average_of_semesters : r.average_of_terms);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-primary-700 text-white px-4 sm:px-6 py-4 flex items-center gap-3">
@@ -84,6 +130,23 @@ function TeacherClassResults() {
       </div>
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
+        {termStructure === 'quarter' && (
+          <div className="flex rounded-lg border border-gray-300 overflow-hidden w-fit mb-4">
+            <button
+              onClick={() => setPeriodType('term')}
+              className={`px-4 py-2 text-sm font-medium ${periodType === 'term' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Quarter
+            </button>
+            <button
+              onClick={() => setPeriodType('semester')}
+              className={`px-4 py-2 text-sm font-medium border-l border-gray-300 ${periodType === 'semester' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Semester
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded mb-4 flex items-center justify-between">
             <p className="text-red-700 text-sm">{error}</p>
@@ -95,16 +158,20 @@ function TeacherClassResults() {
 
         {loading ? (
           <div className="flex justify-center py-16"><Loader className="h-8 w-8 animate-spin text-primary-600" /></div>
-        ) : terms.length === 0 && !error ? (
+        ) : columns.length === 0 && !error ? (
           <p className="text-center text-gray-500 py-16">
-            No terms have been set up yet. Ask your school admin to create one in Academics Setup.
+            {periodType === 'semester'
+              ? 'No semesters have been set up yet. Ask your school admin to create them in Academics Setup.'
+              : 'No terms have been set up yet. Ask your school admin to create one in Academics Setup.'}
           </p>
         ) : results.length === 0 ? (
           <p className="text-center text-gray-500 py-16">No students in this class.</p>
         ) : (
           <>
             <p className="text-sm text-gray-500 mb-4">
-              Ranked by the average of all terms below — not by any single term.
+              {periodType === 'semester'
+                ? 'Ranked by the average of both semesters below — not by any single semester.'
+                : 'Ranked by the average of all terms below — not by any single term.'}
             </p>
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
               <table className="min-w-full text-sm">
@@ -112,9 +179,9 @@ function TeacherClassResults() {
                   <tr>
                     <th className="text-left px-4 py-3 font-semibold text-gray-700">Rank</th>
                     <th className="text-left px-4 py-3 font-semibold text-gray-700">Student</th>
-                    {terms.map((t) => (
-                      <th key={t.id} className="px-3 py-3 font-semibold text-gray-700 text-center whitespace-nowrap">
-                        {t.name}
+                    {columns.map((c) => (
+                      <th key={c.id} className="px-3 py-3 font-semibold text-gray-700 text-center whitespace-nowrap">
+                        {c.name}
                       </th>
                     ))}
                     <th className="px-3 py-3 font-semibold text-gray-700 text-center whitespace-nowrap">
@@ -134,13 +201,13 @@ function TeacherClassResults() {
                         <p className="font-medium text-gray-900">{r.student_name}</p>
                         <p className="text-xs text-gray-500">{r.student_id_display}</p>
                       </td>
-                      {r.terms.map((t) => (
-                        <td key={t.term_id} className="px-3 py-3 text-center text-gray-700">
-                          {formatPct(t.average)}
+                      {periodsFor(r).map((p) => (
+                        <td key={p.id} className="px-3 py-3 text-center text-gray-700">
+                          {formatPct(p.average)}
                         </td>
                       ))}
                       <td className="px-3 py-3 text-center font-semibold text-primary-700">
-                        {formatPct(r.average_of_terms)}
+                        {formatPct(overallAverage(r))}
                       </td>
                       {results.some((res) => res.letter_grade) && (
                         <td className="px-3 py-3 text-center">{r.letter_grade || '—'}</td>
@@ -152,9 +219,11 @@ function TeacherClassResults() {
               </table>
             </div>
 
-            {results.length > 0 && results.every((r) => r.average_of_terms == null) && (
+            {results.length > 0 && results.every((r) => overallAverage(r) == null) && (
               <p className="text-center text-gray-500 text-sm mt-4">
-                No marks have been accepted for any term yet — results will appear here as you accept them in the gradebook.
+                {periodType === 'semester'
+                  ? 'No marks have been accepted for either semester yet — results will appear here once quarters are graded and accepted.'
+                  : 'No marks have been accepted for any term yet — results will appear here as you accept them in the gradebook.'}
               </p>
             )}
           </>

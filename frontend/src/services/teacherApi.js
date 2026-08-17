@@ -92,6 +92,14 @@ export const getClassAssignments = (grade) => teacherApi.get('/class-assignments
 // ─── Terms / assessment types ───────────────────────────────────────────
 export const getTerms = (academicYearId) => teacherApi.get('/terms/', { params: { academic_year_id: academicYearId } });
 
+// ✅ Item 7 — semester groupings (quarter-structure schools only). An
+// empty list back is expected/normal for a semester-structure school.
+export const getSemesters = (academicYearId) => teacherApi.get('/semesters/', { params: { academic_year_id: academicYearId } });
+
+// ✅ Item 7 — school's term_structure ('semester' | 'quarter'), to decide
+// whether the Quarter/Semester toggle should even show up on results screens.
+export const getSchoolInfo = () => teacherApi.get('/schools/');
+
 // ─── Gradebook ───────────────────────────────────────────────────────────
 export const getGradebook = ({ subjectId, termId, grade, section = '' }) =>
   teacherApi.get('/marks/gradebook/', { params: { subject_id: subjectId, term_id: termId, grade, section } });
@@ -138,6 +146,12 @@ export const getClassResults = ({ termId, grade, section = '' }) =>
 // "Check Result and Award" screen (Phase 6 cumulative logic, reused).
 export const getClassResultsByTerms = ({ grade, section = '', academicYearId }) =>
   teacherApi.get('/results/class_results_terms/', { params: { grade, section, academic_year_id: academicYearId } });
+
+// ✅ Item 7 — same idea, one level up: Semester 1 | Semester 2 | ... |
+// year-average view, for quarter-structure schools. Only ever has data
+// once at least one quarter's marks have been accepted for a semester.
+export const getClassResultsBySemesters = ({ grade, section = '', academicYearId }) =>
+  teacherApi.get('/semester-results/class_results_semesters/', { params: { grade, section, academic_year_id: academicYearId } });
 
 export const extractError = (err, fallback) =>
   err.response?.data?.error || err.response?.data?.detail || fallback;
