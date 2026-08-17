@@ -28,12 +28,18 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from schools.models import School
 from students.models import Student
 from academics.models import AcademicYear
-from exams.models import Term
+from exams.models import Term, Semester
 
 
 class ReportCard(models.Model):
     REPORT_TYPE_CHOICES = [
         ('term', 'Term Report Card'),
+        # ✅ Item 7 — sits between 'term' and 'cumulative'. Only ever
+        # created for quarter-structure schools (School.term_structure
+        # == 'quarter'); a quarter still gets its own 'term' report card
+        # exactly like today, this is an additional layer on top, not a
+        # replacement.
+        ('semester', 'Semester Report Card'),
         ('cumulative', 'Year-End Cumulative Report Card'),
     ]
     STATUS_CHOICES = [
@@ -51,6 +57,13 @@ class ReportCard(models.Model):
     term = models.ForeignKey(
         Term, on_delete=models.CASCADE, null=True, blank=True, related_name='report_cards',
         help_text="Set for term report cards. Left blank for a year-end cumulative report card."
+    )
+    # ✅ Item 7 — set only for 'semester' report cards (quarter-structure
+    # schools). Null for every 'term' and 'cumulative' card, same
+    # optional-FK convention as `term` above.
+    semester = models.ForeignKey(
+        Semester, on_delete=models.CASCADE, null=True, blank=True, related_name='report_cards',
+        help_text="Set for semester report cards (quarter-structure schools only). Left blank otherwise."
     )
 
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='draft')
@@ -120,6 +133,13 @@ class ReportCard(models.Model):
                 condition=models.Q(report_type='term'),
                 name='unique_term_report_card',
             ),
+            # ✅ Item 7 — one semester report card per student per
+            # Semester, same pattern as the term constraint above.
+            models.UniqueConstraint(
+                fields=['student', 'semester'],
+                condition=models.Q(report_type='semester'),
+                name='unique_semester_report_card',
+            ),
             models.UniqueConstraint(
                 fields=['student', 'academic_year'],
                 condition=models.Q(report_type='cumulative'),
@@ -132,5 +152,10 @@ class ReportCard(models.Model):
         ]
 
     def __str__(self):
-        label = self.term.name if self.term else f"{self.academic_year.name} Cumulative"
+        if self.term:
+            label = self.term.name
+        elif self.semester:
+            label = self.semester.name
+        else:
+            label = f"{self.academic_year.name} Cumulative"
         return f"{self.student} - {label} ({self.get_status_display()})"

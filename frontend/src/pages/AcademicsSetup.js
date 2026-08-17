@@ -6,6 +6,7 @@ import {
   AlertCircle, CheckCircle, X, Loader
 } from 'lucide-react';
 import api from '../services/api';
+import { pickCurrentSchool } from '../utils/currentSchool';
 
 const ALL_GRADES = Array.from({ length: 12 }, (_, i) => i + 1);
 
@@ -25,6 +26,7 @@ function AcademicsSetup() {
   const [sections, setSections] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [currentYear, setCurrentYear] = useState(null);
+  const [termStructure, setTermStructure] = useState('semester');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -54,33 +56,44 @@ function AcademicsSetup() {
   const [terms, setTerms] = useState([]);
   const [newTermName, setNewTermName] = useState('');
   const [newTermOrder, setNewTermOrder] = useState(1);
+  const [newTermSemester, setNewTermSemester] = useState('');
+
+  // ✅ Item 7 — Semesters (only relevant/shown when termStructure === 'quarter')
+  const [semesters, setSemesters] = useState([]);
+  const [newSemesterName, setNewSemesterName] = useState('');
+  const [newSemesterOrder, setNewSemesterOrder] = useState(1);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [subjectsRes, sectionsRes, staffRes, yearRes] = await Promise.all([
+      const [subjectsRes, sectionsRes, staffRes, yearRes, schoolRes] = await Promise.all([
         api.get('/subjects/'),
         api.get('/sections/'),
         api.get('/staff-members/'),
         api.get('/academic-years/current/').catch(() => ({ data: null })),
+        api.get('/schools/').catch(() => ({ data: null })),
       ]);
       setSubjects(subjectsRes.data);
       setSections(sectionsRes.data);
       setTeachers((staffRes.data || []).filter((s) => s.role === 'teacher'));
       setCurrentYear(yearRes.data);
+      const school = pickCurrentSchool(schoolRes.data);
+      setTermStructure(school?.term_structure || 'semester');
 
       if (yearRes.data?.id) {
-        const [assignRes, homeRes, termsRes, assessRes] = await Promise.all([
+        const [assignRes, homeRes, termsRes, assessRes, semestersRes] = await Promise.all([
           api.get(`/class-assignments/?academic_year_id=${yearRes.data.id}`).catch(() => ({ data: [] })),
           api.get(`/homeroom-assignments/?academic_year_id=${yearRes.data.id}`),
           api.get(`/terms/?academic_year_id=${yearRes.data.id}`).catch(() => ({ data: [] })),
           api.get(`/assessment-types/?academic_year_id=${yearRes.data.id}`).catch(() => ({ data: [] })),
+          api.get(`/semesters/?academic_year_id=${yearRes.data.id}`).catch(() => ({ data: [] })),
         ]);
         setAssignments(assignRes.data);
         setHomerooms(homeRes.data);
         setTerms(termsRes.data);
         setAssessmentTypes(assessRes.data);
+        setSemesters(semestersRes.data);
       }
     } catch (err) {
       console.error('Error loading academics setup:', err);
@@ -217,6 +230,7 @@ function AcademicsSetup() {
         academic_year: currentYear.id,
         name: newTermName.trim(),
         order: newTermOrder,
+        semester: termStructure === 'quarter' && newTermSemester ? newTermSemester : null,
       });
       setSuccess(`"${newTermName}" added`);
       setNewTermName('');
@@ -237,6 +251,40 @@ function AcademicsSetup() {
       fetchAll();
     } catch (err) {
       setError('Failed to remove term');
+    }
+  };
+
+  // ===== Semesters (Item 7 — quarter-structure schools only) =====
+  const handleCreateSemester = async (e) => {
+    e.preventDefault();
+    if (!newSemesterName.trim() || !currentYear?.id) return;
+    setSaving(true);
+    setError('');
+    try {
+      await api.post('/semesters/', {
+        academic_year: currentYear.id,
+        name: newSemesterName.trim(),
+        order: newSemesterOrder,
+      });
+      setSuccess(`"${newSemesterName}" added`);
+      setNewSemesterName('');
+      setNewSemesterOrder((prev) => prev + 1);
+      fetchAll();
+    } catch (err) {
+      setError(err.response?.data?.error || err.response?.data?.name?.[0] || 'Failed to add semester');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteSemester = async (id, name) => {
+    if (!window.confirm(`Remove "${name}"? Any terms still pointing at it need to be unassigned first.`)) return;
+    try {
+      await api.delete(`/semesters/${id}/`);
+      setSuccess(`"${name}" removed`);
+      fetchAll();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to remove semester — check it has no terms assigned to it');
     }
   };
 
@@ -690,21 +738,88 @@ function AcademicsSetup() {
           {/* ===== TERMS TAB ===== */}
           {activeTab === 'terms' && (
             <div className="space-y-4">
+              {/* ✅ Item 7 — Semesters sub-section, only for quarter-structure schools */}
+              {termStructure === 'quarter' && (
+                <>
+                  <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                      <Plus className="h-5 w-5 text-indigo-600" />
+                      Create a Semester
+                    </h2>
+                    <p className="text-sm text-gray-500 mb-4">
+                      Your school uses quarters — set up two Semesters here first (e.g. "Semester 1", "Semester 2"), then
+                      create your 4 quarter Terms below and assign each one to a Semester. Q1+Q2 will average into Semester 1,
+                      Q3+Q4 into Semester 2, and the year-end rank is based on the two semester averages.
+                    </p>
+                    <form onSubmit={handleCreateSemester} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                      <div className="sm:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                        <input
+                          type="text" value={newSemesterName} onChange={(e) => setNewSemesterName(e.target.value)}
+                          className="input-field" placeholder="e.g., Semester 1" required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Order</label>
+                        <input
+                          type="number" min="1" value={newSemesterOrder}
+                          onChange={(e) => setNewSemesterOrder(e.target.value)}
+                          className="input-field" required
+                        />
+                      </div>
+                      <button type="submit" disabled={saving || !currentYear} className="btn-primary flex items-center justify-center gap-2 tap-target">
+                        {saving ? <Loader className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                        Add Semester
+                      </button>
+                    </form>
+                  </div>
+
+                  <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
+                        <tr>
+                          <th className="text-left px-4 py-3">Order</th>
+                          <th className="text-left px-4 py-3">Name</th>
+                          <th className="text-right px-4 py-3">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {semesters.length === 0 && (
+                          <tr><td colSpan={3} className="text-center text-gray-400 py-8">No semesters yet — add your first one above.</td></tr>
+                        )}
+                        {semesters.map((sem) => (
+                          <tr key={sem.id}>
+                            <td className="px-4 py-3 text-gray-500">{sem.order}</td>
+                            <td className="px-4 py-3 font-medium text-gray-800">{sem.name}</td>
+                            <td className="px-4 py-3 text-right">
+                              <button onClick={() => handleDeleteSemester(sem.id, sem.name)} className="text-red-500 hover:text-red-700">
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+
               <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-1 flex items-center gap-2">
                   <Plus className="h-5 w-5 text-primary-600" />
                   Create a Term
                 </h2>
                 <p className="text-sm text-gray-500 mb-4">
-                  Grading periods for the current academic year — Semester 1, Semester 2, or however your school splits the year.
-                  Assessments (Mid Term, Final...) belong to one of these, so marks can be totaled per term instead of the whole year at once.
+                  {termStructure === 'quarter'
+                    ? 'Your school\'s quarters — Q1, Q2, Q3, Q4. Assign each one to the Semester it belongs to above.'
+                    : 'Grading periods for the current academic year — Semester 1, Semester 2, or however your school splits the year. Assessments (Mid Term, Final...) belong to one of these, so marks can be totaled per term instead of the whole year at once.'}
                 </p>
-                <form onSubmit={handleCreateTerm} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                <form onSubmit={handleCreateTerm} className={`grid grid-cols-1 gap-3 items-end ${termStructure === 'quarter' ? 'sm:grid-cols-5' : 'sm:grid-cols-4'}`}>
                   <div className="sm:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
                     <input
                       type="text" value={newTermName} onChange={(e) => setNewTermName(e.target.value)}
-                      className="input-field" placeholder="e.g., Semester 1" required
+                      className="input-field" placeholder={termStructure === 'quarter' ? 'e.g., Quarter 1' : 'e.g., Semester 1'} required
                     />
                   </div>
                   <div>
@@ -715,6 +830,15 @@ function AcademicsSetup() {
                       className="input-field" required
                     />
                   </div>
+                  {termStructure === 'quarter' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Semester</label>
+                      <select value={newTermSemester} onChange={(e) => setNewTermSemester(e.target.value)} className="input-field">
+                        <option value="">Unassigned</option>
+                        {semesters.map((sem) => <option key={sem.id} value={sem.id}>{sem.name}</option>)}
+                      </select>
+                    </div>
+                  )}
                   <button type="submit" disabled={saving || !currentYear} className="btn-primary flex items-center justify-center gap-2 tap-target">
                     {saving ? <Loader className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                     Add Term
@@ -722,6 +846,9 @@ function AcademicsSetup() {
                 </form>
                 {!currentYear && (
                   <p className="text-sm text-amber-600 mt-3">Set an academic year first (Academic Years) before adding terms.</p>
+                )}
+                {termStructure === 'quarter' && semesters.length === 0 && (
+                  <p className="text-sm text-amber-600 mt-3">Add your two Semesters above first, so each quarter can be assigned to one.</p>
                 )}
               </div>
 
@@ -731,17 +858,21 @@ function AcademicsSetup() {
                     <tr>
                       <th className="text-left px-4 py-3">Order</th>
                       <th className="text-left px-4 py-3">Name</th>
+                      {termStructure === 'quarter' && <th className="text-left px-4 py-3">Semester</th>}
                       <th className="text-right px-4 py-3">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {terms.length === 0 && (
-                      <tr><td colSpan={3} className="text-center text-gray-400 py-8">No terms yet — add your first one above.</td></tr>
+                      <tr><td colSpan={termStructure === 'quarter' ? 4 : 3} className="text-center text-gray-400 py-8">No terms yet — add your first one above.</td></tr>
                     )}
                     {terms.map((t) => (
                       <tr key={t.id}>
                         <td className="px-4 py-3 text-gray-500">{t.order}</td>
                         <td className="px-4 py-3 font-medium text-gray-800">{t.name}</td>
+                        {termStructure === 'quarter' && (
+                          <td className="px-4 py-3 text-gray-500">{t.semester_name || <span className="text-amber-600">Unassigned</span>}</td>
+                        )}
                         <td className="px-4 py-3 text-right">
                           <button onClick={() => handleDeleteTerm(t.id, t.name)} className="text-red-500 hover:text-red-700">
                             <Trash2 className="h-4 w-4" />

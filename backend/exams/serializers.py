@@ -1,15 +1,24 @@
 # exams/serializers.py
 from rest_framework import serializers
 from .models import (
-    Term, AssessmentType, Mark, DailyAttendance, SubjectAttendance,
-    SubjectTermResult, StudentTermResult,
+    Term, Semester, AssessmentType, Mark, DailyAttendance, SubjectAttendance,
+    SubjectTermResult, StudentTermResult, SubjectSemesterResult, StudentSemesterResult,
 )
 
 
+class SemesterSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Semester
+        fields = ['id', 'school', 'academic_year', 'name', 'order', 'is_active', 'created_at']
+        read_only_fields = ['school']
+
+
 class TermSerializer(serializers.ModelSerializer):
+    semester_name = serializers.CharField(source='semester.name', read_only=True, default=None)
+
     class Meta:
         model = Term
-        fields = ['id', 'school', 'academic_year', 'name', 'order', 'is_active', 'created_at']
+        fields = ['id', 'school', 'academic_year', 'name', 'order', 'semester', 'semester_name', 'is_active', 'created_at']
         read_only_fields = ['school']
 
 
@@ -142,3 +151,48 @@ class StudentTermResultSerializer(serializers.ModelSerializer):
             return None
         results = SubjectTermResult.objects.filter(student=obj.student, term=obj.term).select_related('subject')
         return SubjectTermResultSerializer(results, many=True).data
+
+
+# ============================================================================
+# Item 7 — Semester results
+# ============================================================================
+
+class SubjectSemesterResultSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
+    semester_name = serializers.CharField(source='semester.name', read_only=True)
+
+    class Meta:
+        model = SubjectSemesterResult
+        fields = [
+            'id', 'student', 'subject', 'subject_name', 'semester', 'semester_name',
+            'grade', 'section', 'average_percentage', 'terms_counted',
+            'is_passing', 'computed_at',
+        ]
+        read_only_fields = fields
+
+
+class StudentSemesterResultSerializer(serializers.ModelSerializer):
+    student_name = serializers.SerializerMethodField()
+    student_id_display = serializers.CharField(source='student.student_id', read_only=True)
+    semester_name = serializers.CharField(source='semester.name', read_only=True)
+    subject_results = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StudentSemesterResult
+        fields = [
+            'id', 'student', 'student_name', 'student_id_display', 'semester', 'semester_name',
+            'grade', 'section', 'overall_average', 'subjects_counted', 'is_passing',
+            'letter_grade', 'homeroom_rank', 'homeroom_rank_total',
+            'school_rank', 'school_rank_total', 'computed_at', 'subject_results',
+        ]
+        read_only_fields = fields
+
+    def get_student_name(self, obj):
+        return f"{obj.student.first_name} {obj.student.last_name}"
+
+    def get_subject_results(self, obj):
+        """Only included when the view explicitly asks for it, to keep list responses light — same convention as StudentTermResultSerializer."""
+        if not self.context.get('include_subjects'):
+            return None
+        results = SubjectSemesterResult.objects.filter(student=obj.student, semester=obj.semester).select_related('subject')
+        return SubjectSemesterResultSerializer(results, many=True).data

@@ -15,7 +15,7 @@
 from django.utils import timezone
 from django.db import transaction
 
-from exams.models import StudentTermResult, SubjectTermResult, DailyAttendance
+from exams.models import StudentTermResult, SubjectTermResult, StudentSemesterResult, SubjectSemesterResult, DailyAttendance
 from academics.models import HomeroomAssignment
 from students.models import Student
 
@@ -92,6 +92,78 @@ def generate_term_report_card(student, term, generated_by=None):
             defaults={
                 'school': school,
                 'academic_year': result.academic_year,
+                'status': 'draft',
+                'grade': result.grade,
+                'section': result.section,
+                'homeroom_teacher_name': homeroom_name,
+                'overall_average': result.overall_average,
+                'is_passing': result.is_passing,
+                'letter_grade': result.letter_grade,
+                'homeroom_rank': result.homeroom_rank,
+                'homeroom_rank_total': result.homeroom_rank_total,
+                'school_rank': result.school_rank,
+                'school_rank_total': result.school_rank_total,
+                'attendance_present_days': present,
+                'attendance_absent_days': absent,
+                'attendance_late_days': late,
+                'snapshot_data': snapshot,
+                'generated_by': generated_by,
+                'released_at': None,
+                'released_by': None,
+            },
+        )
+        report_card.pdf_file = render_report_card_pdf(report_card)
+        report_card.save()
+
+    return report_card
+
+
+def _build_semester_snapshot(student, semester, school):
+    subject_results = (
+        SubjectSemesterResult.objects.filter(student=student, semester=semester)
+        .select_related('subject')
+        .exclude(average_percentage__isnull=True)
+        .order_by('subject__name')
+    )
+    subjects = []
+    for sr in subject_results:
+        subjects.append({
+            'subject_name': sr.subject.name,
+            'average_percentage': float(sr.average_percentage) if sr.average_percentage is not None else None,
+            'letter_grade': school.letter_grade_for(sr.average_percentage),
+            'is_passing': sr.is_passing,
+        })
+    return {'subjects': subjects, 'term_name': semester.name}
+
+
+def generate_semester_report_card(student, semester, generated_by=None):
+    """
+    Item 7 — snapshots the student's already-computed StudentSemesterResult/
+    SubjectSemesterResult rows for this Semester (computed by
+    results_service.recompute_for_semester, kept in sync automatically
+    whenever either child term's results change). Mirrors
+    generate_term_report_card exactly, one level up. Raises ValueError if
+    no StudentSemesterResult exists yet — nothing to snapshot.
+    """
+    result = StudentSemesterResult.objects.filter(student=student, semester=semester).select_related('semester').first()
+    if not result:
+        raise ValueError(
+            f"No results have been computed yet for {student} in {semester.name}. "
+            "Both quarters' marks must be accepted (or recalculated) before a semester report card can be generated."
+        )
+
+    school = result.school
+    present, absent, late = _attendance_summary(student, result.academic_year)
+    homeroom_name = _homeroom_teacher_name(school, result.academic_year, result.grade, result.section)
+    snapshot = _build_semester_snapshot(student, semester, school)
+
+    with transaction.atomic():
+        report_card, _created = ReportCard.objects.update_or_create(
+            student=student, semester=semester, report_type='semester',
+            defaults={
+                'school': school,
+                'academic_year': result.academic_year,
+                'term': None,
                 'status': 'draft',
                 'grade': result.grade,
                 'section': result.section,
@@ -197,7 +269,7 @@ def generate_cumulative_report_card(student, academic_year, generated_by=None):
     return report_card
 
 
-def generate_for_class(school, academic_year, grade, section, report_type, term=None, generated_by=None):
+def generate_for_class(school, academic_year, grade, section, report_type, term=None, semester=None, generated_by=None):
     """
     Generates (or regenerates) report cards for every active student in
     one homeroom class at once. Returns (successes: list[ReportCard],
@@ -205,10 +277,12 @@ def generate_for_class(school, academic_year, grade, section, report_type, term=
     with one student who has no results yet shouldn't block the other
     29 from getting theirs.
     """
-    if report_type not in ('term', 'cumulative'):
-        raise ValueError("report_type must be 'term' or 'cumulative'")
+    if report_type not in ('term', 'semester', 'cumulative'):
+        raise ValueError("report_type must be 'term', 'semester' or 'cumulative'")
     if report_type == 'term' and term is None:
         raise ValueError("term is required when report_type is 'term'")
+    if report_type == 'semester' and semester is None:
+        raise ValueError("semester is required when report_type is 'semester'")
 
     students = Student.objects.filter(school=school, grade=grade, section=section, status='active').order_by('first_name', 'last_name')
 
@@ -218,6 +292,8 @@ def generate_for_class(school, academic_year, grade, section, report_type, term=
         try:
             if report_type == 'term':
                 rc = generate_term_report_card(student, term, generated_by=generated_by)
+            elif report_type == 'semester':
+                rc = generate_semester_report_card(student, semester, generated_by=generated_by)
             else:
                 rc = generate_cumulative_report_card(student, academic_year, generated_by=generated_by)
             successes.append(rc)

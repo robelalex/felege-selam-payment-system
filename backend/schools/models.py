@@ -99,6 +99,37 @@ class School(models.Model):
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         help_text="Minimum percentage to pass a subject/term. Used when grading_system is 'percentage' or 'both'; ignored for 'letter_grade'.",
     )
+
+    # ✅ Item 7 — term structure. Same pattern as grading_system: a
+    # school-level choice that changes how results/report cards behave,
+    # not a data-model change for the common case. 'semester' (default)
+    # is today's behavior exactly as it's always worked — a school just
+    # defines its own exams.Term rows (2 semesters, 3 trimesters,
+    # whatever) with no grouping above them. 'quarter' means the school
+    # uses 4 exams.Term rows per year that get paired into two
+    # exams.Semester rows (Q1+Q2 -> Semester 1, Q3+Q4 -> Semester 2),
+    # which unlocks semester-level results/rank/report cards on top of
+    # the existing term-level ones. This field only toggles which
+    # screens/controls show up (quarter/semester grouping UI) and which
+    # extra result tables get populated — it never changes how a
+    # 'semester' school's existing Term/AssessmentType/Mark data works.
+    TERM_STRUCTURE_CHOICES = [
+        ('semester', 'Semesters only (no quarters)'),
+        ('quarter', 'Quarters grouped into semesters'),
+    ]
+    term_structure = models.CharField(
+        max_length=20,
+        choices=TERM_STRUCTURE_CHOICES,
+        default='semester',
+        help_text=(
+            "'semester' = this school's Terms are used as-is, ungrouped (today's "
+            "behavior — 2 semesters, 3 trimesters, etc). 'quarter' = this school's "
+            "4 Terms are grouped in pairs into 2 Semesters, unlocking semester-level "
+            "results, ranking and report cards. Should be locked once the current "
+            "academic year already has Terms set up — switching mid-year is not "
+            "supported."
+        ),
+    )
     
     # ✅ Add logo field
     logo = models.ImageField(upload_to='school_logos/', blank=True, null=True, help_text="School logo (JPG, PNG)")

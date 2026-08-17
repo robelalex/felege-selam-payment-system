@@ -11,6 +11,7 @@ import {
   RefreshCw, XCircle,
 } from 'lucide-react';
 import api from '../../services/api';
+import { pickCurrentSchool } from '../../utils/currentSchool';
 import { useYear } from '../../context/YearContext';
 import { useAuth } from '../../context/AuthContext';
 
@@ -22,11 +23,14 @@ function AdminReportCards() {
 
   const [sections, setSections] = useState([]);
   const [terms, setTerms] = useState([]);
+  const [semesters, setSemesters] = useState([]);
+  const [termStructure, setTermStructure] = useState('semester');
 
   const [grade, setGrade] = useState(1);
   const [section, setSection] = useState('');
   const [reportType, setReportType] = useState('term');
   const [termId, setTermId] = useState('');
+  const [semesterId, setSemesterId] = useState('');
 
   const [results, setResults] = useState([]);
   const [loadingResults, setLoadingResults] = useState(false);
@@ -36,20 +40,29 @@ function AdminReportCards() {
   const [genSummary, setGenSummary] = useState(null); // { generatedCount, failed: [] }
   const [statusFilter, setStatusFilter] = useState('all'); // all | draft | released
 
-  // ── Load sections + terms once we know the year ──────────────────
+  // ── Load sections + terms + semesters once we know the year ──────
   useEffect(() => {
     const loadStatic = async () => {
       try {
-        const [secRes, termRes] = await Promise.all([
+        const [secRes, termRes, semRes, schoolRes] = await Promise.all([
           api.get('/sections/', { headers: getAuthHeader() }),
           selectedYear?.id
             ? api.get('/terms/', { params: { academic_year_id: selectedYear.id }, headers: getAuthHeader() })
             : Promise.resolve({ data: [] }),
+          selectedYear?.id
+            ? api.get('/semesters/', { params: { academic_year_id: selectedYear.id }, headers: getAuthHeader() }).catch(() => ({ data: [] }))
+            : Promise.resolve({ data: [] }),
+          api.get('/schools/', { headers: getAuthHeader() }).catch(() => ({ data: null })),
         ]);
         setSections(secRes.data || []);
         const termList = termRes.data || [];
         setTerms(termList);
         if (termList.length > 0 && !termId) setTermId(termList[0].id);
+        const semList = semRes.data || [];
+        setSemesters(semList);
+        if (semList.length > 0 && !semesterId) setSemesterId(semList[0].id);
+        const school = pickCurrentSchool(schoolRes.data);
+        setTermStructure(school?.term_structure || 'semester');
       } catch {
         setError('Failed to load sections/terms');
       }
@@ -67,6 +80,7 @@ function AdminReportCards() {
     try {
       const params = { academic_year_id: selectedYear.id, grade, section, report_type: reportType };
       if (reportType === 'term' && termId) params.term_id = termId;
+      if (reportType === 'semester' && semesterId) params.semester_id = semesterId;
       if (statusFilter !== 'all') params.status = statusFilter;
       const response = await api.get('/report-cards/', { params, headers: getAuthHeader() });
       setResults(response.data?.results || response.data || []);
@@ -76,7 +90,7 @@ function AdminReportCards() {
     } finally {
       setLoadingResults(false);
     }
-  }, [selectedYear?.id, grade, section, reportType, termId, statusFilter, getAuthHeader]);
+  }, [selectedYear?.id, grade, section, reportType, termId, semesterId, statusFilter, getAuthHeader]);
 
   useEffect(() => { loadResults(); }, [loadResults]);
 
@@ -84,6 +98,10 @@ function AdminReportCards() {
     if (!selectedYear?.id) return;
     if (reportType === 'term' && !termId) {
       setError('Select a term first');
+      return;
+    }
+    if (reportType === 'semester' && !semesterId) {
+      setError('Select a semester first');
       return;
     }
     setGenerating(true);
@@ -94,6 +112,7 @@ function AdminReportCards() {
         grade, section, academic_year_id: selectedYear.id, report_type: reportType,
       };
       if (reportType === 'term') body.term_id = termId;
+      if (reportType === 'semester') body.semester_id = semesterId;
       const response = await api.post('/report-cards/generate_class/', body, { headers: getAuthHeader() });
       const generated = response.data?.generated || [];
       const failed = response.data?.failed || [];
@@ -168,6 +187,14 @@ function AdminReportCards() {
                 >
                   Term
                 </button>
+                {termStructure === 'quarter' && (
+                  <button
+                    onClick={() => setReportType('semester')}
+                    className={`px-4 py-2 text-sm font-medium border-l border-gray-300 ${reportType === 'semester' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                  >
+                    Semester
+                  </button>
+                )}
                 <button
                   onClick={() => setReportType('cumulative')}
                   className={`px-4 py-2 text-sm font-medium border-l border-gray-300 ${reportType === 'cumulative' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
@@ -187,9 +214,19 @@ function AdminReportCards() {
               </div>
             )}
 
+            {reportType === 'semester' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Semester</label>
+                <select className="input-field" value={semesterId} onChange={(e) => setSemesterId(Number(e.target.value))}>
+                  {semesters.length === 0 && <option value="">No semesters yet</option>}
+                  {semesters.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+            )}
+
             <button
               onClick={handleGenerateClass}
-              disabled={generating || (reportType === 'term' && !termId)}
+              disabled={generating || (reportType === 'term' && !termId) || (reportType === 'semester' && !semesterId)}
               className="btn-primary flex items-center gap-2"
             >
               {generating ? <Loader className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}

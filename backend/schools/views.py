@@ -72,6 +72,32 @@ class SchoolViewSet(viewsets.ModelViewSet):
             )
         return super().create(request, *args, **kwargs)
 
+    def perform_update(self, serializer):
+        # ✅ Item 7 — School.term_structure ('semester' vs 'quarter')
+        # changes which result/report-card tables get populated and how
+        # the year-end average is computed. Per the Item 7 design
+        # decision: switching it once the current academic year already
+        # has Terms set up is not supported — flip it after Terms exist
+        # and you'd have Terms with no matching Semester grouping (if
+        # switching to 'quarter') or Semester rows nothing points at
+        # (if switching away from it). Locked here rather than silently
+        # allowed and quietly producing wrong report cards.
+        instance = serializer.instance
+        new_value = serializer.validated_data.get('term_structure', instance.term_structure)
+        if new_value != instance.term_structure:
+            from exams.models import Term
+            from academics.models import AcademicYear
+            current_year = AcademicYear.objects.filter(school=instance, is_current=True).first()
+            if current_year and Term.objects.filter(school=instance, academic_year=current_year).exists():
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({
+                    'term_structure': (
+                        "This can't be changed — the current academic year already has terms set up. "
+                        "term_structure must be decided before creating any Terms for a year."
+                    )
+                })
+        serializer.save()
+
     def destroy(self, request, *args, **kwargs):
         if not (request.user.is_staff or request.user.is_superuser):
             return Response(

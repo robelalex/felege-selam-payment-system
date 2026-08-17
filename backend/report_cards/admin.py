@@ -6,7 +6,7 @@ from .models import ReportCard
 @admin.register(ReportCard)
 class ReportCardAdmin(admin.ModelAdmin):
     list_display = (
-        'student', 'report_type', 'term', 'academic_year', 'status',
+        'student', 'report_type', 'term', 'semester', 'academic_year', 'status',
         'grade', 'section', 'overall_average', 'homeroom_rank', 'generated_at',
     )
     list_filter = ('report_type', 'status', 'academic_year', 'grade')

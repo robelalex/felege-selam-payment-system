@@ -30,6 +30,46 @@ class Term(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # ✅ Item 7 — only ever set for quarter-structure schools (see
+    # School.term_structure), e.g. "Quarter 1" and "Quarter 2" Terms
+    # both point at the "Semester 1" Semester row. Null/blank for every
+    # semester-structure school, and null for every Term that existed
+    # before this field — nothing already set up changes behavior.
+    semester = models.ForeignKey(
+        'Semester', on_delete=models.SET_NULL, null=True, blank=True, related_name='terms',
+        help_text="Which Semester this Term belongs to. Only used by quarter-structure schools — leave blank otherwise."
+    )
+
+    class Meta:
+        ordering = ['order', 'name']
+        unique_together = ['school', 'academic_year', 'name']
+
+    def __str__(self):
+        return f"{self.name} ({self.academic_year.name}) - {self.school.name}"
+
+
+class Semester(models.Model):
+    """
+    Item 7 — a grouping of two exams.Term rows, for schools whose
+    School.term_structure is 'quarter' (e.g. Q1+Q2 = "Semester 1",
+    Q3+Q4 = "Semester 2"). Only exists for quarter-schools — a
+    'semester'-structure school never creates one of these; its Terms
+    stay exactly as they are today, ungrouped.
+
+    Deliberately a separate model from Term (see Term.semester below),
+    matching this codebase's existing convention of one model per
+    concept (Term, AssessmentType, Mark are all separate for a reason).
+    A Semester is "a grouping of gradable periods", not itself a
+    gradable period — mixing the two into one self-referential Term
+    field would blur that distinction.
+    """
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='semesters')
+    academic_year = models.ForeignKey(AcademicYear, on_delete=models.CASCADE, related_name='semesters')
+    name = models.CharField(max_length=50, help_text="e.g., Semester 1, Semester 2")
+    order = models.IntegerField(default=0, help_text="Controls display order — 1st semester, 2nd semester...")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
     class Meta:
         ordering = ['order', 'name']
         unique_together = ['school', 'academic_year', 'name']
@@ -381,3 +421,114 @@ class StudentTermResult(models.Model):
 
     def __str__(self):
         return f"{self.student} - {self.term}: {self.overall_average}"
+
+
+# ============================================================================
+# Item 7 — Semester-level results (quarter-structure schools only)
+# ============================================================================
+#
+# Mirrors SubjectTermResult/StudentTermResult exactly, one level up: a
+# quarter-school's two child Terms of a Semester (e.g. Q1 + Q2) get
+# averaged into one SubjectSemesterResult / StudentSemesterResult. Same
+# "computed cache, not source of truth" rule applies — these are safe to
+# delete and recompute at any time from the underlying StudentTermResult/
+# SubjectTermResult rows, which stay authoritative.
+#
+# Calculation rules (mirrors Phase 4, one level up):
+#   - A subject's semester average = simple average of that subject's
+#     SubjectTermResult.average_percentage values across the semester's
+#     two child terms. A term with no result yet is excluded, not
+#     counted as zero — same rule cumulative_service already uses.
+#   - A student's overall semester average = simple average of their
+#     SubjectSemesterResult.average_percentage values across all subjects
+#     — same "simple average of subject averages" pattern as the term
+#     level, not re-derived from StudentTermResult.overall_average (that
+#     would silently double-weight a subject that has more marks in one
+#     quarter than the other).
+#   - Ranks: same homeroom / school-wide (elementary vs high school)
+#     pools as the term level, scoped to this Semester.
+
+class SubjectSemesterResult(models.Model):
+    """A student's computed average for one subject across one Semester's two terms."""
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='subject_semester_results')
+    academic_year = models.ForeignKey(AcademicYear, on_delete=models.CASCADE, related_name='subject_semester_results')
+    semester = models.ForeignKey(Semester, on_delete=models.CASCADE, related_name='subject_results')
+    student = models.ForeignKey('students.Student', on_delete=models.CASCADE, related_name='subject_semester_results')
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='semester_results')
+
+    # Denormalized at computation time, same convention as SubjectTermResult.
+    grade = models.IntegerField()
+    section = models.CharField(max_length=10, blank=True)
+
+    average_percentage = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Simple average of this subject's SubjectTermResult.average_percentage across the semester's child terms."
+    )
+    terms_counted = models.PositiveIntegerField(
+        default=0, help_text="How many child-term SubjectTermResult rows fed into average_percentage."
+    )
+    is_passing = models.BooleanField(null=True, blank=True)
+
+    computed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['student', 'subject', 'semester']
+        indexes = [
+            models.Index(fields=['school', 'academic_year', 'semester', 'grade', 'section']),
+        ]
+
+    def __str__(self):
+        return f"{self.student} - {self.subject.name} - {self.semester}: {self.average_percentage}"
+
+
+class StudentSemesterResult(models.Model):
+    """A student's overall result for one Semester — simple average of their SubjectSemesterResult rows, plus pass/fail and rank."""
+    ELEMENTARY_MAX_GRADE = 8  # grades 1-8 = elementary, 9-12 = high school
+
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='student_semester_results')
+    academic_year = models.ForeignKey(AcademicYear, on_delete=models.CASCADE, related_name='student_semester_results')
+    semester = models.ForeignKey(Semester, on_delete=models.CASCADE, related_name='student_results')
+    student = models.ForeignKey('students.Student', on_delete=models.CASCADE, related_name='semester_results')
+
+    grade = models.IntegerField()
+    section = models.CharField(max_length=10, blank=True)
+
+    overall_average = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Simple average of this student's SubjectSemesterResult.average_percentage values for this semester."
+    )
+    subjects_counted = models.PositiveIntegerField(default=0)
+    is_passing = models.BooleanField(null=True, blank=True)
+    letter_grade = models.CharField(
+        max_length=5, blank=True,
+        help_text="Set only when the school's grading_system is 'letter_grade' or 'both'."
+    )
+
+    homeroom_rank = models.PositiveIntegerField(null=True, blank=True)
+    homeroom_rank_total = models.PositiveIntegerField(null=True, blank=True)
+    school_rank = models.PositiveIntegerField(null=True, blank=True)
+    school_rank_total = models.PositiveIntegerField(null=True, blank=True)
+
+    computed_at = models.DateTimeField(auto_now=True)
+    computed_by = models.ForeignKey(
+        'staff.StaffMember', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='semester_results_computed',
+        help_text="Who triggered the last recalculation."
+    )
+
+    class Meta:
+        unique_together = ['student', 'semester']
+        indexes = [
+            models.Index(fields=['school', 'academic_year', 'semester', 'grade', 'section']),
+            models.Index(fields=['school', 'academic_year', 'semester']),
+        ]
+        ordering = ['-overall_average']
+
+    @property
+    def is_elementary(self):
+        return self.grade <= self.ELEMENTARY_MAX_GRADE
+
+    def __str__(self):
+        return f"{self.student} - {self.semester}: {self.overall_average}"

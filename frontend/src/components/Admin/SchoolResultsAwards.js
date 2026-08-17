@@ -7,6 +7,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Trophy, Loader, AlertTriangle, Medal } from 'lucide-react';
 import api from '../../services/api';
+import { pickCurrentSchool } from '../../utils/currentSchool';
 import { useYear } from '../../context/YearContext';
 import { useAuth } from '../../context/AuthContext';
 
@@ -17,7 +18,14 @@ function SchoolResultsAwards() {
   const { getAuthHeader } = useAuth();
 
   const [terms, setTerms] = useState([]);
+  const [semesters, setSemesters] = useState([]);
+  const [termStructure, setTermStructure] = useState('semester');
+  // ✅ Item 7 — 'term' or 'semester'. Only relevant/switchable for
+  // quarter-structure schools; semester-structure schools never see the
+  // toggle and stay on 'term' exactly like before.
+  const [periodType, setPeriodType] = useState('term');
   const [selectedTermId, setSelectedTermId] = useState(null);
+  const [selectedSemesterId, setSelectedSemesterId] = useState(null);
   const [band, setBand] = useState('elementary');
   const [limit, setLimit] = useState(3);
   const [results, setResults] = useState([]);
@@ -34,10 +42,12 @@ function SchoolResultsAwards() {
       setLoadingTerms(true);
       setError('');
       try {
-        const response = await api.get(`/terms/?academic_year_id=${selectedYear.id}`, {
-          headers: getAuthHeader()
-        });
-        const list = response.data || [];
+        const [termRes, semRes, schoolRes] = await Promise.all([
+          api.get(`/terms/?academic_year_id=${selectedYear.id}`, { headers: getAuthHeader() }),
+          api.get(`/semesters/?academic_year_id=${selectedYear.id}`, { headers: getAuthHeader() }).catch(() => ({ data: [] })),
+          api.get('/schools/', { headers: getAuthHeader() }).catch(() => ({ data: null })),
+        ]);
+        const list = termRes.data || [];
         setTerms(list);
         // Default to the school's own "final term" (highest order) — same
         // rule Promote and the results-in-that-modal already use, so the
@@ -46,6 +56,14 @@ function SchoolResultsAwards() {
           const finalTerm = [...list].sort((a, b) => (b.order ?? 0) - (a.order ?? 0))[0];
           setSelectedTermId(finalTerm.id);
         }
+        const semList = semRes.data || [];
+        setSemesters(semList);
+        if (semList.length > 0) {
+          const finalSem = [...semList].sort((a, b) => (b.order ?? 0) - (a.order ?? 0))[0];
+          setSelectedSemesterId(finalSem.id);
+        }
+        const school = pickCurrentSchool(schoolRes.data);
+        setTermStructure(school?.term_structure || 'semester');
       } catch (err) {
         setError('Failed to load terms');
       } finally {
@@ -57,14 +75,16 @@ function SchoolResultsAwards() {
   }, [selectedYear?.id]);
 
   const loadResults = useCallback(async () => {
-    if (!selectedTermId) return;
+    if (periodType === 'term' && !selectedTermId) return;
+    if (periodType === 'semester' && !selectedSemesterId) return;
     setLoadingResults(true);
     setError('');
     try {
-      const response = await api.get('/results/school_top/', {
-        params: { term_id: selectedTermId, band, limit },
-        headers: getAuthHeader()
-      });
+      const endpoint = periodType === 'semester' ? '/semester-results/school_top/' : '/results/school_top/';
+      const params = periodType === 'semester'
+        ? { semester_id: selectedSemesterId, band, limit }
+        : { term_id: selectedTermId, band, limit };
+      const response = await api.get(endpoint, { params, headers: getAuthHeader() });
       setResults(response.data || []);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load results');
@@ -72,7 +92,7 @@ function SchoolResultsAwards() {
     } finally {
       setLoadingResults(false);
     }
-  }, [selectedTermId, band, limit, getAuthHeader]);
+  }, [periodType, selectedTermId, selectedSemesterId, band, limit, getAuthHeader]);
 
   useEffect(() => {
     loadResults();
@@ -100,16 +120,50 @@ function SchoolResultsAwards() {
       ) : (
         <>
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-wrap items-end gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Term</label>
-              <select
-                className="input-field"
-                value={selectedTermId || ''}
-                onChange={(e) => setSelectedTermId(Number(e.target.value))}
-              >
-                {terms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            </div>
+            {termStructure === 'quarter' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Period</label>
+                <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+                  <button
+                    onClick={() => setPeriodType('term')}
+                    className={`px-4 py-2 text-sm font-medium ${periodType === 'term' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                  >
+                    Quarter
+                  </button>
+                  <button
+                    onClick={() => setPeriodType('semester')}
+                    className={`px-4 py-2 text-sm font-medium border-l border-gray-300 ${periodType === 'semester' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                  >
+                    Semester
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {periodType === 'term' ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Term</label>
+                <select
+                  className="input-field"
+                  value={selectedTermId || ''}
+                  onChange={(e) => setSelectedTermId(Number(e.target.value))}
+                >
+                  {terms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Semester</label>
+                <select
+                  className="input-field"
+                  value={selectedSemesterId || ''}
+                  onChange={(e) => setSelectedSemesterId(Number(e.target.value))}
+                >
+                  {semesters.length === 0 && <option value="">No semesters yet</option>}
+                  {semesters.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Band</label>

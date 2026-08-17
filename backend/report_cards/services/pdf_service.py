@@ -64,6 +64,8 @@ def _header_table(report_card, styles):
     year_name = report_card.academic_year.name
     if report_card.report_type == 'term' and report_card.term:
         title_lines = ['REPORT CARD', report_card.term.name, year_name]
+    elif report_card.report_type == 'semester' and report_card.semester:
+        title_lines = ['SEMESTER REPORT CARD', report_card.semester.name, year_name]
     else:
         title_lines = ['YEAR-END REPORT CARD', year_name]
 
@@ -243,7 +245,10 @@ def render_report_card_pdf(report_card):
         Paragraph('Academic Results', styles['SectionHeading']),
     ]
 
-    if report_card.report_type == 'term':
+    if report_card.report_type in ('term', 'semester'):
+        # ✅ Item 7 — semester snapshots use the exact same shape as term
+        # snapshots ({'subjects': [...], 'term_name': ...}), so the same
+        # table renderer applies unchanged.
         if subjects:
             elements.append(_subjects_table_term(subjects, show_letters))
         else:

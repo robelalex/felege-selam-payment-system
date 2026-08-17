@@ -8,13 +8,14 @@ from django.db import transaction, models
 from decimal import Decimal
 
 from .models import (
-    Term, AssessmentType, Mark, DailyAttendance, SubjectAttendance,
-    SubjectTermResult, StudentTermResult,
+    Term, Semester, AssessmentType, Mark, DailyAttendance, SubjectAttendance,
+    SubjectTermResult, StudentTermResult, SubjectSemesterResult, StudentSemesterResult,
 )
 from .serializers import (
-    TermSerializer, AssessmentTypeSerializer, MarkSerializer,
+    TermSerializer, SemesterSerializer, AssessmentTypeSerializer, MarkSerializer,
     DailyAttendanceSerializer, SubjectAttendanceSerializer,
     SubjectTermResultSerializer, StudentTermResultSerializer,
+    SubjectSemesterResultSerializer, StudentSemesterResultSerializer,
 )
 from academics.models import AcademicYear, Subject, HomeroomAssignment
 from staff.models import TeacherClassAssignment
@@ -94,6 +95,22 @@ class TermViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(academic_year_id=year_id)
         return queryset
 
+    def _validate_semester(self, serializer, school_id):
+        # ✅ Item 7 — a Term's `semester` (if set) must belong to the
+        # same school and academic_year as the Term itself, or a
+        # careless client could pair a term with another year's/school's
+        # semester and silently corrupt semester-level results.
+        semester = serializer.validated_data.get('semester')
+        if not semester:
+            return
+        academic_year = serializer.validated_data.get(
+            'academic_year', getattr(serializer.instance, 'academic_year', None)
+        )
+        if semester.school_id != school_id or (academic_year and semester.academic_year_id != academic_year.id):
+            raise drf_serializers.ValidationError({
+                "semester": "This semester does not belong to the same school/academic year as this term."
+            })
+
     def perform_create(self, serializer):
         school_id = get_verified_school_id(self.request)
         if not school_id:
@@ -101,10 +118,68 @@ class TermViewSet(viewsets.ModelViewSet):
         academic_year = serializer.validated_data.get('academic_year')
         if academic_year and academic_year.school_id != school_id:
             raise drf_serializers.ValidationError({"error": "Academic year does not belong to your school"})
+        self._validate_semester(serializer, school_id)
+        serializer.save(school_id=school_id)
+
+    def perform_update(self, serializer):
+        school_id = get_verified_school_id(self.request)
+        self._validate_semester(serializer, school_id)
+        serializer.save()
+
+    def destroy(self, request, *args, **kwargs):
+        obj = self.get_object()
+        obj.is_active = False
+        obj.save(update_fields=['is_active'])
+        return Response({'success': True})
+
+
+class SemesterViewSet(viewsets.ModelViewSet):
+    """
+    Item 7 — groupings of two Terms (e.g. Q1+Q2 -> "Semester 1"), only
+    ever used by quarter-structure schools (School.term_structure ==
+    'quarter'). A semester-structure school simply never creates any of
+    these. Admin/registrar managed, same permission shape as TermViewSet.
+    """
+    serializer_class = SemesterSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            return [IsAuthenticated(), CanManageAcademics()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        school_id = get_verified_school_id(self.request)
+        if not school_id:
+            return Semester.objects.none()
+        queryset = Semester.objects.filter(school_id=school_id, is_active=True)
+        year_id = self.request.query_params.get('academic_year_id')
+        if year_id:
+            queryset = queryset.filter(academic_year_id=year_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        school_id = get_verified_school_id(self.request)
+        if not school_id:
+            raise drf_serializers.ValidationError({"error": "Could not resolve your school"})
+        from schools.models import School
+        school = School.objects.filter(id=school_id).first()
+        if school and school.term_structure != 'quarter':
+            raise drf_serializers.ValidationError({
+                "error": "This school isn't set to a quarter term structure. Set School.term_structure to 'quarter' before creating semesters."
+            })
+        academic_year = serializer.validated_data.get('academic_year')
+        if academic_year and academic_year.school_id != school_id:
+            raise drf_serializers.ValidationError({"error": "Academic year does not belong to your school"})
         serializer.save(school_id=school_id)
 
     def destroy(self, request, *args, **kwargs):
         obj = self.get_object()
+        if Term.objects.filter(semester=obj).exists():
+            return Response(
+                {'error': 'This semester still has terms assigned to it. Unassign or reassign them first.'},
+                status=400,
+            )
         obj.is_active = False
         obj.save(update_fields=['is_active'])
         return Response({'success': True})
@@ -985,5 +1060,190 @@ class StudentTermResultViewSet(viewsets.ReadOnlyModelViewSet):
         staff = _get_staff_profile(request)
         count = results_service.recompute_for_term(
             school=term.school, academic_year=term.academic_year, term=term, computed_by=staff,
+        )
+        return Response({'recomputed_students': count})
+
+
+class StudentSemesterResultViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Item 7 — mirrors StudentTermResultViewSet exactly, one level up.
+    Only ever has rows for quarter-structure schools; a semester-
+    structure school's students simply have none of these.
+    """
+    serializer_class = StudentSemesterResultSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action == 'list':
+            return [IsAuthenticated(), CanManageAcademics()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        school_id = get_verified_school_id(self.request)
+        qs = StudentSemesterResult.objects.select_related('student', 'semester').filter(school_id=school_id)
+        semester_id = self.request.query_params.get('semester_id')
+        if semester_id:
+            qs = qs.filter(semester_id=semester_id)
+        return qs
+
+    def retrieve(self, request, *args, **kwargs):
+        """Single student's semester result, with the per-subject breakdown included."""
+        instance = self.get_object()
+        staff = _get_staff_profile(request)
+        if not _is_admin(request):
+            year_id = instance.academic_year_id
+            if not staff or not _teacher_owns_homeroom(staff, instance.grade, instance.section, year_id):
+                return Response({'error': 'You are not the homeroom teacher for this class'}, status=403)
+        serializer = self.get_serializer(instance, context={'include_subjects': True})
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def class_results(self, request):
+        """Query params: semester_id, grade, section. Ranked list for one homeroom class."""
+        school_id = get_verified_school_id(request)
+        semester_id = request.query_params.get('semester_id')
+        grade = request.query_params.get('grade')
+        section = request.query_params.get('section', '')
+
+        if not (school_id and semester_id and grade):
+            return Response({'error': 'semester_id and grade are required'}, status=400)
+
+        staff = _get_staff_profile(request)
+        if not _is_admin(request):
+            semester = Semester.objects.filter(id=semester_id).first()
+            year_id = semester.academic_year_id if semester else None
+            if not staff or not _teacher_owns_homeroom(staff, int(grade), section, year_id):
+                return Response({'error': 'You are not the homeroom teacher for this class'}, status=403)
+
+        qs = StudentSemesterResult.objects.select_related('student').filter(
+            school_id=school_id, semester_id=semester_id, grade=grade, section=section,
+        ).order_by('homeroom_rank')
+        return Response(StudentSemesterResultSerializer(qs, many=True).data)
+
+    @action(detail=False, methods=['get'])
+    def class_results_semesters(self, request):
+        """
+        Query params: grade, section, academic_year_id.
+
+        Same shape as StudentTermResultViewSet.class_results_terms, one
+        level up: every Semester side by side (instead of every Term)
+        plus the year-end average and rank, for the homeroom's "Check
+        Result and Award" screen on a quarter-structure school. Reads
+        StudentSemesterResult directly (already computed + ranked) for
+        the semester columns, and report_cards.cumulative_service for
+        the hierarchical year-end figure — the exact same function that
+        feeds the cumulative report card, so this screen and that PDF
+        can never disagree.
+        """
+        school_id = get_verified_school_id(request)
+        grade = request.query_params.get('grade')
+        section = request.query_params.get('section', '')
+        academic_year_id = request.query_params.get('academic_year_id')
+
+        if not (school_id and grade and academic_year_id):
+            return Response({'error': 'grade and academic_year_id are required'}, status=400)
+
+        try:
+            grade = int(grade)
+            academic_year_id = int(academic_year_id)
+        except (TypeError, ValueError):
+            return Response({'error': 'grade and academic_year_id must be numbers'}, status=400)
+
+        staff = _get_staff_profile(request)
+        if not _is_admin(request):
+            if not staff or not _teacher_owns_homeroom(staff, grade, section, academic_year_id):
+                return Response({'error': 'You are not the homeroom teacher for this class'}, status=403)
+
+        from schools.models import School
+        school = School.objects.filter(id=school_id).first()
+        year = AcademicYear.objects.filter(id=academic_year_id, school_id=school_id).first()
+        if not (school and year):
+            return Response({'error': 'Academic year not found'}, status=404)
+
+        semesters = list(Semester.objects.filter(school=school, academic_year=year, is_active=True).order_by('order', 'name'))
+
+        from report_cards.services.cumulative_service import compute_cumulative_for_class
+        cumulative = compute_cumulative_for_class(school, year, grade, section)
+
+        semester_results = StudentSemesterResult.objects.filter(
+            school=school, academic_year=year, grade=grade, section=section,
+        ).select_related('semester')
+        per_student = {}
+        for r in semester_results:
+            per_student.setdefault(r.student_id, {})[r.semester_id] = r
+
+        students = Student.objects.filter(school=school, grade=grade, section=section, status='active').order_by('first_name', 'last_name')
+
+        results = []
+        for s in students:
+            entry = cumulative.get(s.id, {})
+            student_semesters = per_student.get(s.id, {})
+            results.append({
+                'student_id': s.id,
+                'student_name': f"{s.first_name} {s.last_name}",
+                'student_id_display': s.student_id,
+                'semesters': [
+                    {
+                        'semester_id': sem.id,
+                        'semester_name': sem.name,
+                        'average': (student_semesters[sem.id].overall_average if sem.id in student_semesters else None),
+                    }
+                    for sem in semesters
+                ],
+                'year_average': entry.get('overall_average'),
+                'semesters_counted': entry.get('terms_counted', 0),
+                'is_passing': entry.get('is_passing'),
+                'letter_grade': entry.get('letter_grade', ''),
+                'homeroom_rank': entry.get('homeroom_rank'),
+                'homeroom_rank_total': entry.get('homeroom_rank_total'),
+            })
+
+        results.sort(key=lambda r: (r['homeroom_rank'] is None, r['homeroom_rank'] or 0))
+
+        return Response({
+            'semesters': [{'id': sem.id, 'name': sem.name} for sem in semesters],
+            'results': results,
+        })
+
+    @action(detail=False, methods=['get'])
+    def school_top(self, request):
+        """Query params: semester_id, band ('elementary' or 'high_school'), limit (default 3). Admin only — for award/ranking lists."""
+        if not _is_admin(request):
+            return Response({'error': 'Admin only'}, status=403)
+
+        school_id = get_verified_school_id(request)
+        semester_id = request.query_params.get('semester_id')
+        band = request.query_params.get('band', 'elementary')
+        limit = int(request.query_params.get('limit', 3))
+
+        if not (school_id and semester_id):
+            return Response({'error': 'semester_id is required'}, status=400)
+
+        max_grade = StudentSemesterResult.ELEMENTARY_MAX_GRADE
+        qs = StudentSemesterResult.objects.select_related('student').filter(
+            school_id=school_id, semester_id=semester_id, school_rank__isnull=False,
+        )
+        qs = qs.filter(grade__lte=max_grade) if band == 'elementary' else qs.filter(grade__gt=max_grade)
+        qs = qs.order_by('school_rank')[:limit]
+        return Response(StudentSemesterResultSerializer(qs, many=True).data)
+
+    @action(detail=False, methods=['post'])
+    def recalculate(self, request):
+        """Body: { semester_id }. Admin only — full recompute for the whole school, this semester."""
+        if not _is_admin(request):
+            return Response({'error': 'Admin only'}, status=403)
+
+        school_id = get_verified_school_id(request)
+        semester_id = request.data.get('semester_id')
+        if not (school_id and semester_id):
+            return Response({'error': 'semester_id is required'}, status=400)
+
+        semester = Semester.objects.filter(id=semester_id, school_id=school_id).first()
+        if not semester:
+            return Response({'error': 'Semester not found'}, status=404)
+
+        staff = _get_staff_profile(request)
+        count = results_service.recompute_for_semester(
+            school=semester.school, academic_year=semester.academic_year, semester=semester, computed_by=staff,
         )
         return Response({'recomputed_students': count})

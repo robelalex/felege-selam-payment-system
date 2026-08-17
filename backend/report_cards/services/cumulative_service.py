@@ -13,16 +13,49 @@
 #     has a result for. (Same "simple average of already-computed
 #     averages" pattern used for a student's per-term overall average —
 #     kept consistent rather than inventing a different rule here.)
-#   - A student's overall YEAR average = simple average of their
-#     SubjectTermResult-derived subject-year-averages — equivalently,
-#     also the simple average of their per-term StudentTermResult.
-#     overall_average values, which is the simpler way this is actually
-#     computed below.
+#   - A student's overall YEAR average:
+#       * 'semester'-structure schools (the default, School.term_structure
+#         == 'semester'): FLAT — simple average of their per-term
+#         StudentTermResult.overall_average values. Unchanged from
+#         before Item 7.
+#       * 'quarter'-structure schools: HIERARCHICAL — simple average of
+#         their StudentSemesterResult.overall_average values (Semester 1
+#         average, Semester 2 average), NOT a flat average of all 4
+#         quarters. This is a deliberate decision (not just an
+#         implementation detail): when a quarter is missing mid-year
+#         (e.g. Q4 hasn't happened yet), a flat average of Q1-Q3 counts
+#         each quarter equally, while the hierarchical average counts
+#         Semester 1 fully and Semester 2 only on whatever quarters it
+#         has so far — weighting a still-incomplete semester the same as
+#         a complete one rather than letting extra quarters in one
+#         semester silently outweigh the other. Confirmed with the
+#         product owner during the Item 7 planning session.
 #   - Terms with no result yet for a student (e.g. Term 2 hasn't
-#     happened yet) are just excluded — they don't count as zero.
+#     happened yet) are just excluded — they don't count as zero. Same
+#     exclusion rule applies to semesters with no result yet.
 
-from exams.models import StudentTermResult, SubjectTermResult
+from exams.models import StudentTermResult, SubjectTermResult, StudentSemesterResult
 from exams.services.results_service import round2, rank_by_value
+
+
+def _hierarchical_overall_average(student, academic_year):
+    """
+    Quarter-structure schools only: simple average of the student's
+    StudentSemesterResult.overall_average values for this academic year.
+    A semester with no result yet is excluded, not counted as zero.
+    Returns (overall_average, semesters_counted) — semesters_counted is
+    reported as 'terms_counted' in the snapshot dict for compatibility
+    with everything downstream (report card PDF, generation_service)
+    that already reads that key.
+    """
+    semester_results = list(
+        StudentSemesterResult.objects.filter(student=student, academic_year=academic_year)
+        .exclude(overall_average__isnull=True)
+    )
+    if not semester_results:
+        return None, 0
+    values = [r.overall_average for r in semester_results]
+    return round2(sum(values) / len(values)), len(semester_results)
 
 
 def compute_cumulative_for_student(student, academic_year):
@@ -75,6 +108,8 @@ def compute_cumulative_for_student(student, academic_year):
         })
     subjects_snapshot.sort(key=lambda s: s['subject_name'])
 
+    school = academic_year.school
+
     if not term_results:
         return {
             'overall_average': None,
@@ -84,16 +119,35 @@ def compute_cumulative_for_student(student, academic_year):
             'subjects': subjects_snapshot,
         }
 
-    overall_values = [tr.overall_average for tr in term_results if tr.overall_average is not None]
-    overall_average = round2(sum(overall_values) / len(overall_values)) if overall_values else None
+    # ✅ Item 7 — quarter-structure schools compute the year-end average
+    # hierarchically (average of semester averages), not as a flat
+    # average of every term. See the module-level comment above for why.
+    if school.term_structure == 'quarter':
+        overall_average, counted = _hierarchical_overall_average(student, academic_year)
+        if overall_average is None:
+            # No semester results yet even though term results exist
+            # (e.g. only Q1 has been accepted, Semester 1 hasn't been
+            # recomputed yet) — fall back to "no data" rather than
+            # silently reporting a flat average that contradicts the
+            # school's own chosen structure.
+            return {
+                'overall_average': None,
+                'terms_counted': 0,
+                'is_passing': None,
+                'letter_grade': '',
+                'subjects': subjects_snapshot,
+            }
+    else:
+        overall_values = [tr.overall_average for tr in term_results if tr.overall_average is not None]
+        overall_average = round2(sum(overall_values) / len(overall_values)) if overall_values else None
+        counted = len(term_results)
 
-    school = academic_year.school
     is_passing = school.is_passing_score(overall_average)
     letter_grade = school.letter_grade_for(overall_average)
 
     return {
         'overall_average': float(overall_average) if overall_average is not None else None,
-        'terms_counted': len(term_results),
+        'terms_counted': counted,
         'is_passing': is_passing,
         'letter_grade': letter_grade,
         'subjects': subjects_snapshot,

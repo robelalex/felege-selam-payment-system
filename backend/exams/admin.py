@@ -1,5 +1,17 @@
 from django.contrib import admin
-from .models import AssessmentType, Mark, DailyAttendance
+from .models import Term, Semester, AssessmentType, Mark, DailyAttendance
+
+
+@admin.register(Semester)
+class SemesterAdmin(admin.ModelAdmin):
+    list_display = ['name', 'school', 'academic_year', 'order', 'is_active']
+    list_filter = ['school', 'academic_year', 'is_active']
+
+
+@admin.register(Term)
+class TermAdmin(admin.ModelAdmin):
+    list_display = ['name', 'school', 'academic_year', 'semester', 'order', 'is_active']
+    list_filter = ['school', 'academic_year', 'is_active']
 
 
 @admin.register(AssessmentType)

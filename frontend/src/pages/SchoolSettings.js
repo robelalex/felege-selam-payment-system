@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { getMediaUrl } from '../utils/imageUrl';
+import { pickCurrentSchool } from '../utils/currentSchool';
 import SchoolBankAccounts from '../components/Admin/SchoolBankAccounts';
 
 const SchoolSettings = () => {
@@ -40,6 +41,12 @@ const SchoolSettings = () => {
     const [gradingSystem, setGradingSystem] = useState('percentage');
     const [savingGrading, setSavingGrading] = useState(false);
 
+    // ✅ Item 7: Term Structure state (semester-only vs quarters-grouped-into-semesters)
+    const [termStructure, setTermStructure] = useState('semester');
+    const [termStructureLocked, setTermStructureLocked] = useState(false);
+    const [savingTermStructure, setSavingTermStructure] = useState(false);
+    const [termStructureError, setTermStructureError] = useState('');
+
     // ✅ Jimma item 6: School location state
     const [location, setLocation] = useState({
         region: '',
@@ -54,17 +61,19 @@ const SchoolSettings = () => {
     useEffect(() => {
         fetchAllConfigs();
         fetchSchoolProfile();
+        checkTermStructureLock();
     }, []);
 
     // ✅ NEW: load current school (logo + grading system) — this account's own school
     const fetchSchoolProfile = async () => {
         try {
             const res = await api.get('/schools/');
-            const school = Array.isArray(res.data) ? res.data[0] : res.data;
+            const school = pickCurrentSchool(res.data);
             if (school) {
                 setSchoolId(school.id);
                 setLogoPreview(school.logo ? getMediaUrl(school.logo) : null);
                 setGradingSystem(school.grading_system || 'percentage');
+                setTermStructure(school.term_structure || 'semester');
                 // ✅ Jimma item 6: School location
                 setLocation({
                     region: school.region || '',
@@ -77,6 +86,23 @@ const SchoolSettings = () => {
             }
         } catch (error) {
             console.error('Error fetching school profile:', error);
+        }
+    };
+
+    // ✅ Item 7: check whether the current academic year already has Terms
+    // set up — if so, term_structure is locked (can't switch mid-year, see
+    // backend SchoolViewSet.perform_update). Best-effort: if this check
+    // fails for any reason, we just leave it unlocked and let the save
+    // itself surface the backend's own validation error.
+    const checkTermStructureLock = async () => {
+        try {
+            const yearRes = await api.get('/academic-years/current/');
+            const yearId = yearRes.data?.id;
+            if (!yearId) return;
+            const termsRes = await api.get(`/terms/?academic_year_id=${yearId}`);
+            setTermStructureLocked((termsRes.data || []).length > 0);
+        } catch (error) {
+            // No current year yet, or endpoint unavailable — leave unlocked.
         }
     };
 
@@ -138,6 +164,24 @@ const SchoolSettings = () => {
             alert('❌ Failed to save grading system');
         } finally {
             setSavingGrading(false);
+        }
+    };
+
+    // ✅ Item 7: Term Structure save. Backend locks this once the current
+    // academic year already has Terms — surface that error inline rather
+    // than a generic alert, since it's an expected, actionable state.
+    const handleTermStructureSave = async () => {
+        if (!schoolId) return;
+        setSavingTermStructure(true);
+        setTermStructureError('');
+        try {
+            await api.patch(`/schools/${schoolId}/`, { term_structure: termStructure });
+            alert('✅ Term structure saved! Head to Academics Setup → Terms to set up your terms (and semesters, if using quarters).');
+        } catch (error) {
+            const backendError = error.response?.data?.term_structure?.[0] || error.response?.data?.term_structure;
+            setTermStructureError(backendError || 'Failed to save term structure');
+        } finally {
+            setSavingTermStructure(false);
         }
     };
 
@@ -467,6 +511,49 @@ const SchoolSettings = () => {
                         className="px-6 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50"
                     >
                         {savingGrading ? 'Saving...' : 'Save Grading System'}
+                    </button>
+                </div>
+            </div>
+
+            {/* ==================== TERM STRUCTURE SECTION — Item 7 ==================== */}
+            <div className="bg-white shadow rounded-lg overflow-hidden">
+                <div className="bg-indigo-50 border-l-4 border-indigo-400 p-4">
+                    <p className="text-indigo-800">
+                        🗓️ Choose whether your school grades in semesters only, or in quarters that group into two semesters.
+                        This controls what shows up in Academics Setup → Terms, and unlocks semester-level results and report cards for quarter schools.
+                    </p>
+                </div>
+                <div className="p-6 space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Term Structure</label>
+                        <select
+                            value={termStructure}
+                            onChange={(e) => setTermStructure(e.target.value)}
+                            disabled={termStructureLocked}
+                            className="w-full md:w-96 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100 disabled:text-gray-500"
+                        >
+                            <option value="semester">Semesters only (no quarters)</option>
+                            <option value="quarter">Quarters grouped into semesters</option>
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1">
+                            {termStructure === 'semester' && 'Set up your terms as-is in Academics Setup — 2 semesters, 3 trimesters, whatever your school uses. No grouping.'}
+                            {termStructure === 'quarter' && 'Set up 4 terms (Q1–Q4) and group them in pairs into two Semesters. Semester report cards and rankings become available alongside the existing term-level ones.'}
+                        </p>
+                        {termStructureLocked && (
+                            <p className="text-xs text-amber-600 mt-2">
+                                🔒 This is locked because the current academic year already has terms set up. Term structure can only be changed before any terms exist for a year.
+                            </p>
+                        )}
+                        {termStructureError && (
+                            <p className="text-xs text-red-600 mt-2">{termStructureError}</p>
+                        )}
+                    </div>
+                    <button
+                        onClick={handleTermStructureSave}
+                        disabled={savingTermStructure || termStructureLocked}
+                        className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                        {savingTermStructure ? 'Saving...' : 'Save Term Structure'}
                     </button>
                 </div>
             </div>

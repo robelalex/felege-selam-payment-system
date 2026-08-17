@@ -249,7 +249,185 @@ def recompute_for_class(school, subject, term, grade, section, student_ids=None,
     is_elementary = grade <= exam_models.StudentTermResult.ELEMENTARY_MAX_GRADE
     recompute_school_ranks(school, term.academic_year, term, is_elementary)
 
+    # ✅ Item 7 — a quarter-structure school's Term optionally belongs to
+    # a Semester (see Term.semester). Keep the semester layer in sync
+    # whenever its child term's results change, so a homeroom accepting
+    # one Q1 mark doesn't leave Semester 1's numbers stale until someone
+    # remembers to hit a separate "recalculate semester" button.
+    # Semester-structure schools never set Term.semester, so this is a
+    # no-op for them.
+    if term.semester_id:
+        recompute_for_semester(school, term.academic_year, term.semester, computed_by=computed_by)
+
     return len(affected_students)
+
+
+# ============================================================================
+# Item 7 — Semester-level compute/rank (quarter-structure schools only)
+# ============================================================================
+#
+# Mirrors everything above, one level up: a Semester's numbers are
+# derived from the SubjectTermResult/StudentTermResult rows of its own
+# child Terms (Semester.terms), never straight from Mark. Only ever
+# called for schools with School.term_structure == 'quarter' — a
+# semester-structure school has no Semester rows to compute, so these
+# are simply never invoked for it.
+
+def recompute_subject_semester_result(student, subject, semester):
+    """
+    One student's average for one subject across a Semester's child
+    terms — simple average of that subject's already-computed
+    SubjectTermResult.average_percentage values. A child term with no
+    result yet (e.g. Q2 hasn't happened) is excluded, not counted as
+    zero — same rule the year-end cumulative already uses.
+    """
+    child_terms = list(exam_models.Term.objects.filter(semester=semester))
+    subject_results = exam_models.SubjectTermResult.objects.filter(
+        student=student, subject=subject, term__in=child_terms, average_percentage__isnull=False,
+    )
+    values = [r.average_percentage for r in subject_results]
+    average_percentage = round2(sum(values) / len(values)) if values else None
+
+    school = semester.school
+    is_passing = school.is_passing_score(average_percentage) if average_percentage is not None else None
+
+    result, _ = exam_models.SubjectSemesterResult.objects.update_or_create(
+        student=student, subject=subject, semester=semester,
+        defaults={
+            'school': school,
+            'academic_year': semester.academic_year,
+            'grade': student.grade,
+            'section': student.section,
+            'average_percentage': average_percentage,
+            'terms_counted': len(values),
+            'is_passing': is_passing,
+        }
+    )
+    return result
+
+
+def recompute_student_semester_result(student, semester, computed_by=None):
+    """
+    A student's overall semester result — simple average of their
+    SubjectSemesterResult.average_percentage values across every subject
+    they have one for. Ranks are NOT set here (see recompute_ranks-style
+    functions below) since a rank depends on the whole class.
+    """
+    subject_results = exam_models.SubjectSemesterResult.objects.filter(
+        student=student, semester=semester, average_percentage__isnull=False,
+    )
+    values = [r.average_percentage for r in subject_results]
+    overall_average = round2(sum(values) / len(values)) if values else None
+
+    school = semester.school
+    is_passing = school.is_passing_score(overall_average) if overall_average is not None else None
+    letter_grade = school.letter_grade_for(overall_average) if overall_average is not None else ''
+
+    result, _ = exam_models.StudentSemesterResult.objects.update_or_create(
+        student=student, semester=semester,
+        defaults={
+            'school': school,
+            'academic_year': semester.academic_year,
+            'grade': student.grade,
+            'section': student.section,
+            'overall_average': overall_average,
+            'subjects_counted': len(values),
+            'is_passing': is_passing,
+            'letter_grade': letter_grade,
+            'computed_by': computed_by,
+        }
+    )
+    return result
+
+
+def _assign_semester_ranks(queryset):
+    return rank_by_value(list(queryset), lambda r: r.overall_average)
+
+
+def recompute_homeroom_semester_ranks(school, academic_year, semester, grade, section):
+    """Rank pool: same school + academic_year + semester + grade + section."""
+    qs = list(exam_models.StudentSemesterResult.objects.filter(
+        school=school, academic_year=academic_year, semester=semester, grade=grade, section=section,
+    ))
+    updates, total = _assign_semester_ranks(qs)
+
+    to_save = []
+    for result, rank in updates:
+        result.homeroom_rank = rank
+        result.homeroom_rank_total = total
+        to_save.append(result)
+    ranked_ids = {r.id for r, _ in updates}
+    for result in qs:
+        if result.id not in ranked_ids and (result.homeroom_rank is not None or result.homeroom_rank_total is not None):
+            result.homeroom_rank = None
+            result.homeroom_rank_total = None
+            to_save.append(result)
+
+    if to_save:
+        exam_models.StudentSemesterResult.objects.bulk_update(
+            to_save, ['homeroom_rank', 'homeroom_rank_total']
+        )
+    return total
+
+
+def recompute_school_semester_ranks(school, academic_year, semester, is_elementary):
+    """Rank pool: whole school, same academic_year + semester, split elementary vs high school."""
+    max_grade = exam_models.StudentSemesterResult.ELEMENTARY_MAX_GRADE
+    grade_filter = {'grade__lte': max_grade} if is_elementary else {'grade__gt': max_grade}
+
+    qs = list(exam_models.StudentSemesterResult.objects.filter(
+        school=school, academic_year=academic_year, semester=semester, **grade_filter,
+    ))
+    updates, total = _assign_semester_ranks(qs)
+
+    to_save = []
+    for result, rank in updates:
+        result.school_rank = rank
+        result.school_rank_total = total
+        to_save.append(result)
+    ranked_ids = {r.id for r, _ in updates}
+    for result in qs:
+        if result.id not in ranked_ids and (result.school_rank is not None or result.school_rank_total is not None):
+            result.school_rank = None
+            result.school_rank_total = None
+            to_save.append(result)
+
+    if to_save:
+        exam_models.StudentSemesterResult.objects.bulk_update(
+            to_save, ['school_rank', 'school_rank_total']
+        )
+    return total
+
+
+def recompute_for_semester(school, academic_year, semester, computed_by=None):
+    """
+    Full recompute of a Semester's results for every active student in
+    the school, from that semester's child Terms' already-computed
+    SubjectTermResult/StudentTermResult rows. Meant to be called right
+    after recompute_for_term() runs for either child term (a semester
+    accept/recalculate should always keep the semester layer in sync
+    with its terms), or from an admin "Recalculate" button scoped to a
+    semester.
+    """
+    from students.models import Student
+    from academics.models import Subject
+
+    students = list(Student.objects.filter(school=school, status='active'))
+    subjects = list(Subject.objects.filter(school=school))
+
+    for student in students:
+        for subject in subjects:
+            recompute_subject_semester_result(student, subject, semester)
+        recompute_student_semester_result(student, semester, computed_by=computed_by)
+
+    class_keys = {(s.grade, s.section) for s in students}
+    for grade, section in class_keys:
+        recompute_homeroom_semester_ranks(school, academic_year, semester, grade, section)
+
+    recompute_school_semester_ranks(school, academic_year, semester, is_elementary=True)
+    recompute_school_semester_ranks(school, academic_year, semester, is_elementary=False)
+
+    return len(students)
 
 
 def recompute_for_term(school, academic_year, term, computed_by=None):
@@ -277,5 +455,11 @@ def recompute_for_term(school, academic_year, term, computed_by=None):
 
     recompute_school_ranks(school, academic_year, term, is_elementary=True)
     recompute_school_ranks(school, academic_year, term, is_elementary=False)
+
+    # ✅ Item 7 — same sync as recompute_for_class above: if this term
+    # belongs to a Semester, refresh that semester's numbers too. No-op
+    # for semester-structure schools (term.semester is always None there).
+    if term.semester_id:
+        recompute_for_semester(school, academic_year, term.semester, computed_by=computed_by)
 
     return len(students)

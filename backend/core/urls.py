@@ -20,8 +20,8 @@ from authentication import views as auth_views
 from rest_framework_simplejwt.views import TokenRefreshView
 from academics.views import AcademicYearViewSet, SubjectViewSet, HomeroomAssignmentViewSet
 from exams.views import (
-    TermViewSet, AssessmentTypeViewSet, MarkViewSet, DailyAttendanceViewSet, SubjectAttendanceViewSet,
-    StudentTermResultViewSet,
+    TermViewSet, SemesterViewSet, AssessmentTypeViewSet, MarkViewSet, DailyAttendanceViewSet, SubjectAttendanceViewSet,
+    StudentTermResultViewSet, StudentSemesterResultViewSet,
 )
 from report_cards.views import ReportCardViewSet
 
@@ -34,10 +34,12 @@ router.register(r'subjects', SubjectViewSet, basename='subject')
 router.register(r'homeroom-assignments', HomeroomAssignmentViewSet, basename='homeroom-assignment')
 router.register(r'assessment-types', AssessmentTypeViewSet, basename='assessment-type')
 router.register(r'terms', TermViewSet, basename='term')
+router.register(r'semesters', SemesterViewSet, basename='semester')
 router.register(r'marks', MarkViewSet, basename='mark')
 router.register(r'attendance', DailyAttendanceViewSet, basename='attendance')
 router.register(r'subject-attendance', SubjectAttendanceViewSet, basename='subject-attendance')
 router.register(r'results', StudentTermResultViewSet, basename='student-term-result')
+router.register(r'semester-results', StudentSemesterResultViewSet, basename='student-semester-result')
 router.register(r'report-cards', ReportCardViewSet, basename='report-card')
 
 urlpatterns = [

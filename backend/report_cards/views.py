@@ -13,7 +13,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from academics.models import AcademicYear, HomeroomAssignment
-from exams.models import Term
+from exams.models import Term, Semester
 from students.models import Student
 from common.utils import get_verified_school_id, get_effective_role
 
@@ -85,6 +85,8 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
                 qs = qs.filter(academic_year_id=params['academic_year_id'])
             if params.get('term_id'):
                 qs = qs.filter(term_id=params['term_id'])
+            if params.get('semester_id'):
+                qs = qs.filter(semester_id=params['semester_id'])
             if params.get('report_type'):
                 qs = qs.filter(report_type=params['report_type'])
             return qs
@@ -101,6 +103,8 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(section=params.get('section', ''))
         if params.get('term_id'):
             qs = qs.filter(term_id=params['term_id'])
+        if params.get('semester_id'):
+            qs = qs.filter(semester_id=params['semester_id'])
         if params.get('report_type'):
             qs = qs.filter(report_type=params['report_type'])
         if params.get('status'):
@@ -127,7 +131,7 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['post'])
     def generate(self, request):
-        """Body: { student_id, report_type: 'term'|'cumulative', term_id (required if 'term') }. Admin only."""
+        """Body: { student_id, report_type: 'term'|'semester'|'cumulative', term_id (required if 'term'), semester_id (required if 'semester') }. Admin only."""
         if not _is_admin(request):
             return Response({'error': 'Admin only'}, status=403)
 
@@ -135,6 +139,7 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
         student_id = request.data.get('student_id')
         report_type = request.data.get('report_type')
         term_id = request.data.get('term_id')
+        semester_id = request.data.get('semester_id')
 
         student = Student.objects.filter(id=student_id, school_id=school_id).first()
         if not student:
@@ -147,13 +152,18 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
                 if not term:
                     return Response({'error': 'Term not found'}, status=404)
                 report_card = generation_service.generate_term_report_card(student, term, generated_by=staff)
+            elif report_type == 'semester':
+                semester = Semester.objects.filter(id=semester_id, school_id=school_id).first()
+                if not semester:
+                    return Response({'error': 'Semester not found'}, status=404)
+                report_card = generation_service.generate_semester_report_card(student, semester, generated_by=staff)
             elif report_type == 'cumulative':
                 year = AcademicYear.objects.filter(school_id=school_id, is_current=True).first()
                 if not year:
                     return Response({'error': 'Academic year not found'}, status=404)
                 report_card = generation_service.generate_cumulative_report_card(student, year, generated_by=staff)
             else:
-                return Response({'error': "report_type must be 'term' or 'cumulative'"}, status=400)
+                return Response({'error': "report_type must be 'term', 'semester' or 'cumulative'"}, status=400)
         except ValueError as exc:
             return Response({'error': str(exc)}, status=400)
 
@@ -162,7 +172,8 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=['post'])
     def generate_class(self, request):
         """
-        Body: { grade, section, academic_year_id, report_type: 'term'|'cumulative', term_id (required if 'term') }.
+        Body: { grade, section, academic_year_id, report_type: 'term'|'semester'|'cumulative',
+        term_id (required if 'term'), semester_id (required if 'semester') }.
         Admin only. Generates for every active student in the class; one
         student with no results yet doesn't block the rest.
         """
@@ -175,6 +186,7 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
         academic_year_id = request.data.get('academic_year_id')
         report_type = request.data.get('report_type')
         term_id = request.data.get('term_id')
+        semester_id = request.data.get('semester_id')
 
         if not (grade and academic_year_id and report_type):
             return Response({'error': 'grade, academic_year_id and report_type are required'}, status=400)
@@ -186,15 +198,20 @@ class ReportCardViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'error': 'Academic year not found'}, status=404)
 
         term = None
+        semester = None
         if report_type == 'term':
             term = Term.objects.filter(id=term_id, school_id=school_id).first()
             if not term:
                 return Response({'error': 'Term not found'}, status=404)
+        elif report_type == 'semester':
+            semester = Semester.objects.filter(id=semester_id, school_id=school_id).first()
+            if not semester:
+                return Response({'error': 'Semester not found'}, status=404)
 
         staff = _staff_profile(request)
         try:
             successes, failures = generation_service.generate_for_class(
-                school, year, int(grade), section, report_type, term=term, generated_by=staff,
+                school, year, int(grade), section, report_type, term=term, semester=semester, generated_by=staff,
             )
         except ValueError as exc:
             return Response({'error': str(exc)}, status=400)
