@@ -134,6 +134,22 @@ class School(models.Model):
     # ✅ Add logo field
     logo = models.ImageField(upload_to='school_logos/', blank=True, null=True, help_text="School logo (JPG, PNG)")
 
+    # ✅ Report card branding — director/principal's signature and the
+    # school's official stamp/seal, printed on report card PDFs near the
+    # bottom signature line. Same upload pattern as `logo` above (single
+    # image, uploaded once from School Settings, reused on every report
+    # card generated afterward). Optional — a school that hasn't uploaded
+    # either yet still gets a report card, just with a blank signature
+    # line / stamp box instead of an image.
+    director_signature = models.ImageField(
+        upload_to='school_signatures/', blank=True, null=True,
+        help_text="Director/principal's signature image, printed on report cards (JPG, PNG)."
+    )
+    school_stamp = models.ImageField(
+        upload_to='school_stamps/', blank=True, null=True,
+        help_text="Official school stamp/seal image, printed on report cards (JPG, PNG)."
+    )
+
     # ✅ Naming convention — controls how Student.formatted_name is composed
     # everywhere it's used (ID cards, report cards, receipts, lists), without
     # touching how first_name/father_name/last_name are stored. Ethiopian

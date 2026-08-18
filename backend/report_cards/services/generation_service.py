@@ -230,6 +230,28 @@ def generate_cumulative_report_card(student, academic_year, generated_by=None):
 
     snapshot = {'subjects': cumulative['subjects'], 'term_names': term_names}
 
+    # ✅ Consolidated cumulative layout — quarter-structure schools only:
+    # same ordering trick as term_names above (declared Semester.order,
+    # not alphabetical), so the PDF's Semester 1 / Semester 2 columns
+    # aren't accidentally swapped. Semester-structure schools never reach
+    # here with any 'per_semester' data (cumulative_service only attaches
+    # it for term_structure == 'quarter'), so subject_semester_names is
+    # always empty for them and this key ends up an empty list — harmless,
+    # since pdf_service only looks at it for quarter-structure schools.
+    if school.term_structure == 'quarter':
+        from exams.models import Semester as SemesterModel
+        year_semesters = list(
+            SemesterModel.objects.filter(school=school, academic_year=academic_year, is_active=True)
+            .order_by('order', 'name')
+            .values_list('name', flat=True)
+        )
+        subject_semester_names = {
+            sn for subj in cumulative['subjects'] for sn in subj.get('per_semester', {}).keys()
+        }
+        ordered_semester_names = [s for s in year_semesters if s in subject_semester_names]
+        extras_sem = sorted(subject_semester_names - set(ordered_semester_names))
+        snapshot['semester_names'] = ordered_semester_names + extras_sem
+
     # Homeroom rank among the student's own class, using the same
     # class-level cumulative computation the admin/teacher screens use,
     # so the rank on the PDF always matches what's shown on screen.

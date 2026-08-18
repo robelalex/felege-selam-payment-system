@@ -41,6 +41,16 @@ const SchoolSettings = () => {
     const [gradingSystem, setGradingSystem] = useState('percentage');
     const [savingGrading, setSavingGrading] = useState(false);
 
+    // ✅ NEW: Report card branding — director's signature + official stamp.
+    // Same upload/preview/save pattern as the logo above, just two more
+    // ImageFields on School (director_signature, school_stamp).
+    const [signatureFile, setSignatureFile] = useState(null);
+    const [signaturePreview, setSignaturePreview] = useState(null);
+    const [savingSignature, setSavingSignature] = useState(false);
+    const [stampFile, setStampFile] = useState(null);
+    const [stampPreview, setStampPreview] = useState(null);
+    const [savingStamp, setSavingStamp] = useState(false);
+
     // ✅ Item 7: Term Structure state (semester-only vs quarters-grouped-into-semesters)
     const [termStructure, setTermStructure] = useState('semester');
     const [termStructureLocked, setTermStructureLocked] = useState(false);
@@ -72,6 +82,8 @@ const SchoolSettings = () => {
             if (school) {
                 setSchoolId(school.id);
                 setLogoPreview(school.logo ? getMediaUrl(school.logo) : null);
+                setSignaturePreview(school.director_signature ? getMediaUrl(school.director_signature) : null);
+                setStampPreview(school.school_stamp ? getMediaUrl(school.school_stamp) : null);
                 setGradingSystem(school.grading_system || 'percentage');
                 setTermStructure(school.term_structure || 'semester');
                 // ✅ Jimma item 6: School location
@@ -150,6 +162,75 @@ const SchoolSettings = () => {
             alert('❌ Failed to update logo');
         } finally {
             setSavingBranding(false);
+        }
+    };
+
+    // ✅ NEW: Director's signature — same validate/preview/save pattern as
+    // the logo above, targeting School.director_signature instead.
+    const handleSignatureChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!['image/jpeg', 'image/png', 'image/jpg'].includes(file.type)) {
+            alert('Signature must be a JPG or PNG image');
+            return;
+        }
+        if (file.size > 3 * 1024 * 1024) {
+            alert('Signature must be smaller than 3MB');
+            return;
+        }
+        setSignatureFile(file);
+        setSignaturePreview(URL.createObjectURL(file));
+    };
+
+    const handleSignatureSave = async () => {
+        if (!signatureFile || !schoolId) return;
+        setSavingSignature(true);
+        try {
+            const formData = new FormData();
+            formData.append('director_signature', signatureFile);
+            // Same fix as the logo save above: no manual Content-Type, let
+            // axios set the multipart boundary itself.
+            await api.patch(`/schools/${schoolId}/`, formData);
+            alert('✅ Director signature updated successfully!');
+            await fetchSchoolProfile();
+        } catch (error) {
+            console.error('Error saving signature:', error);
+            alert('❌ Failed to update signature');
+        } finally {
+            setSavingSignature(false);
+        }
+    };
+
+    // ✅ NEW: Official school stamp — same pattern, targeting School.school_stamp.
+    const handleStampChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!['image/jpeg', 'image/png', 'image/jpg'].includes(file.type)) {
+            alert('Stamp must be a JPG or PNG image');
+            return;
+        }
+        if (file.size > 3 * 1024 * 1024) {
+            alert('Stamp must be smaller than 3MB');
+            return;
+        }
+        setStampFile(file);
+        setStampPreview(URL.createObjectURL(file));
+    };
+
+    const handleStampSave = async () => {
+        if (!stampFile || !schoolId) return;
+        setSavingStamp(true);
+        try {
+            const formData = new FormData();
+            formData.append('school_stamp', stampFile);
+            await api.patch(`/schools/${schoolId}/`, formData);
+            alert('✅ School stamp updated successfully!');
+            await fetchSchoolProfile();
+        } catch (error) {
+            console.error('Error saving stamp:', error);
+            alert('❌ Failed to update stamp');
+        } finally {
+            setSavingStamp(false);
         }
     };
 
@@ -476,6 +557,74 @@ const SchoolSettings = () => {
                         >
                             {savingBranding ? 'Saving...' : 'Save Logo'}
                         </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* ==================== REPORT CARD BRANDING (SIGNATURE + STAMP) — NEW ==================== */}
+            <div className="bg-white shadow rounded-lg overflow-hidden">
+                <div className="bg-indigo-50 border-l-4 border-indigo-400 p-4">
+                    <p className="text-indigo-800">
+                        ✍️ Upload the director/principal's signature and the school's official stamp once here —
+                        they'll be printed automatically on every released report card, near the bottom where a
+                        director would sign.
+                    </p>
+                </div>
+                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Director's Signature */}
+                    <div className="flex items-center gap-6">
+                        <div className="h-24 w-24 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center flex-shrink-0">
+                            {signaturePreview ? (
+                                <img src={signaturePreview} alt="Director's signature" className="h-full w-full object-contain" />
+                            ) : (
+                                <span className="text-xs text-gray-400 text-center px-2">No signature yet</span>
+                            )}
+                        </div>
+                        <div className="flex-1">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Director's Signature</label>
+                            <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/jpg"
+                                onChange={handleSignatureChange}
+                                className="text-sm text-gray-600 mb-3"
+                            />
+                            <p className="text-xs text-gray-500 mb-3">JPG or PNG, up to 3MB.</p>
+                            <button
+                                onClick={handleSignatureSave}
+                                disabled={!signatureFile || savingSignature}
+                                className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                            >
+                                {savingSignature ? 'Saving...' : 'Save Signature'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Official School Stamp */}
+                    <div className="flex items-center gap-6">
+                        <div className="h-24 w-24 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center flex-shrink-0">
+                            {stampPreview ? (
+                                <img src={stampPreview} alt="Official school stamp" className="h-full w-full object-contain" />
+                            ) : (
+                                <span className="text-xs text-gray-400 text-center px-2">No stamp yet</span>
+                            )}
+                        </div>
+                        <div className="flex-1">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Official School Stamp</label>
+                            <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/jpg"
+                                onChange={handleStampChange}
+                                className="text-sm text-gray-600 mb-3"
+                            />
+                            <p className="text-xs text-gray-500 mb-3">JPG or PNG, up to 3MB.</p>
+                            <button
+                                onClick={handleStampSave}
+                                disabled={!stampFile || savingStamp}
+                                className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                            >
+                                {savingStamp ? 'Saving...' : 'Save Stamp'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

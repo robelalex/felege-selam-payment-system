@@ -34,7 +34,7 @@
 #     happened yet) are just excluded — they don't count as zero. Same
 #     exclusion rule applies to semesters with no result yet.
 
-from exams.models import StudentTermResult, SubjectTermResult, StudentSemesterResult
+from exams.models import StudentTermResult, SubjectTermResult, StudentSemesterResult, SubjectSemesterResult
 from exams.services.results_service import round2, rank_by_value
 
 
@@ -109,6 +109,28 @@ def compute_cumulative_for_student(student, academic_year):
     subjects_snapshot.sort(key=lambda s: s['subject_name'])
 
     school = academic_year.school
+
+    # ✅ Item 7 / consolidated cumulative layout — quarter-structure
+    # schools only: augment each subject with its two semester averages
+    # (SubjectSemesterResult), so the cumulative report card can show
+    # Q1-Q4 + Semester 1 + Semester 2 + Year Average side by side for
+    # every subject ("big plate" layout). 'per_term' above already holds
+    # the per-quarter values (a quarter IS a Term row for these schools),
+    # so nothing about that key changes — this only adds a new
+    # 'per_semester' key. Semester-structure schools never get this key,
+    # and nothing existing reads it, so it's purely additive and doesn't
+    # touch their report card at all.
+    if school.term_structure == 'quarter':
+        semester_results = (
+            SubjectSemesterResult.objects.filter(student=student, academic_year=academic_year)
+            .select_related('subject', 'semester')
+            .exclude(average_percentage__isnull=True)
+        )
+        per_semester_by_subject = {}
+        for sr in semester_results:
+            per_semester_by_subject.setdefault(sr.subject.name, {})[sr.semester.name] = float(sr.average_percentage)
+        for s in subjects_snapshot:
+            s['per_semester'] = per_semester_by_subject.get(s['subject_name'], {})
 
     if not term_results:
         return {
