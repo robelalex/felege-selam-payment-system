@@ -26,7 +26,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader, RefreshCw, Trophy } from 'lucide-react';
-import { getClassResultsByTerms, getClassResultsBySemesters, getSchoolInfo, extractError } from '../../services/teacherApi';
+import { getClassResultsByTerms, getClassResultsBySemesters, getClassResults, getSchoolInfo, extractError } from '../../services/teacherApi';
 
 function TeacherClassResults() {
   const [params] = useSearchParams();
@@ -36,9 +36,9 @@ function TeacherClassResults() {
   const section = params.get('section') || '';
   const academicYearId = params.get('academicYearId');
 
-  // ✅ Item 7 — 'term' or 'semester'. Only switchable for quarter-
-  // structure schools; semester-structure schools stay on 'term' and
-  // never see the toggle, exactly like before this feature existed.
+  // ✅ 'term' or 'semester'. Only switchable for quarter-structure
+  // schools; semester-structure schools stay on 'term' and never see
+  // the toggle, exactly like before this feature existed.
   const [termStructure, setTermStructure] = useState('semester');
   const [periodType, setPeriodType] = useState('term');
   const [terms, setTerms] = useState([]);
@@ -46,6 +46,13 @@ function TeacherClassResults() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // ✅ Single-quarter (or single-term) drill-down. '' = the overview
+  // table across every term/quarter; a specific term id = a clean
+  // ranked list for just that one period, using the existing single-
+  // term class_results ranking (same data the "Term" school_top/award
+  // screens already use — nothing new computed, just a focused view).
+  const [selectedTermId, setSelectedTermId] = useState('');
 
   // Fetch the school's term_structure once, so we know whether to show
   // the Quarter/Semester toggle at all.
@@ -73,6 +80,13 @@ function TeacherClassResults() {
         const response = await getClassResultsBySemesters({ grade, section, academicYearId });
         setSemesters(response.data?.semesters || []);
         setResults(response.data?.results || []);
+      } else if (selectedTermId) {
+        // Single quarter/term drill-down — a plain ranked list for just
+        // this one period, sorted by homeroom_rank (already sorted
+        // server-side, but sort again defensively in case of ties).
+        const response = await getClassResults({ termId: selectedTermId, grade, section });
+        const list = (response.data || []).slice().sort((a, b) => (a.homeroom_rank ?? 999999) - (b.homeroom_rank ?? 999999));
+        setResults(list);
       } else {
         const response = await getClassResultsByTerms({ grade, section, academicYearId });
         setTerms(response.data?.terms || []);
@@ -83,9 +97,27 @@ function TeacherClassResults() {
     } finally {
       setLoading(false);
     }
-  }, [grade, section, academicYearId, periodType]);
+  }, [grade, section, academicYearId, periodType, selectedTermId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // The term dropdown itself needs the term list even in single-term
+  // mode (it's populated by the overview fetch, which we skip once a
+  // specific term is selected) — so fetch it once, independently.
+  useEffect(() => {
+    if (!academicYearId || periodType !== 'term') return;
+    getClassResultsByTerms({ grade, section, academicYearId })
+      .then((response) => setTerms(response.data?.terms || []))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [academicYearId, periodType]);
+
+  // Switching from Semester back to Term (or vice versa) should reset
+  // the drill-down so the user lands back on the overview, not a stale
+  // single-term view from a different toggle state.
+  useEffect(() => {
+    setSelectedTermId('');
+  }, [periodType]);
 
   const formatPct = (v) => (v != null ? `${Number(v).toFixed(1)}%` : '—');
 
@@ -130,22 +162,44 @@ function TeacherClassResults() {
       </div>
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
-        {termStructure === 'quarter' && (
-          <div className="flex rounded-lg border border-gray-300 overflow-hidden w-fit mb-4">
-            <button
-              onClick={() => setPeriodType('term')}
-              className={`px-4 py-2 text-sm font-medium ${periodType === 'term' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-            >
-              Quarter
-            </button>
-            <button
-              onClick={() => setPeriodType('semester')}
-              className={`px-4 py-2 text-sm font-medium border-l border-gray-300 ${periodType === 'semester' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-            >
-              Semester
-            </button>
-          </div>
-        )}
+        <div className="flex flex-wrap items-end gap-3 mb-4">
+          {termStructure === 'quarter' && (
+            <div className="flex rounded-lg border border-gray-300 overflow-hidden w-fit">
+              <button
+                onClick={() => setPeriodType('term')}
+                className={`px-4 py-2 text-sm font-medium ${periodType === 'term' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+              >
+                Quarter
+              </button>
+              <button
+                onClick={() => setPeriodType('semester')}
+                className={`px-4 py-2 text-sm font-medium border-l border-gray-300 ${periodType === 'semester' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+              >
+                Semester
+              </button>
+            </div>
+          )}
+
+          {periodType === 'term' && terms.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                {termStructure === 'quarter' ? 'View a single quarter' : 'View a single term'}
+              </label>
+              <select
+                value={selectedTermId}
+                onChange={(e) => setSelectedTermId(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+              >
+                <option value="">
+                  {termStructure === 'quarter' ? 'All quarters (overview)' : 'All terms (overview)'}
+                </option>
+                {terms.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
 
         {error && (
           <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded mb-4 flex items-center justify-between">
@@ -158,6 +212,63 @@ function TeacherClassResults() {
 
         {loading ? (
           <div className="flex justify-center py-16"><Loader className="h-8 w-8 animate-spin text-primary-600" /></div>
+        ) : periodType === 'term' && selectedTermId ? (
+          // ── Single-quarter/single-term drill-down: a clean, modern
+          // ranked list for just this one period — one figure per
+          // student, not a wall of columns. ─────────────────────────
+          results.length === 0 ? (
+            <p className="text-center text-gray-500 py-16">No students in this class.</p>
+          ) : (
+            <>
+              <p className="text-sm text-gray-500 mb-4">
+                Ranked for <span className="font-medium text-gray-700">{terms.find((t) => String(t.id) === String(selectedTermId))?.name}</span> only.
+              </p>
+              <div className="space-y-2">
+                {results.map((r) => {
+                  const medal = r.homeroom_rank === 1 ? '🥇' : r.homeroom_rank === 2 ? '🥈' : r.homeroom_rank === 3 ? '🥉' : null;
+                  return (
+                    <div
+                      key={r.id}
+                      className={`flex items-center gap-4 bg-white rounded-xl border shadow-sm px-4 py-3 transition hover:shadow-md ${
+                        medal ? 'border-amber-200 bg-gradient-to-r from-amber-50/60 to-white' : 'border-gray-100'
+                      }`}
+                    >
+                      <div
+                        className={`flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center font-bold text-sm ${
+                          medal ? 'bg-amber-100 text-amber-700' : 'bg-primary-50 text-primary-700'
+                        }`}
+                      >
+                        {medal || rankDisplay(r).split(' ')[0]}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900 truncate">{r.student_name}</p>
+                        <p className="text-xs text-gray-500">{r.student_id_display}</p>
+                      </div>
+                      <div className="hidden sm:block w-32">
+                        <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                          <div
+                            className="h-full bg-primary-500 rounded-full"
+                            style={{ width: r.overall_average != null ? `${Math.min(100, Number(r.overall_average))}%` : '0%' }}
+                          />
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-primary-700">{formatPct(r.overall_average)}</p>
+                        {r.letter_grade && <p className="text-xs text-gray-400">{r.letter_grade}</p>}
+                      </div>
+                      <div className="flex-shrink-0">{passFailBadge(r)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {results.length > 0 && results.every((r) => r.overall_average == null) && (
+                <p className="text-center text-gray-500 text-sm mt-4">
+                  No marks have been accepted for this {termStructure === 'quarter' ? 'quarter' : 'term'} yet.
+                </p>
+              )}
+            </>
+          )
         ) : columns.length === 0 && !error ? (
           <p className="text-center text-gray-500 py-16">
             {periodType === 'semester'
