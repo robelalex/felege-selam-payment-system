@@ -25,8 +25,8 @@
 // looks and behaves exactly as it did before Item 7 for them.
 import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader, RefreshCw, Trophy } from 'lucide-react';
-import { getClassResultsByTerms, getClassResultsBySemesters, getClassResults, getSchoolInfo, extractError } from '../../services/teacherApi';
+import { ArrowLeft, Loader, RefreshCw, Trophy, Download } from 'lucide-react';
+import { getClassResultsByTerms, getClassResultsBySemesters, getClassResultsBySemester, getClassResults, getSchoolInfo, downloadClassResultsExport, extractError } from '../../services/teacherApi';
 
 function TeacherClassResults() {
   const [params] = useSearchParams();
@@ -54,6 +54,20 @@ function TeacherClassResults() {
   // screens already use — nothing new computed, just a focused view).
   const [selectedTermId, setSelectedTermId] = useState('');
 
+  // ✅ Same drill-down, one level up: a specific Semester 1 / Semester 2
+  // id = a clean ranked list for just that semester, via the
+  // StudentSemesterResultViewSet.class_results endpoint (already existed
+  // on the backend, ranked server-side — this was just never wired up on
+  // this screen before, so "Semester" mode only ever showed the combined
+  // average-of-both-semesters overview table with no way to drill into
+  // one semester on its own, unlike "Quarter" mode.
+  const [selectedSemesterId, setSelectedSemesterId] = useState('');
+
+  // ✅ Downloading the overview table (Term/Semester columns + Year
+  // Average + Rank) as .xlsx — same data as the on-screen overview
+  // table, server-generated so it can never disagree with what's shown.
+  const [downloading, setDownloading] = useState(false);
+
   // Fetch the school's term_structure once, so we know whether to show
   // the Quarter/Semester toggle at all.
   useEffect(() => {
@@ -76,7 +90,13 @@ function TeacherClassResults() {
     setLoading(true);
     setError('');
     try {
-      if (periodType === 'semester') {
+      if (periodType === 'semester' && selectedSemesterId) {
+        // Single-semester drill-down — mirrors the single-quarter branch
+        // below exactly, one level up.
+        const response = await getClassResultsBySemester({ semesterId: selectedSemesterId, grade, section });
+        const list = (response.data || []).slice().sort((a, b) => (a.homeroom_rank ?? 999999) - (b.homeroom_rank ?? 999999));
+        setResults(list);
+      } else if (periodType === 'semester') {
         const response = await getClassResultsBySemesters({ grade, section, academicYearId });
         setSemesters(response.data?.semesters || []);
         setResults(response.data?.results || []);
@@ -97,9 +117,30 @@ function TeacherClassResults() {
     } finally {
       setLoading(false);
     }
-  }, [grade, section, academicYearId, periodType, selectedTermId]);
+  }, [grade, section, academicYearId, periodType, selectedTermId, selectedSemesterId]);
 
   useEffect(() => { load(); }, [load]);
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const response = await downloadClassResultsExport({ grade, section, academicYearId, periodType });
+      const blobUrl = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      const today = new Date().toISOString().slice(0, 10);
+      link.setAttribute('download', `class_results_grade${grade}${section}_${today}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('Download failed:', err);
+      alert('Failed to download results. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   // The term dropdown itself needs the term list even in single-term
   // mode (it's populated by the overview fetch, which we skip once a
@@ -112,11 +153,23 @@ function TeacherClassResults() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [academicYearId, periodType]);
 
+  // Same reasoning, one level up: the semester dropdown needs the
+  // semester list even once a specific semester is selected (the
+  // overview fetch that normally populates it is skipped in that case).
+  useEffect(() => {
+    if (!academicYearId || periodType !== 'semester') return;
+    getClassResultsBySemesters({ grade, section, academicYearId })
+      .then((response) => setSemesters(response.data?.semesters || []))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [academicYearId, periodType]);
+
   // Switching from Semester back to Term (or vice versa) should reset
-  // the drill-down so the user lands back on the overview, not a stale
-  // single-term view from a different toggle state.
+  // both drill-downs so the user lands back on the overview, not a
+  // stale single-period view carried over from the other toggle state.
   useEffect(() => {
     setSelectedTermId('');
+    setSelectedSemesterId('');
   }, [periodType]);
 
   const formatPct = (v) => (v != null ? `${Number(v).toFixed(1)}%` : '—');
@@ -199,6 +252,37 @@ function TeacherClassResults() {
               </select>
             </div>
           )}
+
+          {periodType === 'semester' && semesters.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">View a single semester</label>
+              <select
+                value={selectedSemesterId}
+                onChange={(e) => setSelectedSemesterId(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+              >
+                <option value="">All semesters (overview)</option>
+                {semesters.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* ✅ Download the overview table (Term/Semester columns + Year
+              Average + Rank) as .xlsx — only makes sense on the overview
+              view, not a single-period drill-down, since the file always
+              contains every period side by side. */}
+          {!selectedTermId && !selectedSemesterId && columns.length > 0 && (
+            <button
+              onClick={handleDownload}
+              disabled={downloading}
+              className="ml-auto flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+            >
+              {downloading ? <Loader className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {downloading ? 'Preparing…' : 'Download Excel'}
+            </button>
+          )}
         </div>
 
         {error && (
@@ -212,16 +296,21 @@ function TeacherClassResults() {
 
         {loading ? (
           <div className="flex justify-center py-16"><Loader className="h-8 w-8 animate-spin text-primary-600" /></div>
-        ) : periodType === 'term' && selectedTermId ? (
-          // ── Single-quarter/single-term drill-down: a clean, modern
-          // ranked list for just this one period — one figure per
-          // student, not a wall of columns. ─────────────────────────
+        ) : (periodType === 'term' && selectedTermId) || (periodType === 'semester' && selectedSemesterId) ? (
+          // ── Single-period drill-down: a clean, modern ranked list for
+          // just this one quarter/term/semester — one figure per
+          // student, not a wall of columns. Same rendering for both
+          // periodType values; only the label and source list differ. ──
           results.length === 0 ? (
             <p className="text-center text-gray-500 py-16">No students in this class.</p>
           ) : (
             <>
               <p className="text-sm text-gray-500 mb-4">
-                Ranked for <span className="font-medium text-gray-700">{terms.find((t) => String(t.id) === String(selectedTermId))?.name}</span> only.
+                Ranked for <span className="font-medium text-gray-700">
+                  {periodType === 'semester'
+                    ? semesters.find((s) => String(s.id) === String(selectedSemesterId))?.name
+                    : terms.find((t) => String(t.id) === String(selectedTermId))?.name}
+                </span> only.
               </p>
               <div className="space-y-2">
                 {results.map((r) => {
@@ -264,7 +353,7 @@ function TeacherClassResults() {
 
               {results.length > 0 && results.every((r) => r.overall_average == null) && (
                 <p className="text-center text-gray-500 text-sm mt-4">
-                  No marks have been accepted for this {termStructure === 'quarter' ? 'quarter' : 'term'} yet.
+                  No marks have been accepted for this {periodType === 'semester' ? 'semester' : (termStructure === 'quarter' ? 'quarter' : 'term')} yet.
                 </p>
               )}
             </>

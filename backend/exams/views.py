@@ -1021,6 +1021,79 @@ class StudentTermResultViewSet(viewsets.ReadOnlyModelViewSet):
         })
 
     @action(detail=False, methods=['get'])
+    def class_results_terms_export(self, request):
+        """
+        Same data and same permission rule as class_results_terms above —
+        this just renders it as a downloadable .xlsx instead of JSON, for
+        the "Download" button on the homeroom's "Check Result and Award"
+        screen. Never recomputes anything; reuses the exact same
+        compute_cumulative_for_class_with_terms() call so the spreadsheet
+        can never disagree with what the teacher sees on screen.
+        """
+        school_id = get_verified_school_id(request)
+        grade = request.query_params.get('grade')
+        section = request.query_params.get('section', '')
+        academic_year_id = request.query_params.get('academic_year_id')
+
+        if not (school_id and grade and academic_year_id):
+            return Response({'error': 'grade and academic_year_id are required'}, status=400)
+
+        try:
+            grade = int(grade)
+            academic_year_id = int(academic_year_id)
+        except (TypeError, ValueError):
+            return Response({'error': 'grade and academic_year_id must be numbers'}, status=400)
+
+        staff = _get_staff_profile(request)
+        if not _is_admin(request):
+            if not staff or not _teacher_owns_homeroom(staff, grade, section, academic_year_id):
+                return Response({'error': 'You are not the homeroom teacher for this class'}, status=403)
+
+        from schools.models import School
+        school = School.objects.filter(id=school_id).first()
+        year = AcademicYear.objects.filter(id=academic_year_id, school_id=school_id).first()
+        if not (school and year):
+            return Response({'error': 'Academic year not found'}, status=404)
+
+        terms = list(Term.objects.filter(school=school, academic_year=year, is_active=True).order_by('order', 'name'))
+
+        from report_cards.services.cumulative_service import compute_cumulative_for_class_with_terms
+        data = compute_cumulative_for_class_with_terms(school, year, grade, section)
+
+        students = Student.objects.filter(school=school, grade=grade, section=section, status='active').order_by('first_name', 'last_name')
+
+        results = []
+        for s in students:
+            entry = data.get(s.id, {})
+            per_term = entry.get('per_term', {})
+            results.append({
+                'student_name': f"{s.first_name} {s.last_name}",
+                'student_id_display': s.student_id,
+                'terms': [
+                    {'term_id': t.id, 'term_name': t.name, 'average': per_term.get(t.id, {}).get('average')}
+                    for t in terms
+                ],
+                'average_of_terms': entry.get('overall_average'),
+                'is_passing': entry.get('is_passing'),
+                'letter_grade': entry.get('letter_grade', ''),
+                'homeroom_rank': entry.get('homeroom_rank'),
+                'homeroom_rank_total': entry.get('homeroom_rank_total'),
+            })
+        results.sort(key=lambda r: (r['homeroom_rank'] is None, r['homeroom_rank'] or 0))
+
+        from .services.export_service import build_class_results_workbook, xlsx_http_response
+        workbook_bytes = build_class_results_workbook(
+            title=school.name,
+            subtitle=f"Grade {grade}{(' ' + section) if section else ''} — Year-End Results ({year.name})",
+            period_names=[{'id': t.id, 'name': t.name} for t in terms],
+            results=results,
+            period_key='terms', average_key='average_of_terms',
+            rank_key='homeroom_rank', rank_total_key='homeroom_rank_total',
+        )
+        filename = f"class_results_grade{grade}{section}_{year.name}.xlsx".replace(' ', '_')
+        return xlsx_http_response(workbook_bytes, filename)
+
+    @action(detail=False, methods=['get'])
     def school_top(self, request):
         """Query params: term_id, band ('elementary' or 'high_school'), limit (default 3). Admin only — for award/ranking lists."""
         if not _is_admin(request):
@@ -1204,6 +1277,86 @@ class StudentSemesterResultViewSet(viewsets.ReadOnlyModelViewSet):
             'semesters': [{'id': sem.id, 'name': sem.name} for sem in semesters],
             'results': results,
         })
+
+    @action(detail=False, methods=['get'])
+    def class_results_semesters_export(self, request):
+        """
+        Same data and same permission rule as class_results_semesters
+        above, rendered as a downloadable .xlsx — the Semester-mode
+        counterpart of StudentTermResultViewSet.class_results_terms_export.
+        """
+        school_id = get_verified_school_id(request)
+        grade = request.query_params.get('grade')
+        section = request.query_params.get('section', '')
+        academic_year_id = request.query_params.get('academic_year_id')
+
+        if not (school_id and grade and academic_year_id):
+            return Response({'error': 'grade and academic_year_id are required'}, status=400)
+
+        try:
+            grade = int(grade)
+            academic_year_id = int(academic_year_id)
+        except (TypeError, ValueError):
+            return Response({'error': 'grade and academic_year_id must be numbers'}, status=400)
+
+        staff = _get_staff_profile(request)
+        if not _is_admin(request):
+            if not staff or not _teacher_owns_homeroom(staff, grade, section, academic_year_id):
+                return Response({'error': 'You are not the homeroom teacher for this class'}, status=403)
+
+        from schools.models import School
+        school = School.objects.filter(id=school_id).first()
+        year = AcademicYear.objects.filter(id=academic_year_id, school_id=school_id).first()
+        if not (school and year):
+            return Response({'error': 'Academic year not found'}, status=404)
+
+        semesters = list(Semester.objects.filter(school=school, academic_year=year, is_active=True).order_by('order', 'name'))
+
+        from report_cards.services.cumulative_service import compute_cumulative_for_class
+        cumulative = compute_cumulative_for_class(school, year, grade, section)
+
+        semester_results = StudentSemesterResult.objects.filter(
+            school=school, academic_year=year, grade=grade, section=section,
+        ).select_related('semester')
+        per_student = {}
+        for r in semester_results:
+            per_student.setdefault(r.student_id, {})[r.semester_id] = r
+
+        students = Student.objects.filter(school=school, grade=grade, section=section, status='active').order_by('first_name', 'last_name')
+
+        results = []
+        for s in students:
+            entry = cumulative.get(s.id, {})
+            student_semesters = per_student.get(s.id, {})
+            results.append({
+                'student_name': f"{s.first_name} {s.last_name}",
+                'student_id_display': s.student_id,
+                'semesters': [
+                    {
+                        'semester_id': sem.id, 'semester_name': sem.name,
+                        'average': (student_semesters[sem.id].overall_average if sem.id in student_semesters else None),
+                    }
+                    for sem in semesters
+                ],
+                'average_of_semesters': entry.get('overall_average'),
+                'is_passing': entry.get('is_passing'),
+                'letter_grade': entry.get('letter_grade', ''),
+                'homeroom_rank': entry.get('homeroom_rank'),
+                'homeroom_rank_total': entry.get('homeroom_rank_total'),
+            })
+        results.sort(key=lambda r: (r['homeroom_rank'] is None, r['homeroom_rank'] or 0))
+
+        from .services.export_service import build_class_results_workbook, xlsx_http_response
+        workbook_bytes = build_class_results_workbook(
+            title=school.name,
+            subtitle=f"Grade {grade}{(' ' + section) if section else ''} — Year-End Results ({year.name})",
+            period_names=[{'id': sem.id, 'name': sem.name} for sem in semesters],
+            results=results,
+            period_key='semesters', average_key='average_of_semesters',
+            rank_key='homeroom_rank', rank_total_key='homeroom_rank_total',
+        )
+        filename = f"class_results_grade{grade}{section}_{year.name}.xlsx".replace(' ', '_')
+        return xlsx_http_response(workbook_bytes, filename)
 
     @action(detail=False, methods=['get'])
     def school_top(self, request):

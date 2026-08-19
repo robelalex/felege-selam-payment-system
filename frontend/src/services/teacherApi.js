@@ -153,6 +153,27 @@ export const getClassResultsByTerms = ({ grade, section = '', academicYearId }) 
 export const getClassResultsBySemesters = ({ grade, section = '', academicYearId }) =>
   teacherApi.get('/semester-results/class_results_semesters/', { params: { grade, section, academic_year_id: academicYearId } });
 
+// ✅ Single-semester drill-down — exact mirror of getClassResults above,
+// one level up. Backend action (StudentSemesterResultViewSet.class_results)
+// already existed and is already ranked server-side by homeroom_rank; this
+// was just never wired up on the frontend, so "Semester" mode had no way
+// to look at just Semester 1 or just Semester 2 on their own, only the
+// combined average-of-both-semesters overview table.
+export const getClassResultsBySemester = ({ semesterId, grade, section = '' }) =>
+  teacherApi.get('/semester-results/class_results/', { params: { semester_id: semesterId, grade, section } });
+
+// ✅ Downloadable .xlsx of the overview table (Term/Semester columns +
+// Year Average + Rank) — exact server-side mirror of what
+// getClassResultsByTerms / getClassResultsBySemesters already show on
+// screen, just as a file. responseType: 'blob' + manual <a download>
+// click is the same pattern already used elsewhere in the app (see
+// AdminStudents.js handleExport) for server-generated Excel files.
+export const downloadClassResultsExport = ({ grade, section = '', academicYearId, periodType }) =>
+  teacherApi.get(
+    periodType === 'semester' ? '/semester-results/class_results_semesters_export/' : '/results/class_results_terms_export/',
+    { params: { grade, section, academic_year_id: academicYearId }, responseType: 'blob' },
+  );
+
 export const extractError = (err, fallback) =>
   err.response?.data?.error || err.response?.data?.detail || fallback;
 

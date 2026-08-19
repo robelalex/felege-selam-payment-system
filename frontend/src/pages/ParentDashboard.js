@@ -968,9 +968,12 @@ function ParentAttendanceTab({ attendance, formatDate }) {
       </div>
 
       {records.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Recent Daily Attendance</h3>
-          <div className="max-h-64 overflow-y-auto border border-gray-100 rounded-xl divide-y divide-gray-100">
+        <details className="border border-gray-100 rounded-xl px-4 py-2">
+          <summary className="cursor-pointer flex items-center justify-between text-sm font-semibold text-gray-700">
+            <span>Recent Daily Attendance</span>
+            <span className="text-xs text-gray-500 font-normal">{records.length} record{records.length === 1 ? '' : 's'} · tap to view</span>
+          </summary>
+          <div className="mt-2 max-h-64 overflow-y-auto border border-gray-100 rounded-xl divide-y divide-gray-100">
             {records.slice(0, 20).map((r, i) => (
               <div key={i} className="flex items-center justify-between px-4 py-2 text-sm">
                 <span className="text-gray-600">{formatDate(r.date)}</span>
@@ -980,7 +983,7 @@ function ParentAttendanceTab({ attendance, formatDate }) {
               </div>
             ))}
           </div>
-        </div>
+        </details>
       )}
 
       {subjectGroups.length > 0 && (
