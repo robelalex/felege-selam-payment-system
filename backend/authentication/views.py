@@ -518,11 +518,18 @@ def register(request):
         )
         print(f"✅ User created: {user.username}")
         
-        UserProfile.objects.create(
+        # ✅ FIX: this used to be is_email_verified=True, which skipped
+        # email verification entirely — the verify-email endpoint, the
+        # token field, and the "Please verify your email first" login gate
+        # all already existed but were dead code because nothing ever
+        # required this step. A real school registration now needs BOTH:
+        # (1) confirm the email address (below), and (2) Robel's manual
+        # approval (is_active=False, unchanged) — two independent gates.
+        new_profile = UserProfile.objects.create(
             user=user,
             school_id=school.id,
             role='school_admin',
-            is_email_verified=True,
+            is_email_verified=False,
             phone=phone
         )
         print(f"✅ UserProfile created")
@@ -536,10 +543,17 @@ def register(request):
         print(f"✅ SchoolAdminProfile created")
         
         save_password_history(user, password)
-        
+
+        from common.email_service import send_registration_confirmation_email
+        email_sent, email_message = send_registration_confirmation_email(
+            email, school.name, first_name, str(new_profile.email_verification_token)
+        )
+        if not email_sent:
+            print(f"⚠️ Registration confirmation email failed: {email_message}")
+
         return Response({
             'success': True,
-            'message': 'Registration submitted. Waiting for Super Admin approval.',
+            'message': 'Registration submitted. Check your email to confirm your address — your school will then be reviewed for approval.',
             'user': {
                 'id': user.id,
                 'username': user.username,

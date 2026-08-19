@@ -333,6 +333,60 @@ def send_approval_notification(recipient_email, school_name):
         return False, str(e)
 
 
+def send_registration_confirmation_email(recipient_email, school_name, admin_first_name, token):
+    """
+    ✅ NEW — sent immediately when a school registers (authentication/views.py
+    register()). This is the "confirm your email" step of registration —
+    separate from and in addition to Robel's manual approve/reject decision.
+    The verify-email endpoint and token field already existed
+    (UserProfile.email_verification_token, authentication/views.py
+    verify_email(), the 'Please verify your email first' login gate) but
+    register() previously set is_email_verified=True immediately, so this
+    step never actually ran for anyone. This just wires it in.
+    """
+    frontend_url = getattr(
+        settings, 'FRONTEND_URL',
+        'https://felege-selam-payment-system.vercel.app'
+    )
+    verify_link = f"{frontend_url}/verify-email/{token}"
+
+    html_message = f"""
+    <!DOCTYPE html>
+    <html>
+    <body style="font-family: Arial, sans-serif; text-align: center; padding: 20px;">
+        <h2>Confirm your email</h2>
+        <p>Hi {admin_first_name or 'there'},</p>
+        <p>Thanks for registering <strong>{school_name}</strong> on SchoolPay Ethiopia.
+           Please confirm your email address to continue.</p>
+        <a href="{verify_link}"
+           style="background: #4F46E5; color: white; padding: 10px 20px;
+                  text-decoration: none; border-radius: 5px;">
+            Confirm email
+        </a>
+        <p style="color:#666; font-size: 13px; margin-top: 16px;">
+           After confirming, your registration still needs to be reviewed
+           and approved before you can log in — we'll email you again once
+           that's done.
+        </p>
+    </body>
+    </html>
+    """
+    try:
+        send_mail(
+            subject=f"Confirm your email - {school_name}",
+            message=f"Confirm your email to continue registering {school_name}: {verify_link}",
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[recipient_email],
+            fail_silently=False,
+            html_message=html_message,
+        )
+        logger.info(f"✅ Registration confirmation email sent to {recipient_email}")
+        return True, "Confirmation email sent successfully"
+    except Exception as e:
+        logger.error(f"❌ Failed to send registration confirmation email: {e}")
+        return False, str(e)
+
+
 def send_reset_password_email(recipient_email, token):
     frontend_url = getattr(
         settings, 'FRONTEND_URL',

@@ -56,7 +56,8 @@ INSTALLED_APPS = [
     'report_cards',
     'common',
     'staff',
-    'admin_dashboard',
+    # ⚠️ RETIRED & REMOVED 2026-08-19 — see core/urls.py. Folder deleted.
+    # 'admin_dashboard',
     'django_q',
     'anymail',
 ]

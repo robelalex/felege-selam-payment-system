@@ -14,6 +14,10 @@ from payments.views.reminder_views import pending_reminders_filtered
 from students.dashboard import monthly_report_filtered
 from users.views import CurrentUserView
 from schools.approval_views import pending_approvals, approve_school, reject_school
+from schools.platform_admin_views import (
+    platform_stats, schools_list, update_school_subscription,
+    school_admins_list, toggle_school_admin_active, resend_verification_email,
+)
 from reports.views import dashboard_stats as reports_dashboard_stats, pending_payments_report
 from authentication.views import change_password
 from authentication import views as auth_views
@@ -91,8 +95,19 @@ urlpatterns = [
     path('api/admin/approve/<int:user_id>/', approve_school, name='approve-school'),
     path('api/admin/reject/<int:user_id>/', reject_school, name='reject-school'),
 
-    # CUSTOM ADMIN DASHBOARD
-    path('admin-dashboard/', include('admin_dashboard.urls')),
+    # ✅ NEW — Item 8 platform-admin endpoints (schools/platform_admin_views.py).
+    # Business-level only: no student/payment/bank data. See that file's
+    # module docstring for the scope decision.
+    path('api/admin/platform-stats/', platform_stats, name='platform-stats'),
+    path('api/admin/schools-list/', schools_list, name='platform-schools-list'),
+    path('api/admin/schools-list/<int:school_id>/subscription/', update_school_subscription, name='platform-school-subscription'),
+    path('api/admin/school-admins/', school_admins_list, name='platform-school-admins'),
+    path('api/admin/school-admins/<int:user_id>/toggle-active/', toggle_school_admin_active, name='platform-school-admin-toggle'),
+    path('api/admin/school-admins/<int:user_id>/resend-verification/', resend_verification_email, name='platform-resend-verification'),
+
+    # ⚠️ RETIRED & REMOVED 2026-08-19 — the old Django-template super-admin
+    # panel (admin_dashboard app + backend/templates/admin_dashboard/) is
+    # deleted. Replaced entirely by the React /superadmin/* surface above.
 ]
 
 # Serve static files

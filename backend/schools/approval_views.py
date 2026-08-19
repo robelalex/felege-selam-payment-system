@@ -45,7 +45,12 @@ def pending_approvals(request):
                 'school_name': profile.school.name,
                 'school_code': profile.school.code,
                 'registered_at': user.date_joined,
-                'logo': profile.school.logo.url if profile.school.logo else None
+                'logo': profile.school.logo.url if profile.school.logo else None,
+                # ✅ NEW: surfaces whether the registrant has confirmed their
+                # email yet (see authentication/views.py register() and
+                # common/email_service.py send_registration_confirmation_email).
+                # A super admin can see this before deciding to approve.
+                'email_verified': getattr(user.profile, 'is_email_verified', False) if hasattr(user, 'profile') else False,
             })
     return Response(data)
 
