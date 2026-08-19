@@ -43,7 +43,13 @@ def send_payment_success_notifications(payment):
     receipt_url = get_receipt_url(payment)
     student = payment.student
     school = student.school
-    month = payment.deadline.get_month_display() if payment.deadline else ""
+    # ✅ FIX: get_month_display() renders blank/"None" for a registration
+    # deadline (month is always None by design there — see
+    # PaymentDeadline.display_label). Every payment-confirmation SMS/email
+    # for a registration fee was going out reading "... (None) is
+    # confirmed" until this used display_label instead.
+    month = payment.deadline.display_label if payment.deadline else ""
+    is_registration = bool(payment.deadline and payment.deadline.deadline_type == 'registration')
 
     # ---- SMS ----
     if student.parent_phone:
@@ -74,7 +80,7 @@ def send_payment_success_notifications(payment):
                 <p>Dear Parent,</p>
                 <p>Your payment for <strong>{student.full_name}</strong> has been received and confirmed.</p>
                 <div style="background: #ECFDF5; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #10B981;">
-                    <p style="margin: 0;"><strong>Month:</strong> {month}</p>
+                    <p style="margin: 0;"><strong>{'Fee Type' if is_registration else 'Month'}:</strong> {month}</p>
                     <p style="margin: 5px 0;"><strong>Amount:</strong> {payment.amount} Birr</p>
                     <p style="margin: 5px 0;"><strong>Invoice:</strong> {payment.invoice_number}</p>
                 </div>
@@ -90,7 +96,8 @@ def send_payment_success_notifications(payment):
             """
             text_content = (
                 f"Payment Confirmed\n\n"
-                f"Student: {student.full_name}\nMonth: {month}\nAmount: {payment.amount} Birr\n"
+                f"Student: {student.full_name}\n"
+                f"{'Fee Type' if is_registration else 'Month'}: {month}\nAmount: {payment.amount} Birr\n"
                 f"Invoice: {payment.invoice_number}\n\nReceipt: {receipt_url}\n\n"
                 f"---\n{school.name}"
             )

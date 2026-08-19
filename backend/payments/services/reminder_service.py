@@ -451,12 +451,24 @@ class ReminderService:
                     month_display = self.get_month_name(month) if month else "Upcoming"
                     amount_str = ""
                     
-                    # Try to find pending deadlines for this student
+                    # ✅ SEPARATED (parent-facing request): this manual/on-demand
+                    # reminder is the MONTHLY fee reminder specifically — it must
+                    # never pull in the one-time registration fee alongside it.
+                    # Bundling the two into one message/amount made a school's
+                    # reduced-fee (waiver/partial) family see a bigger-than-expected
+                    # number with no explanation, and made a normal family's SMS
+                    # read as one lump sum instead of two clearly separate charges.
+                    # Registration reminders now go out on their own, on their own
+                    # yearly cadence, via send_registration_reminders() below —
+                    # never mixed into this monthly send. If you're reading this
+                    # after another rewrite of this file: DO NOT re-add
+                    # deadline_type='registration' to the queryset below.
                     from payments.models import PaymentDeadline, Payment
                     unpaid_deadlines = PaymentDeadline.objects.filter(
                         academic_year=academic_year_obj,
                         grade__in=[None, student.grade],
-                        is_active=True
+                        is_active=True,
+                        deadline_type='monthly',
                     ).exclude(
                         id__in=Payment.objects.filter(
                             student=student, 
@@ -476,35 +488,11 @@ class ReminderService:
                         # after another rewrite of this file, please check this line
                         # first. (get_effective_deadline_amount is already imported
                         # at the top of this file.)
-                        #
-                        # ✅ Line-item breakdown (Jimma follow-up): this used to lump
-                        # monthly + registration into one "Amount Due" figure. For a
-                        # waiver/partial family especially, a bigger-than-expected
-                        # combined number with no explanation looks like their
-                        # reduced fee silently went up — even when the math is
-                        # correct. Now it's broken out by type so the parent can see
-                        # exactly what each part is, same as the school asked for
-                        # with the fee-exception feature in the first place.
                         monthly_total = sum(
                             float(get_effective_deadline_amount(student, d))
-                            for d in unpaid_deadlines if d.deadline_type == 'monthly'
+                            for d in unpaid_deadlines
                         )
-                        registration_total = sum(
-                            float(get_effective_deadline_amount(student, d))
-                            for d in unpaid_deadlines if d.deadline_type == 'registration'
-                        )
-                        total_due = monthly_total + registration_total
-
-                        if monthly_total > 0 and registration_total > 0:
-                            amount_str = (
-                                f"Monthly Fee: {monthly_total:,.2f} ETB. "
-                                f"Registration Fee: {registration_total:,.2f} ETB. "
-                                f"Total Due: {total_due:,.2f} ETB. "
-                            )
-                        elif registration_total > 0:
-                            amount_str = f"Registration Fee: {registration_total:,.2f} ETB. "
-                        else:
-                            amount_str = f"Amount Due: {total_due:,.2f} ETB. "
+                        amount_str = f"Amount Due: {monthly_total:,.2f} ETB. "
                     
                     message = (
                         f"Payment Reminder - {month_display}\n"
@@ -611,4 +599,225 @@ class ReminderService:
                     'message': f"Unexpected error: {str(e)[:100]}"
                 })
         
+        return results
+
+    def send_registration_reminders(self, student_ids, academic_year=None, school_id=None):
+        """
+        ✅ NEW (parent-facing request — registration fee reminders, kept
+        strictly separate from send_reminders() above).
+
+        Sends a DUAL-CHANNEL (SMS + Email) reminder for the ONE-TIME
+        registration fee only — never mentions the monthly fee, never
+        shares a message with it. Meant to be triggered once, by the
+        admin, for the students already classified this academic year
+        (StudentRegistrationType / StudentFeeOverride), after
+        RegistrationFeeConfig is set — the "let the admin set the
+        student type once, then the system reminds them yearly like it
+        does for monthly" request. A student with no unpaid registration
+        deadline (already paid, or amount is 0 for their type) is
+        reported as skipped rather than sent an empty reminder.
+
+        Logs every send to PaymentReminder (against the registration
+        PaymentDeadline) so a school can see, per student, whether this
+        year's registration reminder already went out — same audit
+        trail the monthly flow already relies on.
+
+        ✅ Includes a secure Pay Now link, same mechanism as the monthly
+        reminder (payments.tokens.generate_payment_token — signed,
+        single-use, 6hr-expiring, device-fingerprint-checked). Not a
+        plain query-string link like PaymentLinkService.generate_payment_link.
+        """
+        from payments.models import PaymentDeadline, Payment, PaymentReminder
+
+        academic_year_obj = self._resolve_academic_year(academic_year, school_id)
+        results = []
+
+        if not academic_year_obj:
+            return [{
+                'student_id': sid, 'success': False,
+                'message': 'Academic year not found'
+            } for sid in student_ids]
+
+        for student_id in student_ids:
+            try:
+                student = Student.objects.get(student_id=student_id)
+
+                if school_id and str(student.school_id) != str(school_id):
+                    results.append({
+                        'student_id': student.student_id,
+                        'student_name': f"{student.first_name} {student.last_name}",
+                        'success': False,
+                        'message': "Student does not belong to this school"
+                    })
+                    continue
+
+                registration_deadline = PaymentDeadline.objects.filter(
+                    academic_year=academic_year_obj,
+                    school_id=student.school_id,
+                    deadline_type='registration',
+                    is_active=True,
+                ).exclude(
+                    id__in=Payment.objects.filter(
+                        student=student, status='verified'
+                    ).values_list('deadline_id', flat=True)
+                ).first()
+
+                if not registration_deadline:
+                    results.append({
+                        'student_id': student.student_id,
+                        'student_name': f"{student.first_name} {student.last_name}",
+                        'success': False,
+                        'message': "No unpaid registration fee for this student/year"
+                    })
+                    continue
+
+                amount = get_effective_deadline_amount(student, registration_deadline)
+                if amount <= 0:
+                    results.append({
+                        'student_id': student.student_id,
+                        'student_name': f"{student.first_name} {student.last_name}",
+                        'success': False,
+                        'message': "Registration fee amount is 0 for this student — nothing to remind about"
+                    })
+                    continue
+
+                # ✅ NEW: secure, single-use, cryptographically-signed Pay
+                # Now link — same mechanism the monthly reminder uses
+                # (payments.tokens.generate_payment_token /
+                # MultiSchoolSendPaymentReminderView), not a plain
+                # amount+ID query string. Requires a real (pending)
+                # Payment row to point the token at, so get_or_create one
+                # here exactly like the monthly flow does, and keep its
+                # amount in sync if the registration config changed since
+                # the row was first created.
+                from payments.models import Payment as PaymentModel
+                from payments.tokens import generate_payment_token
+                from django.conf import settings as dj_settings
+
+                payment_obj, created = PaymentModel.objects.get_or_create(
+                    student=student,
+                    deadline=registration_deadline,
+                    defaults={
+                        'amount': amount,
+                        'payment_method': 'chapa',
+                        'paid_by': student.full_name,
+                        'paid_by_phone': student.parent_phone,
+                        'status': 'pending'
+                    }
+                )
+                if not created and payment_obj.status == 'pending' and payment_obj.amount != amount:
+                    payment_obj.amount = amount
+                    payment_obj.save(update_fields=['amount'])
+
+                frontend_url = getattr(
+                    dj_settings, 'FRONTEND_URL',
+                    'https://felege-selam-payment-system.vercel.app'
+                )
+
+                sms_sent = False
+                email_sent = False
+                errors = []
+                last_message = None
+
+                if student.parent_phone:
+                    try:
+                        sms_token, _ = generate_payment_token(payment_obj, student.parent_phone, channel="sms")
+                        sms_link = f"{frontend_url}/pay/{sms_token}"
+                        sms_message = (
+                            f"Registration Fee Reminder — {academic_year_obj.name}\n"
+                            f"Student: {student.full_name}\n"
+                            f"One-Time Registration Fee: {amount:,.2f} ETB\n"
+                            f"This is separate from the monthly tuition fee.\n"
+                            f"Pay securely: {sms_link}\n"
+                            f"For questions call: {student.school.phone if student.school else ''}"
+                        )
+                        from payments.services.multi_school_sms_service import MultiSchoolSMSService
+                        sms_service = MultiSchoolSMSService(int(student.school_id))
+                        sms_service.send_sms(
+                            phone_number=student.parent_phone,
+                            message=sms_message,
+                            related_to=f"registration_reminder_{student.student_id}_{academic_year_obj.id}"
+                        )
+                        sms_sent = True
+                        last_message = sms_message
+                    except Exception as e:
+                        errors.append(f"SMS failed: {str(e)[:100]}")
+                else:
+                    errors.append("No parent phone number")
+
+                parent_email = getattr(student, 'parent_email', '')
+                if parent_email:
+                    try:
+                        email_token, _ = generate_payment_token(payment_obj, student.parent_phone, channel="email")
+                        email_link = f"{frontend_url}/pay/{email_token}"
+                        from common.email_service import SchoolEmailService
+                        html_content = f"""
+                        <!DOCTYPE html>
+                        <html>
+                        <body style="font-family: Arial, sans-serif; padding: 20px;">
+                            <h2 style="color: #7C3AED;">One-Time Registration Fee Reminder</h2>
+                            <p>Dear Parent,</p>
+                            <p>This is a reminder that <strong>{student.full_name}</strong> has an
+                            unpaid <strong>one-time registration fee</strong> for the
+                            {academic_year_obj.name} academic year. This is separate from,
+                            and in addition to, the monthly tuition fee.</p>
+                            <div style="background: #F5F3FF; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #7C3AED;">
+                                <p style="margin: 0;"><strong>Registration Fee:</strong> {amount:,.2f} ETB</p>
+                            </div>
+                            <a href="{email_link}" style="display: inline-block; background: #7C3AED; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; margin-top: 10px;">
+                                Pay Registration Fee Now
+                            </a>
+                            <hr style="margin: 20px 0; border: none; border-top: 1px solid #E5E7EB;">
+                            <p style="color: #6B7280; font-size: 12px;">This is an automated message from {student.school.name if student.school else 'the school'}. Please do not reply.</p>
+                        </body>
+                        </html>
+                        """
+                        text_content = (
+                            f"One-Time Registration Fee Reminder\n\n"
+                            f"Student: {student.full_name}\n"
+                            f"Registration Fee: {amount:,.2f} ETB\n"
+                            f"Pay securely: {email_link}"
+                        )
+                        email_service = SchoolEmailService(int(student.school_id))
+                        email_service.send_email(
+                            recipient_email=parent_email,
+                            subject=f"Registration Fee Reminder - {student.full_name}",
+                            html_content=html_content,
+                            text_content=text_content
+                        )
+                        email_sent = True
+                        last_message = last_message or text_content
+                    except Exception as e:
+                        errors.append(f"Email failed: {str(e)[:100]}")
+                else:
+                    errors.append("No parent email")
+
+                overall_success = sms_sent or email_sent
+                if overall_success:
+                    PaymentReminder.objects.create(
+                        student=student,
+                        deadline=registration_deadline,
+                        sent_to=student.parent_phone or parent_email,
+                        message=(last_message or "")[:2000],
+                        status='sent' if (sms_sent and email_sent) else 'partial'
+                    )
+
+                results.append({
+                    'student_id': student.student_id,
+                    'student_name': f"{student.first_name} {student.last_name}",
+                    'phone': student.parent_phone,
+                    'email': parent_email,
+                    'success': overall_success,
+                    'sms_sent': sms_sent,
+                    'email_sent': email_sent,
+                    'amount': float(amount),
+                    'message': "Sent successfully" if overall_success else "; ".join(errors)
+                })
+
+            except Student.DoesNotExist:
+                results.append({'student_id': student_id, 'success': False, 'message': f"Student {student_id} not found"})
+            except Exception as e:
+                print(f"[REGISTRATION REMINDER] 💥 Unexpected error for student {student_id}: {e}")
+                results.append({'student_id': student_id, 'success': False, 'message': f"Unexpected error: {str(e)[:100]}"})
+
         return results

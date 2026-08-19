@@ -602,13 +602,27 @@ const handleMakePayment = async (deadlineId, amount) => {
                 const payNowDisabled = isPayNowDisabled(payment.id);
                 const disabledReason = getDisabledReason(payment.id);
                 const hasPending = hasPendingSlip(payment.id);
+                // ✅ NEW: a registration fee is a one-time, separate charge —
+                // it must never be confused with a monthly slip payment.
+                // No bank transfer / slip upload for it: online Pay Now only.
+                const isRegistration = payment.deadline_type === 'registration';
                 
                 return (
-                  <div key={payment.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                  <div
+                    key={payment.id}
+                    className={`border rounded-lg p-4 hover:shadow-md transition-shadow ${
+                      isRegistration ? 'border-purple-200 bg-purple-50/30' : ''
+                    }`}
+                  >
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <p className="font-semibold text-gray-900">{payment.month_name}</p>
+                          {isRegistration && (
+                            <span className="text-xs text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full font-medium">
+                              One-Time Registration Fee
+                            </span>
+                          )}
                           {daysRemaining <= 10 && daysRemaining > 0 && (
                             <span className="text-xs text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">
                               {daysRemaining} days reminder
@@ -656,26 +670,33 @@ const handleMakePayment = async (deadlineId, amount) => {
                           )}
                           {!chapaConfigured ? 'Unavailable' : hasPending ? 'Verifying...' : 'Pay Now'}
                         </button>
-                        <button
-                          onClick={() => handleBankTransfer(payment)}
-                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                        >
-                          <Banknote className="h-4 w-4" />
-                          Bank Transfer
-                        </button>
-                        <button
-                          onClick={() => handleUploadClick(payment)}
-                          disabled={hasPending}
-                          title={hasPending ? 'Verification in progress. Wait for completion.' : ''}
-                          className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
-                            hasPending
-                              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                          }`}
-                        >
-                          <Upload className="h-4 w-4" />
-                          {hasPending ? 'Verifying...' : 'Upload Slip'}
-                        </button>
+                        {/* Registration fee: online Pay Now only — no bank
+                            slip route, so it never gets confused with a
+                            monthly slip payment awaiting manual review. */}
+                        {!isRegistration && (
+                          <>
+                            <button
+                              onClick={() => handleBankTransfer(payment)}
+                              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                            >
+                              <Banknote className="h-4 w-4" />
+                              Bank Transfer
+                            </button>
+                            <button
+                              onClick={() => handleUploadClick(payment)}
+                              disabled={hasPending}
+                              title={hasPending ? 'Verification in progress. Wait for completion.' : ''}
+                              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                                hasPending
+                                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                              }`}
+                            >
+                              <Upload className="h-4 w-4" />
+                              {hasPending ? 'Verifying...' : 'Upload Slip'}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>

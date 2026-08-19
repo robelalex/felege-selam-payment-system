@@ -123,8 +123,12 @@ export default function ReceiptPage() {
         </div>
 
         {/* Confirmed banner */}
-        <div className="flex items-center justify-center gap-2 bg-emerald-50 border-b border-emerald-100 py-3">
-          <span className="text-emerald-700 font-medium text-sm">✅ Payment Confirmed</span>
+        <div className={`flex items-center justify-center gap-2 border-b py-3 ${
+          d.is_registration ? 'bg-purple-50 border-purple-100' : 'bg-emerald-50 border-emerald-100'
+        }`}>
+          <span className={`font-medium text-sm ${d.is_registration ? 'text-purple-700' : 'text-emerald-700'}`}>
+            {d.is_registration ? '✅ Registration Fee Confirmed' : '✅ Payment Confirmed'}
+          </span>
         </div>
 
         <div className="px-6 py-5">
@@ -142,6 +146,11 @@ export default function ReceiptPage() {
 
           {/* Amount */}
           <div className="text-center mb-5">
+            {d.is_registration && (
+              <span className="inline-block text-xs font-medium text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full mb-2">
+                One-Time Registration Fee
+              </span>
+            )}
             <p className="text-3xl font-semibold text-slate-900">
               {d.amount} <span className="text-sm font-normal text-slate-400">{d.currency}</span>
             </p>
@@ -150,7 +159,7 @@ export default function ReceiptPage() {
           {/* Details */}
           <div className="space-y-2 text-sm border-t border-slate-100 pt-4">
             <div className="flex justify-between">
-              <span className="text-slate-400">Month</span>
+              <span className="text-slate-400">{d.is_registration ? 'Fee Type' : 'Month'}</span>
               <span className="text-slate-800 font-medium">{d.month || "—"}</span>
             </div>
             <div className="flex justify-between">

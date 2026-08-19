@@ -116,6 +116,43 @@ class ReminderViewSet(viewsets.ViewSet):
         })
     
     @action(detail=False, methods=['post'])
+    def send_registration(self, request):
+        """
+        ✅ NEW: send the ONE-TIME registration fee reminder — SMS + Email,
+        kept strictly separate from the monthly reminder ('send' above).
+        Meant to be triggered by the admin once per academic year, after
+        RegistrationFeeConfig + each student's type/exception is set —
+        never bundled with the monthly amount.
+        """
+        school_id = get_verified_school_id(request)
+        student_ids = request.data.get('student_ids', [])
+        academic_year = request.data.get('academic_year')
+
+        if not school_id:
+            return Response({'error': 'No school associated with this account'}, status=400)
+
+        if not student_ids:
+            return Response({'error': 'No students selected'}, status=status.HTTP_400_BAD_REQUEST)
+
+        students = Student.objects.filter(student_id__in=student_ids, school_id=school_id)
+        if students.count() != len(student_ids):
+            return Response({'error': 'Some students do not belong to your school'}, status=403)
+
+        service = ReminderService()
+        results = service.send_registration_reminders(
+            student_ids,
+            academic_year=academic_year,
+            school_id=school_id
+        )
+
+        return Response({
+            'success': True,
+            'sent': len([r for r in results if r['success']]),
+            'failed': len([r for r in results if not r['success']]),
+            'results': results
+        })
+
+    @action(detail=False, methods=['post'])
     def send_email_reminders(self, request):
         """Send EMAIL reminders using SCHOOL'S OWN BREVO ACCOUNT"""
         

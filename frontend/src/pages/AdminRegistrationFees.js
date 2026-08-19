@@ -52,6 +52,12 @@ function AdminRegistrationFees() {
   const [unpaidSection, setUnpaidSection] = useState('all');
   const [unpaidData, setUnpaidData] = useState(null);
   const [unpaidLoading, setUnpaidLoading] = useState(false);
+  // ✅ NEW: send the one-time registration fee reminder (SMS + Email),
+  // kept fully separate from the monthly reminder flow — see
+  // ReminderViewSet.send_registration on the backend.
+  const [selectedUnpaidIds, setSelectedUnpaidIds] = useState(new Set());
+  const [sendingReminders, setSendingReminders] = useState(false);
+  const [reminderMessage, setReminderMessage] = useState(null);
 
   useEffect(() => {
     api.get('/sections/').then((res) => setAllSections(res.data || [])).catch(() => {});
@@ -66,6 +72,8 @@ function AdminRegistrationFees() {
 
   const fetchUnpaid = async () => {
     setUnpaidLoading(true);
+    setSelectedUnpaidIds(new Set());
+    setReminderMessage(null);
     try {
       const response = await api.get('/registration-fee-configs/unpaid-students/', {
         params: {
@@ -86,6 +94,47 @@ function AdminRegistrationFees() {
   const sectionOptionsForGrade = unpaidGrade === 'all'
     ? allSections
     : allSections.filter((s) => String(s.grade) === String(unpaidGrade));
+
+  const toggleUnpaidSelected = (studentId) => {
+    setSelectedUnpaidIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(studentId)) next.delete(studentId); else next.add(studentId);
+      return next;
+    });
+  };
+
+  const toggleSelectAllUnpaid = () => {
+    if (!unpaidData?.students) return;
+    setSelectedUnpaidIds((prev) => {
+      const allIds = unpaidData.students.map((s) => s.student_id);
+      const allSelected = allIds.every((id) => prev.has(id));
+      return allSelected ? new Set() : new Set(allIds);
+    });
+  };
+
+  const sendRegistrationReminders = async () => {
+    if (selectedUnpaidIds.size === 0 || !selectedYear?.id) return;
+    setSendingReminders(true);
+    setReminderMessage(null);
+    try {
+      const response = await api.post('/reminders/send_registration/', {
+        student_ids: Array.from(selectedUnpaidIds),
+        academic_year: selectedYear.id,
+      });
+      setReminderMessage({
+        type: 'success',
+        text: `Sent to ${response.data.sent} parent(s). ${response.data.failed} failed.`,
+      });
+    } catch (err) {
+      console.error('Error sending registration reminders:', err.response?.data);
+      setReminderMessage({
+        type: 'error',
+        text: err.response?.data?.error || 'Failed to send reminders.',
+      });
+    } finally {
+      setSendingReminders(false);
+    }
+  };
 
   useEffect(() => {
     if (selectedYear?.id) {
@@ -552,9 +601,29 @@ function AdminRegistrationFees() {
           </div>
         ) : (
           <div className="overflow-x-auto">
+            {reminderMessage && (
+              <div className={`p-2 rounded-lg flex items-center gap-2 mb-3 text-sm ${
+                reminderMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+              }`}>
+                {reminderMessage.type === 'success' ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                {reminderMessage.text}
+              </div>
+            )}
+            <div className="flex items-center justify-between mb-2 px-1">
+              <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={unpaidData.students.length > 0 && unpaidData.students.every((s) => selectedUnpaidIds.has(s.student_id))}
+                  onChange={toggleSelectAllUnpaid}
+                />
+                Select all ({unpaidData.students.length})
+              </label>
+              <span className="text-xs text-gray-500">{selectedUnpaidIds.size} selected</span>
+            </div>
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-gray-500 border-b border-gray-200">
+                  <th className="py-2 pl-1 pr-2 w-8"></th>
                   <th className="py-2 pr-3">Student</th>
                   <th className="py-2 pr-3">Grade / Section</th>
                   <th className="py-2 pr-3">Type</th>
@@ -565,6 +634,13 @@ function AdminRegistrationFees() {
               <tbody>
                 {unpaidData.students.map((s) => (
                   <tr key={s.student_id} className="border-b border-gray-100">
+                    <td className="py-2 pl-1 pr-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedUnpaidIds.has(s.student_id)}
+                        onChange={() => toggleUnpaidSelected(s.student_id)}
+                      />
+                    </td>
                     <td className="py-2 pr-3">
                       <p className="font-medium text-gray-900">{s.name}</p>
                       <p className="text-xs text-gray-500 font-mono">{s.student_id}</p>
@@ -593,7 +669,19 @@ function AdminRegistrationFees() {
                 ))}
               </tbody>
             </table>
-            <p className="text-xs text-gray-500 mt-3">{unpaidData.total_unpaid} student(s) unpaid.</p>
+            <div className="flex items-center justify-between mt-3">
+              <p className="text-xs text-gray-500">{unpaidData.total_unpaid} student(s) unpaid.</p>
+              <button
+                type="button"
+                onClick={sendRegistrationReminders}
+                disabled={sendingReminders || selectedUnpaidIds.size === 0}
+                className="btn-primary flex items-center gap-2 disabled:opacity-50"
+                title="Sends a SEPARATE registration-fee-only SMS + Email — never combined with the monthly reminder."
+              >
+                {sendingReminders ? <Loader className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
+                Send Registration Reminders ({selectedUnpaidIds.size})
+              </button>
+            </div>
           </div>
         )}
       </div>

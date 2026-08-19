@@ -94,7 +94,14 @@ class Command(BaseCommand):
                 if not unpaid_students:
                     continue
 
-                month_name = deadline.get_month_display()
+                # ✅ FIX: get_month_display() rendered blank/"None" for a
+                # registration deadline (month is always None there by
+                # design). Every scheduled registration-fee reminder was
+                # going out reading "tuition for  (ETB ...) is due..." with
+                # a blank gap until this used display_label instead — see
+                # PaymentDeadline.display_label.
+                month_name = deadline.display_label
+                is_registration = deadline.deadline_type == 'registration'
                 due_phrase = "tomorrow" if days_before == 1 else f"in {days_before} days"
 
                 self.stdout.write(
@@ -117,13 +124,28 @@ class Command(BaseCommand):
                     if effective_amount <= 0:
                         continue
 
-                    message = (
-                        f"Payment Reminder: {student.full_name}'s tuition for "
-                        f"{month_name} (ETB {effective_amount:,.2f}) is due {due_phrase} "
-                        f"on {deadline.due_date.strftime('%b %d, %Y')}. "
-                        f"Please pay via the parent portal or bank transfer. "
-                        f"— {school.name}"
-                    )
+                    # ✅ Registration fee gets its own wording — it's a
+                    # one-time yearly charge, not "tuition for <month>",
+                    # and must never be described as if it were a monthly
+                    # payment (same separation the manual reminder flow
+                    # in reminder_service.py now enforces).
+                    if is_registration:
+                        message = (
+                            f"Registration Fee Reminder: {student.full_name}'s one-time "
+                            f"registration fee (ETB {effective_amount:,.2f}) is due {due_phrase} "
+                            f"on {deadline.due_date.strftime('%b %d, %Y')}. "
+                            f"This is separate from the monthly tuition fee. "
+                            f"Please pay via the parent portal. "
+                            f"— {school.name}"
+                        )
+                    else:
+                        message = (
+                            f"Payment Reminder: {student.full_name}'s tuition for "
+                            f"{month_name} (ETB {effective_amount:,.2f}) is due {due_phrase} "
+                            f"on {deadline.due_date.strftime('%b %d, %Y')}. "
+                            f"Please pay via the parent portal or bank transfer. "
+                            f"— {school.name}"
+                        )
 
                     try:
                         sms_service.send_sms(
@@ -140,6 +162,36 @@ class Command(BaseCommand):
                         self.stdout.write(self.style.ERROR(
                             f"    ❌ {student.student_id} ({student.parent_phone}): {exc}"
                         ))
+
+                    # ✅ NEW: email alongside SMS, same as the manual
+                    # reminder flow already does — the scheduled command
+                    # was SMS-only before, so a family without SMS credit
+                    # left on the school's account (or without a phone
+                    # entered correctly) never got a scheduled reminder at
+                    # all even when a parent email was on file.
+                    parent_email = getattr(student, 'parent_email', None)
+                    if parent_email:
+                        try:
+                            from common.email_service import SchoolEmailService
+                            subject = (
+                                f"Registration Fee Reminder - {student.full_name}"
+                                if is_registration else
+                                f"Payment Reminder - {student.full_name}"
+                            )
+                            html_content = (
+                                f'<div style="font-family: Arial, sans-serif; padding: 20px;">'
+                                f'<p>{message}</p></div>'
+                            )
+                            SchoolEmailService(school.id).send_email(
+                                recipient_email=parent_email,
+                                subject=subject,
+                                html_content=html_content,
+                                text_content=message,
+                            )
+                        except Exception as exc:
+                            self.stdout.write(self.style.WARNING(
+                                f"    ⚠️ email failed for {student.student_id}: {exc}"
+                            ))
 
         self.stdout.write(self.style.SUCCESS(
             f"Done. Checked {total_students_checked} student(s), "

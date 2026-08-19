@@ -379,8 +379,17 @@ class StudentViewSet(viewsets.ModelViewSet):
                 data.append({
                     'id': deadline.id,
                     'deadline_id': deadline.id,
-                    'month_name': deadline.get_month_display(),
+                    # ✅ FIX: get_month_display() rendered blank/"None" for a
+                    # registration deadline (month is always None there by
+                    # design) — the parent dashboard showed a blank label
+                    # for the registration fee. display_label handles both.
+                    'month_name': deadline.display_label,
                     'month_number': deadline.month,
+                    # ✅ NEW: lets the parent dashboard tell a one-time
+                    # registration fee apart from a monthly deadline, so it
+                    # can show a distinct "Pay Now only, own receipt" card
+                    # instead of the monthly slip/bank-transfer flow.
+                    'deadline_type': deadline.deadline_type,
                     'academic_year': deadline.academic_year.name if deadline.academic_year else student.academic_year,
                     'amount': str(effective_amount),
                     # 🔍 DIAGNOSTIC (temporary): visible in the browser
@@ -396,15 +405,16 @@ class StudentViewSet(viewsets.ModelViewSet):
                     'payment_status': None,
                     'slip_status': None
                 })
-                print(f"📚 Added pending: {deadline.get_month_display()} - Grade: {deadline.grade if deadline.grade else 'All Grades'}")
+                print(f"📚 Added pending: {deadline.display_label} - Grade: {deadline.grade if deadline.grade else 'All Grades'}")
 
             # ✅ Add pending slip payments
             for payment in pending_slip_payments:
                 data.append({
                     'id': payment.id,  # Payment ID for reference
                     'deadline_id': payment.deadline.id,
-                    'month_name': payment.deadline.get_month_display(),
+                    'month_name': payment.deadline.display_label,
                     'month_number': payment.deadline.month,
+                    'deadline_type': payment.deadline.deadline_type,
                     'academic_year': payment.deadline.academic_year.name if payment.deadline.academic_year else student.academic_year,
                     'amount': str(payment.amount),
                     'due_date': payment.deadline.due_date,
@@ -417,7 +427,7 @@ class StudentViewSet(viewsets.ModelViewSet):
                     'payment_id': payment.id,
                     'slip_image': payment.slip.slip_image.url if payment.slip and payment.slip.slip_image else None
                 })
-                print(f"📚 Added pending slip payment: {payment.deadline.get_month_display()}")
+                print(f"📚 Added pending slip payment: {payment.deadline.display_label}")
 
             return Response(data)
 

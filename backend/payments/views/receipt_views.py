@@ -23,6 +23,7 @@ def get_receipt(request, token):
 
     student = payment.student
     school = student.school
+    is_registration = bool(payment.deadline and payment.deadline.deadline_type == 'registration')
 
     return Response({
         'invoice_number': payment.invoice_number,
@@ -32,7 +33,13 @@ def get_receipt(request, token):
         'student_id': student.student_id,
         'grade': student.grade,
         'section': student.section,
-        'month': payment.deadline.get_month_display() if payment.deadline else None,
+        # ✅ FIX: get_month_display() rendered blank for a registration
+        # deadline (month is always None there) — the receipt page showed
+        # "Month: —" for a registration fee receipt. display_label
+        # correctly reads "Registration Fee" instead.
+        'month': payment.deadline.display_label if payment.deadline else None,
+        'fee_type': payment.deadline.deadline_type if payment.deadline else None,
+        'is_registration': is_registration,
         'academic_year': payment.deadline.academic_year.name if payment.deadline and payment.deadline.academic_year else None,
         'amount': str(payment.amount),
         'currency': 'ETB',
