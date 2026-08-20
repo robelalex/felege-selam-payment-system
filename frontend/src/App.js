@@ -15,7 +15,11 @@ import { ChapaWarningProvider } from './context/ChapaWarningContext';  // ✅ AD
 import { LanguageProvider } from './context/LanguageContext';
 
 // Pages
-import SuperAdminDashboard from './pages/SuperAdminDashboard';
+import SuperAdminDashboard from './pages/superadmin/SuperAdminDashboard';
+import SuperAdminSchools from './pages/superadmin/SuperAdminSchools';
+import SuperAdminApprovals from './pages/superadmin/SuperAdminApprovals';
+import SuperAdminUsers from './pages/superadmin/SuperAdminUsers';
+import VerifyEmail from './pages/VerifyEmail';
 import StudentSearch from './pages/StudentSearch';
 import StudentDashboard from './pages/StudentDashboard';
 import PaymentPage from './pages/PaymentPage';
@@ -83,6 +87,27 @@ const ProtectedRoute = ({ children }) => {
   return (isAdmin || token) ? children : <Navigate to="/admin/login" />;
 };
 
+// ✅ NEW — the old /superadmin/dashboard route only reused ProtectedRoute,
+// which just checks "is SOME admin logged in", not "is this admin the
+// super admin". Any logged-in school admin could navigate straight to it
+// (the page itself would then fail its data fetches since the backend
+// endpoints are correctly gated by IsPlatformOwner — see
+// schools/approval_views.py / platform_admin_views.py — but the route
+// itself gave no signal and would render a broken page instead of
+// redirecting). This checks the role the login response already returns
+// (admin_login_step2 sets user.is_super_admin) before allowing entry.
+const SuperAdminProtectedRoute = ({ children }) => {
+  const token = localStorage.getItem('access_token');
+  if (!token) return <Navigate to="/admin/login" />;
+  try {
+    const adminUser = JSON.parse(localStorage.getItem('adminUser') || '{}');
+    if (!adminUser.is_super_admin) return <Navigate to="/admin/dashboard" />;
+  } catch {
+    return <Navigate to="/admin/login" />;
+  }
+  return children;
+};
+
 // Guards teacher-only routes using the teacher's own token (kept separate
 // from the admin's 'access_token' — see services/teacherApi.js).
 const TeacherProtectedRoute = ({ children }) => {
@@ -125,6 +150,7 @@ function App() {
               <Route path="/admin/register" element={<AdminRegister />} />
               <Route path="/admin/forgot-password" element={<ForgotPassword />} />
               <Route path="/admin/reset-password" element={<ResetPassword />} />
+              <Route path="/verify-email/:token" element={<VerifyEmail />} />
 
               {/* ========== ADMIN ROUTES - WRAPPED WITH CHAPA WARNING PROVIDER ========== */}
               {/* Dashboard */}
@@ -267,13 +293,40 @@ function App() {
                 }
               />
 
-              {/* Super Admin */}
+              {/* Super Admin — platform owner surface, redesigned Item 8.
+                  Each page renders its own SuperAdminLayout, so no shared
+                  layout wrapper is needed at the route level (mirrors how
+                  AdminLayout is applied per-route below, not globally). */}
               <Route
                 path="/superadmin/dashboard"
                 element={
-                  <ProtectedRoute>
+                  <SuperAdminProtectedRoute>
                     <SuperAdminDashboard />
-                  </ProtectedRoute>
+                  </SuperAdminProtectedRoute>
+                }
+              />
+              <Route
+                path="/superadmin/schools"
+                element={
+                  <SuperAdminProtectedRoute>
+                    <SuperAdminSchools />
+                  </SuperAdminProtectedRoute>
+                }
+              />
+              <Route
+                path="/superadmin/approvals"
+                element={
+                  <SuperAdminProtectedRoute>
+                    <SuperAdminApprovals />
+                  </SuperAdminProtectedRoute>
+                }
+              />
+              <Route
+                path="/superadmin/school-admins"
+                element={
+                  <SuperAdminProtectedRoute>
+                    <SuperAdminUsers />
+                  </SuperAdminProtectedRoute>
                 }
               />
 

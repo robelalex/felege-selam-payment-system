@@ -3,9 +3,9 @@
 // Self-contained "who am I / edit my profile" button + modal.
 // Fetches its own data from /me/ and saves via /me/update/, so it can be
 // dropped into ANY page — school-admin pages already get this inside
-// AdminLayout.js, but standalone pages (like SuperAdminDashboard, which
-// isn't wrapped in AdminLayout) need their own copy. This component is
-// that copy, so a super admin can also see/edit their own name and photo.
+// AdminLayout.js. (The super-admin pages under pages/superadmin/ use
+// their own identity block in SuperAdminLayout.js instead of this
+// component — kept here for any other standalone page that needs it.)
 import React, { useState, useEffect } from 'react';
 import { User, ChevronDown } from 'lucide-react';
 import api from '../../services/api';

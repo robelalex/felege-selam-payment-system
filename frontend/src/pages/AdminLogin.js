@@ -103,7 +103,15 @@ function AdminLogin() {
         // academic years instead of waiting for the next full page load.
         window.dispatchEvent(new CustomEvent('authChanged'));
 
-        navigate('/admin/dashboard');
+        // ✅ FIX: previously this always sent every login to
+        // /admin/dashboard, even for the platform super admin — who has
+        // no school and would land on a broken/empty school-admin
+        // dashboard. verify_otp already returns is_super_admin; use it.
+        if (response.data.user.is_super_admin) {
+          navigate('/superadmin/dashboard');
+        } else {
+          navigate('/admin/dashboard');
+        }
       } else {
         setError(response.data.error || 'Invalid OTP code');
       }
