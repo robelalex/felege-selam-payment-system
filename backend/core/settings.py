@@ -290,7 +290,7 @@ if os.environ.get("ENVIRONMENT") == "production":
     ANYMAIL = {
         "RESEND_API_KEY": os.environ.get("RESEND_API_KEY", ""),
     }
-    DEFAULT_FROM_EMAIL = "Felege Selam <noreply@felege-selam.com>"
+    DEFAULT_FROM_EMAIL = "SchoolPay Ethiopia <noreply@felege-selam.com>"
 else:
     # LOCAL / DEV / TESTING: Use Brevo (Free tier, no domain needed, unlimited recipients)
     EMAIL_BACKEND = "anymail.backends.brevo.EmailBackend"
@@ -298,7 +298,7 @@ else:
         "BREVO_API_KEY": os.environ.get("BREVO_API_KEY", ""),
     }
     # Use your verified Brevo sender address here
-    DEFAULT_FROM_EMAIL = "Felege Selam <robelalex95@gmail.com>" 
+    DEFAULT_FROM_EMAIL = "SchoolPay Ethiopia <robelalex95@gmail.com>" 
 
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
