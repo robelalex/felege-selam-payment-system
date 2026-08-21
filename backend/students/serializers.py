@@ -1,16 +1,27 @@
 # students/serializers.py
 from rest_framework import serializers
-from .models import Student, Section, StudentDocument
+from .models import Student, Section, StudentDocument, RequiredDocumentRequest
 from payments.models import PaymentDeadline
 
 
 class StudentDocumentSerializer(serializers.ModelSerializer):
     document_type_display = serializers.CharField(source='get_document_type_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    academic_year_name = serializers.CharField(source='academic_year.name', read_only=True, default=None)
 
     class Meta:
         model = StudentDocument
         fields = '__all__'
-        read_only_fields = ['student', 'uploaded_at']
+        read_only_fields = ['student', 'uploaded_at', 'reviewed_at']
+
+
+class RequiredDocumentRequestSerializer(serializers.ModelSerializer):
+    document_type_display = serializers.CharField(source='get_document_type_display', read_only=True)
+
+    class Meta:
+        model = RequiredDocumentRequest
+        fields = '__all__'
+        read_only_fields = ['student', 'created_at', 'resolved_at', 'is_resolved']
 
 
 class StudentSerializer(serializers.ModelSerializer):

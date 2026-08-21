@@ -165,6 +165,28 @@ def admin_login_step1(request):
     
     if hasattr(user, 'profile') and not user.profile.is_email_verified:
         return Response({'error': 'Please verify your email first'}, status=401)
+
+    # ✅ NEW — Service Agreement Section 4 enforcement. Only school_admin/
+    # staff/teacher logins for THAT school are affected; super_admin (no
+    # school_id) always passes through, and parents use a separate login
+    # flow entirely, so an overdue school's parents can still pay.
+    profile_role = getattr(user.profile, 'role', None) if hasattr(user, 'profile') else None
+    school_id = getattr(user.profile, 'school_id', None) if hasattr(user, 'profile') else None
+    if profile_role != 'super_admin' and school_id:
+        from schools.models import School
+        try:
+            school = School.objects.get(id=school_id)
+        except School.DoesNotExist:
+            school = None
+        if school and school.is_access_suspended:
+            return Response({
+                'error': (
+                    "This school's SchoolPay Ethiopia subscription is not active. "
+                    "Please contact SchoolPay Ethiopia to reactivate access. "
+                    "Student and payment records are safe and have not been affected."
+                ),
+                'subscription_suspended': True,
+            }, status=402)  # 402 Payment Required
     
     # ✅ GENERATE REAL OTP
     otp_code = generate_secure_otp()

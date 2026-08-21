@@ -17,6 +17,7 @@ from schools.approval_views import pending_approvals, approve_school, reject_sch
 from schools.platform_admin_views import (
     platform_stats, schools_list, update_school_subscription,
     school_admins_list, toggle_school_admin_active, resend_verification_email,
+    school_platform_payments, export_school_data,
 )
 from reports.views import dashboard_stats as reports_dashboard_stats, pending_payments_report
 from authentication.views import change_password
@@ -104,6 +105,8 @@ urlpatterns = [
     path('api/admin/school-admins/', school_admins_list, name='platform-school-admins'),
     path('api/admin/school-admins/<int:user_id>/toggle-active/', toggle_school_admin_active, name='platform-school-admin-toggle'),
     path('api/admin/school-admins/<int:user_id>/resend-verification/', resend_verification_email, name='platform-resend-verification'),
+    path('api/admin/schools-list/<int:school_id>/payments/', school_platform_payments, name='platform-school-payments'),
+    path('api/admin/schools-list/<int:school_id>/export/', export_school_data, name='platform-school-export'),
 
     # ⚠️ RETIRED & REMOVED 2026-08-19 — the old Django-template super-admin
     # panel (admin_dashboard app + backend/templates/admin_dashboard/) is

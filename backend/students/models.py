@@ -234,8 +234,11 @@ class StudentDocument(models.Model):
     """
     ✅ Enrollment documents — birth certificate for new Grade 1 entrants,
     grade 6/8 leaving (completion) certificates required by the Ethiopian
-    system at those transition points, and general transfer certificates
-    for students joining from another school.
+    system at those transition points, general transfer certificates
+    for students joining from another school, and yearly educational
+    documents (e.g. a promotion/report-card style record for the year,
+    or a document that needs re-submitting after the student passes to
+    the next grade).
 
     Kept as a generic document_type + file model (rather than separate
     fixed fields on Student) so new document types can be added later
@@ -249,7 +252,27 @@ class StudentDocument(models.Model):
         ('leaving_certificate_grade8', 'Grade 8 Leaving Certificate'),
         ('transfer_certificate', 'Transfer Certificate'),
         ('grade12_certificate', 'Grade 12 Certificate'),
+        # ✅ NEW: yearly educational document (report card / promotion
+        # record / any document that needs re-submitting after the
+        # student passes to the next grade) — tagged with academic_year
+        # below so this year's copy is tracked separately from last
+        # year's, instead of one upload silently standing in for every
+        # year.
+        ('educational_document', 'Educational Document (Yearly)'),
         ('other', 'Other'),
+    ]
+
+    # ✅ NEW: pending/verified/rejected — the admin-review workflow
+    # requested alongside document uploads. `verified` (below) is kept
+    # as-is for backward compatibility with any existing code/UI that
+    # reads it directly, and is kept in sync with this: True only when
+    # status == 'verified'. New code (the review action, the parent-
+    # facing rejection notice) should read/write `status`, not
+    # `verified`, directly.
+    STATUS_CHOICES = [
+        ('pending', 'Pending Review'),
+        ('verified', 'Verified'),
+        ('rejected', 'Rejected'),
     ]
 
     student = models.ForeignKey(
@@ -258,6 +281,22 @@ class StudentDocument(models.Model):
         related_name='documents'
     )
     document_type = models.CharField(max_length=40, choices=DOCUMENT_TYPE_CHOICES)
+    # ✅ NEW: only meaningful for document_type='other' (or to add a
+    # specific note to 'educational_document') — lets an admin's manual
+    # request, or a parent's "other" upload, carry a plain-language label
+    # like "Kebele ID letter" instead of just "Other".
+    custom_label = models.CharField(max_length=100, blank=True)
+    # ✅ NEW: which academic year this document belongs to. Nullable so
+    # existing rows (uploaded before this field existed) aren't broken.
+    # Set automatically to the student's current academic year at
+    # upload time for anything uploaded from now on.
+    academic_year = models.ForeignKey(
+        'academics.AcademicYear',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='student_documents'
+    )
     file = models.FileField(
         upload_to='student_documents/%Y/%m/',
         help_text="Scanned copy or photo of the document (PDF, JPG, PNG)"
@@ -266,6 +305,12 @@ class StudentDocument(models.Model):
     # copy has been checked — useful for inspection/audit readiness, which
     # regional education bureaus do check for this exact set of documents.
     verified = models.BooleanField(default=False)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    # ✅ NEW: why a document was rejected (or any reviewer comment) —
+    # shown to the parent so a rejected upload isn't a dead end with no
+    # explanation.
+    review_note = models.CharField(max_length=255, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
     notes = models.CharField(max_length=255, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
@@ -277,3 +322,48 @@ class StudentDocument(models.Model):
 
     def __str__(self):
         return f"{self.student.student_id or self.student.full_name} - {self.get_document_type_display()}"
+
+
+class RequiredDocumentRequest(models.Model):
+    """
+    ✅ NEW: lets an admin manually flag that a SPECIFIC student needs to
+    submit a document beyond whatever the grade-based rule
+    (RECOMMENDED_DOC_TYPES_BY_GRADE in students/views.py) already
+    covers — e.g. a birth certificate that turned out to be blurry, a
+    one-off letter from the kebele, or an educational document for a
+    student who transferred mid-year. Shows up on the parent dashboard's
+    "Finish Registration" checklist exactly like the automatic
+    requirements do, so nothing needs a separate admin-only page for the
+    parent to see it.
+
+    A request is considered fulfilled once a matching StudentDocument
+    exists for a named type (birth_certificate, leaving_certificate_*,
+    etc.); for 'other' — where the label is free text and multiple
+    unrelated "other" uploads could exist — the admin marks it resolved
+    manually instead of relying on an automatic match.
+    """
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name='document_requests'
+    )
+    document_type = models.CharField(max_length=40, choices=StudentDocument.DOCUMENT_TYPE_CHOICES)
+    custom_label = models.CharField(
+        max_length=100, blank=True,
+        help_text="Required when document_type is 'other' — e.g. 'Kebele ID letter'"
+    )
+    note = models.CharField(
+        max_length=255, blank=True,
+        help_text="Shown to the parent — why this document is needed"
+    )
+    requested_by = models.CharField(max_length=150, blank=True)
+    is_resolved = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        label = self.custom_label or self.get_document_type_display()
+        return f"{self.student.student_id or self.student.full_name} — {label}"

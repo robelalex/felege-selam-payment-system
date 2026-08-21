@@ -183,7 +183,49 @@ class School(models.Model):
     )
     subscription_active = models.BooleanField(default=True)
     subscription_expiry = models.DateField(null=True, blank=True)
-    
+
+    # ✅ NEW — Platform billing enforcement. Matches the Service Agreement:
+    # a school is only ever locked out of the SCHOOL-ADMIN/STAFF/TEACHER
+    # side of the platform (not deleted, not touched for parents) — and
+    # only after subscription_expiry plus this grace period has fully
+    # passed. See authentication/views.py:admin_login_step1 for where
+    # this is enforced.
+    GRACE_PERIOD_DAYS = 7
+
+    @property
+    def is_access_suspended(self):
+        """
+        True when school_admin/staff/teacher logins for this school should
+        be blocked. Deliberately narrow: 'suspended'/'rejected' status
+        blocks immediately (a platform-owner decision), but an expired
+        subscription_expiry only blocks after GRACE_PERIOD_DAYS — matching
+        Section 4 of the Service Agreement ("grace period of 7 days...
+        before any access is limited").
+        """
+        from django.utils import timezone
+        if self.subscription_status in ('suspended', 'rejected'):
+            return True
+        if self.subscription_expiry:
+            days_overdue = (timezone.now().date() - self.subscription_expiry).days
+            if days_overdue > self.GRACE_PERIOD_DAYS:
+                return True
+        return False
+
+    @property
+    def days_until_access_suspended(self):
+        """
+        None if not applicable/already suspended, else how many days of
+        grace period remain — used to show an admin a warning before
+        they're actually locked out.
+        """
+        from django.utils import timezone
+        if self.is_access_suspended or not self.subscription_expiry:
+            return None
+        days_overdue = (timezone.now().date() - self.subscription_expiry).days
+        if days_overdue < 0:
+            return None  # not even expired yet
+        return max(0, self.GRACE_PERIOD_DAYS - days_overdue)
+
     # Bank account details (for parents to pay into)
     bank_name = models.CharField(max_length=100)
     bank_account_number = models.CharField(max_length=50)
@@ -448,3 +490,37 @@ class SchoolAdminProfile(models.Model):
         verbose_name_plural = "School Admin Profiles"
 # ── Multiple bank accounts (Phase 7 addition) ─────────────────────────────
 from .bank_account_models import SchoolBankAccount  # noqa: F401
+
+
+# ========== PlatformPayment ==========
+# ✅ NEW — this is Robel's own business billing (a school paying HIM for
+# the platform subscription), completely separate from that school's
+# parents paying school fees (payments.models.Payment). Gives the Super
+# Admin dashboard a real record of what a school has paid the platform
+# and when, instead of subscription_expiry being edited with no history.
+class PlatformPayment(models.Model):
+    METHOD_CHOICES = [
+        ('chapa', 'Chapa (online)'),
+        ('bank_transfer', 'Bank Transfer'),
+        ('cash', 'Cash'),
+        ('other', 'Other'),
+    ]
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='platform_payments')
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    method = models.CharField(max_length=20, choices=METHOD_CHOICES, default='bank_transfer')
+    period_months = models.PositiveIntegerField(
+        default=1, help_text="How many months of access this payment covers"
+    )
+    paid_on = models.DateField(help_text="Date the school actually paid")
+    note = models.CharField(max_length=255, blank=True)
+    recorded_by = models.ForeignKey(
+        'auth.User', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='platform_payments_recorded',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-paid_on', '-created_at']
+
+    def __str__(self):
+        return f"{self.school.name} — {self.amount} ETB ({self.paid_on})"

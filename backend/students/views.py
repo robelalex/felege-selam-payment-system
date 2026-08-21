@@ -6,8 +6,8 @@ from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from .models import Student, Section, StudentDocument, GRADUATION_GRADE
-from .serializers import StudentSerializer, SectionSerializer, StudentDocumentSerializer
+from .models import Student, Section, StudentDocument, RequiredDocumentRequest, GRADUATION_GRADE
+from .serializers import StudentSerializer, SectionSerializer, StudentDocumentSerializer, RequiredDocumentRequestSerializer
 from payments.models import Payment, PaymentDeadline, PaymentSlip
 import pandas as pd
 from io import BytesIO
@@ -29,6 +29,38 @@ RECOMMENDED_DOC_TYPES_BY_GRADE = {
     9: ['leaving_certificate_grade8'],
     12: ['grade12_certificate'],
 }
+
+
+def _current_academic_year_for(student):
+    """Best-effort lookup of this student's school's current AcademicYear
+    row, to tag a newly-uploaded StudentDocument with. Returns None
+    (never raises) if the school has no academic year marked current —
+    the field is nullable specifically so this can't block an upload."""
+    try:
+        from academics.models import AcademicYear
+        return AcademicYear.objects.filter(
+            school_id=student.school_id, is_current=True
+        ).first()
+    except Exception:
+        return None
+
+
+def _auto_resolve_document_requests(student, document_type):
+    """When a document of a given type is uploaded (by staff or parent),
+    auto-close any open admin RequiredDocumentRequest of that SAME type
+    for this student — except 'other', whose free-text label makes an
+    automatic match unreliable; those stay open until an admin resolves
+    them manually. Never raises — a failure here shouldn't block the
+    upload itself."""
+    if document_type == 'other':
+        return
+    try:
+        from django.utils import timezone
+        RequiredDocumentRequest.objects.filter(
+            student=student, document_type=document_type, is_resolved=False
+        ).update(is_resolved=True, resolved_at=timezone.now())
+    except Exception:
+        pass
 
 
 def _send_registration_reminder_email(student):
@@ -108,6 +140,8 @@ class StudentViewSet(viewsets.ModelViewSet):
             'bulk_import', 'update_monthly_fee', 'selective_promote',
             'upload_document', 'delete_document', 'bulk_photo_upload',
             'send_registration_reminder', 'send_registration_reminders_bulk',
+            'review_document', 'request_document', 'list_document_requests',
+            'delete_document_request', 'resolve_document_request',
         ):
             return [IsAuthenticated(), CanManageStudents()]
         return [IsAuthenticated()]
@@ -933,7 +967,9 @@ class StudentViewSet(viewsets.ModelViewSet):
         """
         Attach an enrollment document (birth certificate, grade 6/8 leaving
         certificate, transfer certificate, etc.) to this student.
-        Expects multipart form data: file, document_type, notes (optional).
+        Expects multipart form data: file, document_type, notes (optional),
+        custom_label (optional — used for document_type='other' or to
+        annotate an 'educational_document').
         """
         student = self.get_object()
 
@@ -951,9 +987,15 @@ class StudentViewSet(viewsets.ModelViewSet):
         document = StudentDocument.objects.create(
             student=student,
             document_type=document_type,
+            custom_label=request.data.get('custom_label', ''),
+            # ✅ Tag with the student's current academic year so a
+            # yearly educational document (or a re-required cert) from
+            # this year is tracked separately from an old one.
+            academic_year=_current_academic_year_for(student),
             file=request.FILES['file'],
             notes=request.data.get('notes', '')
         )
+        _auto_resolve_document_requests(student, document_type)
 
         serializer = StudentDocumentSerializer(document)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -977,6 +1019,108 @@ class StudentViewSet(viewsets.ModelViewSet):
         document.delete()
         return Response({'success': True})
 
+    @action(detail=True, methods=['post'], url_path='review_document/(?P<document_id>[^/.]+)')
+    def review_document(self, request, pk=None, document_id=None):
+        """
+        ✅ NEW: admin review of an uploaded document — mark it verified or
+        rejected, with an optional note explaining why (shown to the
+        parent, e.g. "photo is cut off, please re-scan the full page").
+        Expects JSON body: { "status": "verified" | "rejected", "note": "" }
+        """
+        student = self.get_object()
+        try:
+            document = student.documents.get(id=document_id)
+        except StudentDocument.DoesNotExist:
+            return Response({'error': 'Document not found'}, status=404)
+
+        new_status = request.data.get('status')
+        if new_status not in ('verified', 'rejected', 'pending'):
+            return Response({'error': "status must be 'verified', 'rejected', or 'pending'"}, status=400)
+
+        from django.utils import timezone
+        document.status = new_status
+        document.verified = (new_status == 'verified')
+        document.review_note = request.data.get('note', '')
+        document.reviewed_at = timezone.now()
+        document.save(update_fields=['status', 'verified', 'review_note', 'reviewed_at'])
+
+        serializer = StudentDocumentSerializer(document)
+        return Response(serializer.data)
+
+    # ========== ADMIN-MANUAL "WE STILL NEED THIS" DOCUMENT REQUESTS ==========
+    # The grade-based RECOMMENDED_DOC_TYPES_BY_GRADE list covers the usual
+    # transition points automatically. These three actions let an admin
+    # additionally flag something specific to ONE student (a re-scan, a
+    # one-off letter, an educational document after a transfer) — it
+    # shows up on that parent's dashboard checklist the same way, without
+    # the admin needing to message the parent separately.
+
+    @action(detail=True, methods=['post'], url_path='request_document')
+    def request_document(self, request, pk=None):
+        """Flag that this specific student still needs to submit a
+        document. Expects JSON body: { "document_type": "...",
+        "custom_label": "" (required if document_type is 'other'),
+        "note": "" (optional, shown to the parent) }"""
+        student = self.get_object()
+        document_type = request.data.get('document_type')
+        valid_types = dict(StudentDocument.DOCUMENT_TYPE_CHOICES)
+        if document_type not in valid_types:
+            return Response(
+                {'error': f'document_type must be one of: {", ".join(valid_types.keys())}'},
+                status=400
+            )
+        custom_label = request.data.get('custom_label', '')
+        if document_type == 'other' and not custom_label.strip():
+            return Response({'error': "custom_label is required when document_type is 'other'"}, status=400)
+
+        req = RequiredDocumentRequest.objects.create(
+            student=student,
+            document_type=document_type,
+            custom_label=custom_label,
+            note=request.data.get('note', ''),
+            requested_by=getattr(request.user, 'email', '') or getattr(request.user, 'username', ''),
+        )
+        serializer = RequiredDocumentRequestSerializer(req)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'], url_path='document_requests')
+    def list_document_requests(self, request, pk=None):
+        """List every admin-manual document request for this student
+        (open and resolved) — for the admin's own document panel."""
+        student = self.get_object()
+        requests_qs = student.document_requests.all()
+        serializer = RequiredDocumentRequestSerializer(requests_qs, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['delete'], url_path='delete_document_request/(?P<request_id>[^/.]+)')
+    def delete_document_request(self, request, pk=None, request_id=None):
+        """Cancel an admin-manual document request (e.g. it was raised by
+        mistake) — removes it from the parent's checklist immediately."""
+        student = self.get_object()
+        try:
+            req = student.document_requests.get(id=request_id)
+        except RequiredDocumentRequest.DoesNotExist:
+            return Response({'error': 'Request not found'}, status=404)
+        req.delete()
+        return Response({'success': True})
+
+    @action(detail=True, methods=['post'], url_path='resolve_document_request/(?P<request_id>[^/.]+)')
+    def resolve_document_request(self, request, pk=None, request_id=None):
+        """Mark an admin-manual request as fulfilled without deleting it
+        — keeps the history (who requested it, when it was resolved)
+        instead of erasing the row. Mainly for 'other'-type requests,
+        which can't be auto-resolved by matching an upload."""
+        student = self.get_object()
+        try:
+            req = student.document_requests.get(id=request_id)
+        except RequiredDocumentRequest.DoesNotExist:
+            return Response({'error': 'Request not found'}, status=404)
+        from django.utils import timezone
+        req.is_resolved = True
+        req.resolved_at = timezone.now()
+        req.save(update_fields=['is_resolved', 'resolved_at'])
+        return Response({'success': True})
+
     # ========== PARENT SELF-SERVICE REGISTRATION COMPLETION ==========
     # A parent who's already logged into the Parent Portal (existing
     # email-OTP flow — see authentication.views.parent_login_step1/2)
@@ -989,17 +1133,56 @@ class StudentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='registration_status')
     def registration_status(self, request, pk=None):
         """What's still missing for this student: photo and/or any
-        grade-appropriate enrollment documents. Used to render the
+        grade-appropriate enrollment documents, PLUS anything an admin
+        manually flagged for this specific student. Used to render the
         parent's checklist and the admin's 'incomplete' badge."""
         student = self.get_object()
         required_types = RECOMMENDED_DOC_TYPES_BY_GRADE.get(student.grade, [])
-        uploaded_types = set(student.documents.values_list('document_type', flat=True))
+        docs_by_type = {}
+        for doc in student.documents.all():
+            # a type can have multiple rows historically; keep the most
+            # recent (documents are ordered '-uploaded_at' by default)
+            docs_by_type.setdefault(doc.document_type, doc)
         doc_labels = dict(StudentDocument.DOCUMENT_TYPE_CHOICES)
 
         required_documents = [
-            {'value': t, 'label': doc_labels[t], 'uploaded': t in uploaded_types}
+            {
+                'value': t,
+                'label': doc_labels[t],
+                'uploaded': t in docs_by_type,
+                # ✅ NEW: parent can see WHY a re-upload is needed instead
+                # of a rejected file just sitting there unexplained.
+                'status': docs_by_type[t].status if t in docs_by_type else None,
+                'review_note': docs_by_type[t].review_note if t in docs_by_type else '',
+                'source': 'grade_requirement',
+            }
             for t in required_types
         ]
+
+        # ✅ NEW: admin-manual requests specific to this student, merged
+        # into the same checklist. A request for a type already in the
+        # grade-based list above is skipped here to avoid a duplicate row
+        # — its note is folded into the existing entry instead.
+        manual_requests = student.document_requests.filter(is_resolved=False)
+        existing_values = {d['value'] for d in required_documents}
+        for req in manual_requests:
+            if req.document_type != 'other' and req.document_type in existing_values:
+                for d in required_documents:
+                    if d['value'] == req.document_type and req.note:
+                        d['admin_note'] = req.note
+                continue
+            label = req.custom_label or doc_labels.get(req.document_type, 'Document')
+            required_documents.append({
+                'value': req.document_type,
+                'label': label,
+                'uploaded': req.document_type in docs_by_type and req.document_type != 'other',
+                'status': docs_by_type.get(req.document_type).status if req.document_type in docs_by_type and req.document_type != 'other' else None,
+                'review_note': '',
+                'admin_note': req.note,
+                'source': 'admin_request',
+                'request_id': req.id,
+            })
+
         missing = [d for d in required_documents if not d['uploaded']]
 
         return Response({
@@ -1049,8 +1232,23 @@ class StudentViewSet(viewsets.ModelViewSet):
         document, _ = StudentDocument.objects.update_or_create(
             student=student,
             document_type=document_type,
-            defaults={'file': request.FILES['file']}
+            defaults={
+                'file': request.FILES['file'],
+                'custom_label': request.data.get('custom_label', ''),
+                'academic_year': _current_academic_year_for(student),
+                # ✅ A re-upload (e.g. fixing a rejected scan) needs fresh
+                # admin review — without this, a document the admin
+                # already rejected would keep showing as "rejected" (or
+                # worse, stay silently 'verified' from a previous year's
+                # unrelated file) even after the parent submitted a new
+                # one.
+                'status': 'pending',
+                'verified': False,
+                'review_note': '',
+                'reviewed_at': None,
+            }
         )
+        _auto_resolve_document_requests(student, document_type)
         serializer = StudentDocumentSerializer(document)
         return Response(serializer.data, status=status.HTTP_200_OK)
 

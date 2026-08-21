@@ -12,7 +12,7 @@
 // not just hidden in the UI.
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { CheckCircle, Circle, Camera, FileText, Loader, AlertCircle, Upload } from 'lucide-react';
+import { CheckCircle, Circle, Camera, FileText, Loader, AlertCircle, Upload, XCircle } from 'lucide-react';
 import api from '../services/api';
 import { getMediaUrl } from '../utils/imageUrl';
 
@@ -68,7 +68,7 @@ function RegistrationCompletionCard({ studentId, onPhotoUploaded }) {
     }
   };
 
-  const handleDocumentChange = async (documentType, e) => {
+  const handleDocumentChange = async (documentType, e, customLabel = '', trackingKey = null) => {
     const file = e.target.files[0];
     if (!file) return;
 
@@ -78,11 +78,12 @@ function RegistrationCompletionCard({ studentId, onPhotoUploaded }) {
     }
 
     setError('');
-    setUploadingDocType(documentType);
+    setUploadingDocType(trackingKey || documentType);
 
     const formData = new FormData();
     formData.append('file', file);
     formData.append('document_type', documentType);
+    if (customLabel) formData.append('custom_label', customLabel);
 
     try {
       await api.post(`/students/${studentId}/parent_upload_document/`, formData, {
@@ -151,39 +152,60 @@ function RegistrationCompletionCard({ studentId, onPhotoUploaded }) {
           </label>
         </div>
 
-        {/* Required documents */}
-        {status.required_documents.map((doc) => (
-          <div key={doc.value} className="flex items-center justify-between gap-4 p-3 rounded-xl bg-gray-50">
-            <div className="flex items-center gap-3">
-              {doc.uploaded ? (
-                <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
-              ) : (
-                <Circle className="h-5 w-5 text-gray-300 flex-shrink-0" />
-              )}
-              <FileText className="h-5 w-5 text-gray-400" />
-              <span className={`text-sm ${doc.uploaded ? 'text-gray-500' : 'text-gray-800 font-medium'}`}>
-                {doc.label}
-              </span>
+        {/* Required documents (grade-based + anything an admin manually requested) */}
+        {status.required_documents.map((doc) => {
+          const uploadKey = `${doc.value}-${doc.request_id || 'grade'}`;
+          const isRejected = doc.status === 'rejected';
+          const uploadFieldKey = doc.value === 'other' ? uploadKey : doc.value;
+          return (
+            <div key={uploadKey} className="p-3 rounded-xl bg-gray-50">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  {doc.uploaded && !isRejected ? (
+                    <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  ) : isRejected ? (
+                    <XCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
+                  ) : (
+                    <Circle className="h-5 w-5 text-gray-300 flex-shrink-0" />
+                  )}
+                  <FileText className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <span className={`text-sm block truncate ${doc.uploaded && !isRejected ? 'text-gray-500' : 'text-gray-800 font-medium'}`}>
+                      {doc.label}
+                      {doc.source === 'admin_request' && (
+                        <span className="ml-2 text-xs text-purple-600 font-normal">requested by school</span>
+                      )}
+                    </span>
+                    {(doc.admin_note || doc.review_note) && (
+                      <span className={`text-xs block truncate ${isRejected ? 'text-red-600' : 'text-gray-500'}`}>
+                        {isRejected ? `Reason: ${doc.review_note}` : doc.admin_note}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <label className="flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700 cursor-pointer font-medium flex-shrink-0">
+                  {uploadingDocType === uploadFieldKey ? (
+                    <Loader className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4" />
+                      {doc.uploaded ? (isRejected ? 'Re-upload' : 'Replace') : 'Upload'}
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      handleDocumentChange(doc.value, e, doc.value === 'other' ? doc.label : '', uploadFieldKey);
+                    }}
+                    disabled={uploadingDocType === uploadFieldKey}
+                  />
+                </label>
+              </div>
             </div>
-            <label className="flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700 cursor-pointer font-medium">
-              {uploadingDocType === doc.value ? (
-                <Loader className="h-4 w-4 animate-spin" />
-              ) : (
-                <>
-                  <Upload className="h-4 w-4" />
-                  {doc.uploaded ? 'Replace' : 'Upload'}
-                </>
-              )}
-              <input
-                type="file"
-                accept="image/*,.pdf"
-                className="hidden"
-                onChange={(e) => handleDocumentChange(doc.value, e)}
-                disabled={uploadingDocType === doc.value}
-              />
-            </label>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
