@@ -20,13 +20,16 @@ import {
   MoreVertical,
   Image as ImageIcon,
   FileText,
-  HeartHandshake
+  HeartHandshake,
+  AlertTriangle
 } from 'lucide-react';
 import api from '../services/api';
 import StudentRegistrationForm from '../components/Admin/StudentRegistrationForm';
 import BulkImport from '../components/Admin/BulkImport';
 import BulkPhotoUpload from '../components/Admin/BulkPhotoUpload';
 import StudentDocumentsModal from '../components/Admin/StudentDocumentsModal';
+import BulkDocumentRequestModal from '../components/Admin/BulkDocumentRequestModal';
+import MissingDocumentsReport from '../components/Admin/MissingDocumentsReport';
 import FeeExceptionsModal from '../components/Admin/FeeExceptionsModal';
 import { useYear } from '../context/YearContext';
 
@@ -35,6 +38,8 @@ function AdminStudents() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGrade, setSelectedGrade] = useState('all');
+  // ✅ NEW: section filter, alongside the existing grade filter
+  const [selectedSection, setSelectedSection] = useState('all');
   const [showRegistrationForm, setShowRegistrationForm] = useState(false);
   const [editStudent, setEditStudent] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -45,6 +50,12 @@ function AdminStudents() {
   const [documentsStudent, setDocumentsStudent] = useState(null);
   const [feeExceptionStudent, setFeeExceptionStudent] = useState(null);
   const [viewMode, setViewMode] = useState('table'); // 'table' or 'grid'
+  // ✅ NEW: multi-select for bulk document requests — same pattern as
+  // Bulk Import/Bulk Photos, just selection-based instead of file-based.
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showBulkDocRequest, setShowBulkDocRequest] = useState(false);
+  // ✅ NEW: "who's missing documents" report, filterable by grade/section
+  const [showMissingDocsReport, setShowMissingDocsReport] = useState(false);
   const itemsPerPage = 10;
   
   const { selectedYear } = useYear();
@@ -67,6 +78,12 @@ function AdminStudents() {
   useEffect(() => {
     fetchStudents();
   }, [selectedYear]);
+
+  // ✅ NEW: reset the section filter if it no longer matches the newly
+  // selected grade — avoids a stuck filter silently showing zero results.
+  useEffect(() => {
+    setSelectedSection('all');
+  }, [selectedGrade]);
 
   const fetchStudents = async () => {
     setLoading(true);
@@ -173,9 +190,40 @@ function AdminStudents() {
       (student.parent_phone || '').includes(searchTerm);
     
     const matchesGrade = selectedGrade === 'all' || student.grade === parseInt(selectedGrade);
+    const matchesSection = selectedSection === 'all' || (student.section || '') === selectedSection;
     
-    return matchesSearch && matchesGrade;
+    return matchesSearch && matchesGrade && matchesSection;
   });
+
+  // ✅ NEW: sections present in the currently-loaded students, narrowed by
+  // the grade filter if one is set — so the Section dropdown only ever
+  // shows sections that actually exist for the selected grade.
+  const availableSections = Array.from(new Set(
+    students
+      .filter((s) => selectedGrade === 'all' || s.grade === parseInt(selectedGrade))
+      .map((s) => s.section)
+      .filter((sec) => !!sec)
+  )).sort();
+
+  // ✅ NEW: selection helpers for bulk document requests
+  const toggleSelected = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const allFilteredSelected = filteredStudents.length > 0 &&
+    filteredStudents.every((s) => selectedIds.has(s.id));
+  const toggleSelectAllFiltered = () => {
+    setSelectedIds((prev) => {
+      if (allFilteredSelected) return new Set();
+      const next = new Set(prev);
+      filteredStudents.forEach((s) => next.add(s.id));
+      return next;
+    });
+  };
+  const selectedStudents = students.filter((s) => selectedIds.has(s.id));
 
   const totalPages = Math.ceil(filteredStudents.length / itemsPerPage);
   const paginatedStudents = filteredStudents.slice(
@@ -188,6 +236,12 @@ function AdminStudents() {
     <div className="bg-white rounded-lg border border-gray-200 p-4 mb-3 shadow-sm">
       <div className="flex justify-between items-start mb-3">
         <div className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            checked={selectedIds.has(student.id)}
+            onChange={() => toggleSelected(student.id)}
+            className="mt-1"
+          />
           <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-full flex items-center justify-center">
             <span className="text-white font-semibold text-sm">
               {student.full_name?.charAt(0) || '?'}
@@ -316,6 +370,32 @@ function AdminStudents() {
               <span className="hidden sm:inline">Bulk Photos</span>
             </button>
             
+            {/* ✅ NEW: report of every student missing a photo/document,
+                filterable by grade + section, so the admin can see gaps
+                at a glance instead of checking student-by-student. */}
+            <button
+              onClick={() => setShowMissingDocsReport(true)}
+              className="btn-outline flex items-center gap-2 tap-target"
+              title="See every student missing a document or photo, by grade/section"
+            >
+              <AlertTriangle className="h-4 w-4" />
+              <span className="hidden sm:inline">Missing Documents</span>
+            </button>
+
+            {/* ✅ NEW: bulk-request a document from every currently
+                selected student (checkboxes in the table/grid below) */}
+            <button
+              onClick={() => setShowBulkDocRequest(true)}
+              disabled={selectedIds.size === 0}
+              className="btn-outline flex items-center gap-2 tap-target disabled:opacity-40 disabled:cursor-not-allowed"
+              title={selectedIds.size === 0 ? 'Select students below first' : `Request a document from ${selectedIds.size} selected student(s)`}
+            >
+              <FileText className="h-4 w-4" />
+              <span className="hidden sm:inline">
+                Request Document{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+              </span>
+            </button>
+
             <button 
               onClick={handleExport}
               className="btn-outline flex items-center gap-2 tap-target"
@@ -343,7 +423,7 @@ function AdminStudents() {
 
         {/* Filters */}
         <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
               <input
@@ -371,6 +451,19 @@ function AdminStudents() {
                   <option key={grade} value={grade}>Grade {grade}</option>
                 ))}
               </optgroup>
+            </select>
+
+            {/* ✅ NEW: Section filter, alongside Grade */}
+            <select
+              value={selectedSection}
+              onChange={(e) => setSelectedSection(e.target.value)}
+              className="input-field text-sm"
+              disabled={availableSections.length === 0}
+            >
+              <option value="all">All Sections</option>
+              {availableSections.map((sec) => (
+                <option key={sec} value={sec}>Section {sec}</option>
+              ))}
             </select>
             
             <button 
@@ -430,6 +523,14 @@ function AdminStudents() {
                   <table className="w-full">
                     <thead className="bg-gray-50">
                       <tr>
+                        <th className="table-header w-8">
+                          <input
+                            type="checkbox"
+                            checked={allFilteredSelected}
+                            onChange={toggleSelectAllFiltered}
+                            title="Select all filtered students"
+                          />
+                        </th>
                         <th className="table-header">Student</th>
                         <th className="table-header">ID</th>
                         <th className="table-header">Grade</th>
@@ -442,6 +543,13 @@ function AdminStudents() {
                     <tbody className="divide-y divide-gray-200">
                       {paginatedStudents.map((student) => (
                         <tr key={student.id} className="table-row hover:bg-gray-50">
+                          <td className="table-cell">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(student.id)}
+                              onChange={() => toggleSelected(student.id)}
+                            />
+                          </td>
                           <td className="table-cell">
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
@@ -633,6 +741,36 @@ function AdminStudents() {
             student={feeExceptionStudent}
             academicYear={selectedYear}
             onClose={() => setFeeExceptionStudent(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ✅ NEW: Bulk Document Request Modal */}
+      <AnimatePresence>
+        {showBulkDocRequest && (
+          <BulkDocumentRequestModal
+            students={selectedStudents}
+            onClose={() => setShowBulkDocRequest(false)}
+            onDone={() => setSelectedIds(new Set())}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ✅ NEW: Missing Documents Report */}
+      <AnimatePresence>
+        {showMissingDocsReport && (
+          <MissingDocumentsReport
+            academicYear={selectedYear}
+            onClose={() => setShowMissingDocsReport(false)}
+            onOpenStudentDocuments={(reportRow) => {
+              // report rows are a lightweight summary — open the modal
+              // with the FULL student record already loaded on this page
+              // so the header shows the real name, not just what the
+              // report happened to send back.
+              const full = students.find((s) => s.id === reportRow.id);
+              setShowMissingDocsReport(false);
+              setDocumentsStudent(full || reportRow);
+            }}
           />
         )}
       </AnimatePresence>

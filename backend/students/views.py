@@ -142,6 +142,7 @@ class StudentViewSet(viewsets.ModelViewSet):
             'send_registration_reminder', 'send_registration_reminders_bulk',
             'review_document', 'request_document', 'list_document_requests',
             'delete_document_request', 'resolve_document_request',
+            'request_document_bulk',
         ):
             return [IsAuthenticated(), CanManageStudents()]
         return [IsAuthenticated()]
@@ -1120,6 +1121,133 @@ class StudentViewSet(viewsets.ModelViewSet):
         req.resolved_at = timezone.now()
         req.save(update_fields=['is_resolved', 'resolved_at'])
         return Response({'success': True})
+
+    @action(detail=False, methods=['post'], url_path='request_document_bulk')
+    def request_document_bulk(self, request):
+        """
+        ✅ NEW: same as request_document above, but for many students at
+        once — e.g. "every Grade 9 - Section A student needs this year's
+        educational document". Does NOT touch or replace the single-
+        student request_document/upload flows; this is purely an
+        additional bulk entry point, same pattern as bulk_import /
+        bulk_photo_upload / send_registration_reminders_bulk.
+
+        Expects JSON body:
+        { "student_ids": [<Student.id>, ...], "document_type": "...",
+          "custom_label": "" (required if document_type is 'other'),
+          "note": "" (optional, shown to each parent) }
+
+        Skips a student who already has an open (unresolved) request of
+        the exact same type+label, so clicking this twice for an
+        overlapping selection doesn't spam duplicate rows.
+        """
+        student_ids = request.data.get('student_ids', [])
+        document_type = request.data.get('document_type')
+        custom_label = request.data.get('custom_label', '')
+        note = request.data.get('note', '')
+
+        valid_types = dict(StudentDocument.DOCUMENT_TYPE_CHOICES)
+        if document_type not in valid_types:
+            return Response(
+                {'error': f'document_type must be one of: {", ".join(valid_types.keys())}'},
+                status=400
+            )
+        if document_type == 'other' and not custom_label.strip():
+            return Response({'error': "custom_label is required when document_type is 'other'"}, status=400)
+        if not student_ids:
+            return Response({'error': 'No students selected'}, status=400)
+
+        # ✅ SECURITY: scope strictly to students this admin can actually
+        # manage (their school, unless super admin) — same guard bulk_import
+        # and the other bulk actions above use, so a school admin can't be
+        # handed another school's student IDs and have this act on them.
+        students = self.get_queryset().filter(id__in=student_ids)
+
+        requester = getattr(request.user, 'email', '') or getattr(request.user, 'username', '')
+        created, skipped_existing = [], []
+
+        for student in students:
+            already_open = RequiredDocumentRequest.objects.filter(
+                student=student, document_type=document_type,
+                custom_label=custom_label, is_resolved=False
+            ).exists()
+            if already_open:
+                skipped_existing.append(student.formatted_name)
+                continue
+            RequiredDocumentRequest.objects.create(
+                student=student,
+                document_type=document_type,
+                custom_label=custom_label,
+                note=note,
+                requested_by=requester,
+            )
+            created.append(student.formatted_name)
+
+        not_found_count = len(student_ids) - students.count()
+
+        return Response({
+            'created_count': len(created),
+            'skipped_existing_count': len(skipped_existing),
+            'skipped_existing': skipped_existing,
+            'not_found_or_not_permitted_count': not_found_count,
+        })
+
+    @action(detail=False, methods=['get'], url_path='missing_documents')
+    def missing_documents(self, request):
+        """
+        ✅ NEW: report of every student still missing a photo and/or a
+        required enrollment document — grade-based rule
+        (RECOMMENDED_DOC_TYPES_BY_GRADE) AND any admin-manual
+        RequiredDocumentRequest, combined. Respects the same school +
+        academic-year scoping as the student list itself (get_queryset).
+        Grade/section filtering is left to the frontend (same pattern
+        used on the main Students list) since this endpoint already
+        returns every incomplete student in one call — the admin can
+        switch grade/section instantly without another round trip.
+        """
+        queryset = self.filter_queryset(self.get_queryset()).prefetch_related(
+            'documents', 'document_requests'
+        )
+        doc_labels = dict(StudentDocument.DOCUMENT_TYPE_CHOICES)
+        results = []
+
+        for student in queryset:
+            required_types = RECOMMENDED_DOC_TYPES_BY_GRADE.get(student.grade, [])
+            uploaded_types = {d.document_type for d in student.documents.all()}
+            missing_required = [t for t in required_types if t not in uploaded_types]
+            open_requests = [r for r in student.document_requests.all() if not r.is_resolved]
+
+            missing_labels = [doc_labels.get(t, t) for t in missing_required]
+            missing_labels += [
+                r.custom_label or doc_labels.get(r.document_type, 'Document')
+                for r in open_requests
+            ]
+            missing_photo = not bool(student.photo)
+
+            if not missing_labels and not missing_photo:
+                continue  # nothing outstanding — skip, this is a report of gaps only
+
+            results.append({
+                'id': student.id,
+                'student_id': student.student_id,
+                'name': student.formatted_name,
+                'grade': student.grade,
+                'section': student.section,
+                'missing_photo': missing_photo,
+                'missing_documents': missing_labels,
+                'missing_count': len(missing_labels) + (1 if missing_photo else 0),
+                'parent_phone': student.parent_phone,
+                'parent_email': getattr(student, 'parent_email', ''),
+            })
+
+        # Worst-first, so the admin sees who needs the most follow-up at a glance
+        results.sort(key=lambda s: -s['missing_count'])
+
+        return Response({
+            'total_incomplete': len(results),
+            'total_checked': queryset.count(),
+            'students': results,
+        })
 
     # ========== PARENT SELF-SERVICE REGISTRATION COMPLETION ==========
     # A parent who's already logged into the Parent Portal (existing
