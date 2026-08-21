@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from django.contrib.auth.models import User
 from schools.models import School, SchoolAdminProfile
 from common.email_service import send_approval_notification
+from common.utils import log_action
 
 
 class IsPlatformOwner(BasePermission):
@@ -69,6 +70,17 @@ def approve_school(request, user_id):
         profile.school.subscription_status = 'approved'
         profile.school.save()
         
+        # ✅ NEW — this action was never logged before, despite
+        # SCHOOL_APPROVE existing in AuditLog.ACTION_CHOICES. It's the
+        # platform owner's single most important decision (who gets onto
+        # the platform at all), so it belongs in the Activity Log same as
+        # everything else here.
+        log_action(
+            request.user, 'SCHOOL_APPROVE',
+            details=f"Approved {profile.school.name} ({profile.school.code}) — admin: {user.email}",
+            request=request,
+        )
+        
         # ✅ Send approval notification email
         send_approval_notification(user.email, profile.school.name)
         
@@ -89,6 +101,18 @@ def reject_school(request, user_id):
         user = User.objects.get(id=user_id)
         profile = SchoolAdminProfile.objects.get(user=user)
         school = profile.school
+
+        # ✅ NEW — same gap as approve_school: this was never logged.
+        # Logged BEFORE the delete() calls below, since school/user are
+        # about to be removed and we want their name/email captured in
+        # the log's free-text details (AuditLog.user here is the acting
+        # super admin, request.user — unaffected by the deletion).
+        log_action(
+            request.user, 'SCHOOL_REJECT',
+            details=f"Rejected {school.name} ({school.code}) — admin: {user.email}",
+            request=request,
+        )
+
         user.delete()
         school.delete()
         return Response({

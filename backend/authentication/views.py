@@ -159,6 +159,19 @@ def admin_login_step1(request):
                 status=403,
             )
 
+    # ✅ FIX: mirrors the portal='teacher' check above. SuperAdminLogin.js
+    # (the dedicated /superadmin/login page) reuses this same
+    # email+password+OTP endpoint, but without this check any school
+    # admin who found that URL could still request an OTP through it —
+    # the frontend route guard is UX only, not security (see
+    # SuperAdminProtectedRoute in App.js). Reject before an OTP is ever
+    # sent unless the account is the real platform owner.
+    if request.data.get('portal') == 'superadmin' and not user.is_superuser:
+        return Response(
+            {'error': 'This portal is for the platform administrator account only.'},
+            status=403,
+        )
+
     user = authenticate(username=user.username, password=password)
     if not user:
         return Response({'error': 'Invalid credentials'}, status=401)
@@ -241,6 +254,15 @@ def admin_login_step2(request):
                 {'error': 'This portal is for teacher accounts only.'},
                 status=403,
             )
+
+    # ✅ FIX: same superadmin-portal check as step1, so a call directly to
+    # step2 (skipping step1, e.g. with a stolen/guessed user_id) can't
+    # bypass the role gate either.
+    if request.data.get('portal') == 'superadmin' and not user.is_superuser:
+        return Response(
+            {'error': 'This portal is for the platform administrator account only.'},
+            status=403,
+        )
     
     # ✅ VERIFY REAL OTP
     valid, message = verify_otp(profile, otp_code)

@@ -59,34 +59,34 @@ function SuperAdminUsers() {
   return (
     <SuperAdminLayout>
       <div className="mb-6">
-        <p className="text-sm text-gray-400">School owners with an account on the platform</p>
-        <h1 className="text-2xl font-semibold text-gray-900">School admins</h1>
+        <p className="text-sm text-gray-400 dark:text-slate-500">School owners with an account on the platform</p>
+        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">School admins</h1>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 overflow-hidden transition-colors">
         {loading ? (
           <div className="flex items-center justify-center py-16">
-            <Loader className="h-6 w-6 animate-spin text-gray-400" />
+            <Loader className="h-6 w-6 animate-spin text-gray-400 dark:text-slate-500" />
           </div>
         ) : admins.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center py-16">No school admin accounts yet.</p>
+          <p className="text-sm text-gray-500 dark:text-slate-400 text-center py-16">No school admin accounts yet.</p>
         ) : (
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-gray-100 dark:divide-slate-800">
             {admins.map((admin) => (
               <div key={admin.id} className="px-5 py-4 flex items-center justify-between gap-4 flex-wrap">
                 <div>
-                  <p className="font-medium text-gray-900">
-                    {admin.first_name} {admin.last_name} <span className="text-gray-400 font-normal">· {admin.school_name}</span>
+                  <p className="font-medium text-gray-900 dark:text-white">
+                    {admin.first_name} {admin.last_name} <span className="text-gray-400 dark:text-slate-500 font-normal">· {admin.school_name}</span>
                   </p>
-                  <p className="text-xs text-gray-500">{admin.email}</p>
+                  <p className="text-xs text-gray-500 dark:text-slate-400">{admin.email}</p>
                   <div className="flex items-center gap-3 mt-1">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${admin.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${admin.is_active ? 'bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300' : 'bg-gray-200 text-gray-600 dark:bg-slate-700 dark:text-slate-300'}`}>
                       {admin.is_active ? 'Active' : 'Inactive'}
                     </span>
                     {admin.email_verified ? (
-                      <span className="text-xs text-green-600 flex items-center gap-1"><MailCheck className="h-3 w-3" />Verified</span>
+                      <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1"><MailCheck className="h-3 w-3" />Verified</span>
                     ) : (
-                      <span className="text-xs text-amber-600 flex items-center gap-1"><MailWarning className="h-3 w-3" />Unverified</span>
+                      <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1"><MailWarning className="h-3 w-3" />Unverified</span>
                     )}
                   </div>
                 </div>
@@ -95,7 +95,7 @@ function SuperAdminUsers() {
                     <button
                       onClick={() => resendVerification(admin)}
                       disabled={actingId === admin.id}
-                      className="text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 flex items-center gap-1 disabled:opacity-50"
+                      className="text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 flex items-center gap-1 disabled:opacity-50"
                     >
                       <Send className="h-3 w-3" />Resend email
                     </button>
@@ -105,8 +105,8 @@ function SuperAdminUsers() {
                     disabled={actingId === admin.id}
                     className={`text-xs font-medium px-3 py-1.5 rounded-lg border flex items-center gap-1 disabled:opacity-50 ${
                       admin.is_active
-                        ? 'border-red-200 text-red-600 hover:bg-red-50'
-                        : 'border-green-200 text-green-700 hover:bg-green-50'
+                        ? 'border-red-200 dark:border-red-800/60 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10'
+                        : 'border-green-200 dark:border-green-800/60 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10'
                     }`}
                   >
                     {actingId === admin.id ? (

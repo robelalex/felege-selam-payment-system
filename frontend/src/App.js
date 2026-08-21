@@ -19,6 +19,8 @@ import SuperAdminDashboard from './pages/superadmin/SuperAdminDashboard';
 import SuperAdminSchools from './pages/superadmin/SuperAdminSchools';
 import SuperAdminApprovals from './pages/superadmin/SuperAdminApprovals';
 import SuperAdminUsers from './pages/superadmin/SuperAdminUsers';
+import SuperAdminActivityLog from './pages/superadmin/SuperAdminActivityLog';
+import SuperAdminLogin from './pages/superadmin/SuperAdminLogin';
 import VerifyEmail from './pages/VerifyEmail';
 import StudentSearch from './pages/StudentSearch';
 import StudentDashboard from './pages/StudentDashboard';
@@ -296,7 +298,12 @@ function App() {
               {/* Super Admin — platform owner surface, redesigned Item 8.
                   Each page renders its own SuperAdminLayout, so no shared
                   layout wrapper is needed at the route level (mirrors how
-                  AdminLayout is applied per-route below, not globally). */}
+                  AdminLayout is applied per-route below, not globally).
+                  /superadmin/login is deliberately NOT linked from
+                  AdminLogin.js, AdminRegister.js, or any nav a school
+                  admin would see — Robel reaches it only by typing the
+                  URL directly. */}
+              <Route path="/superadmin/login" element={<SuperAdminLogin />} />
               <Route
                 path="/superadmin/dashboard"
                 element={
@@ -326,6 +333,14 @@ function App() {
                 element={
                   <SuperAdminProtectedRoute>
                     <SuperAdminUsers />
+                  </SuperAdminProtectedRoute>
+                }
+              />
+              <Route
+                path="/superadmin/activity-log"
+                element={
+                  <SuperAdminProtectedRoute>
+                    <SuperAdminActivityLog />
                   </SuperAdminProtectedRoute>
                 }
               />

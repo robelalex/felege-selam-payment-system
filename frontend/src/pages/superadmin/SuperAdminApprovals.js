@@ -59,44 +59,44 @@ function SuperAdminApprovals() {
   return (
     <SuperAdminLayout pendingCount={pending.length}>
       <div className="mb-6">
-        <p className="text-sm text-gray-400">Registrations awaiting your decision</p>
-        <h1 className="text-2xl font-semibold text-gray-900">Pending approvals</h1>
+        <p className="text-sm text-gray-400 dark:text-slate-500">Registrations awaiting your decision</p>
+        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Pending approvals</h1>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 overflow-hidden transition-colors">
         {loading ? (
           <div className="flex items-center justify-center py-16">
-            <Loader className="h-6 w-6 animate-spin text-gray-400" />
+            <Loader className="h-6 w-6 animate-spin text-gray-400 dark:text-slate-500" />
           </div>
         ) : pending.length === 0 ? (
           <div className="text-center py-16">
             <CheckCircle className="h-10 w-10 text-green-500 mx-auto mb-3" />
-            <p className="text-sm text-gray-500">No pending approvals.</p>
+            <p className="text-sm text-gray-500 dark:text-slate-400">No pending approvals.</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-gray-100 dark:divide-slate-800">
             {pending.map((school) => (
               <div key={school.user_id} className="p-5 flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-center gap-4 min-w-0">
                   {school.logo ? (
                     <img src={school.logo} alt="" className="h-12 w-12 rounded-lg object-cover flex-shrink-0" />
                   ) : (
-                    <div className="h-12 w-12 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <Building2 className="h-6 w-6 text-gray-400" />
+                    <div className="h-12 w-12 bg-gray-100 dark:bg-slate-800 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <Building2 className="h-6 w-6 text-gray-400 dark:text-slate-500" />
                     </div>
                   )}
                   <div className="min-w-0">
-                    <h3 className="font-medium text-gray-900">{school.school_name}</h3>
-                    <p className="text-xs text-gray-500">Code: {school.school_code}</p>
-                    <p className="text-xs text-gray-500">
+                    <h3 className="font-medium text-gray-900 dark:text-white">{school.school_name}</h3>
+                    <p className="text-xs text-gray-500 dark:text-slate-400">Code: {school.school_code}</p>
+                    <p className="text-xs text-gray-500 dark:text-slate-400">
                       {school.first_name} {school.last_name} · {school.email}
                     </p>
                     {school.email_verified ? (
-                      <p className="text-xs text-green-600 flex items-center gap-1 mt-0.5">
+                      <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1 mt-0.5">
                         <MailCheck className="h-3 w-3" />Email confirmed
                       </p>
                     ) : (
-                      <p className="text-xs text-amber-600 flex items-center gap-1 mt-0.5">
+                      <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1 mt-0.5">
                         <MailWarning className="h-3 w-3" />Email not confirmed yet
                       </p>
                     )}

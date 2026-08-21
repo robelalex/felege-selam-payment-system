@@ -16,7 +16,11 @@ class AuditLogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AuditLog
-        fields = ['id', 'actor_name', 'actor_role', 'action', 'action_display', 'details', 'timestamp']
+        # ✅ ip_address added — the Super Admin Activity Log page wants
+        # "IP if available" per the build spec. AuditLog has stored this
+        # all along (log_action() captures it), it just wasn't exposed
+        # here yet since no UI consumed it before now.
+        fields = ['id', 'actor_name', 'actor_role', 'action', 'action_display', 'details', 'ip_address', 'timestamp']
 
     def get_actor_name(self, obj):
         if not obj.user:

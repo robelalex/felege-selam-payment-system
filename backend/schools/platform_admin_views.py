@@ -140,8 +140,27 @@ def update_school_subscription(request, school_id):
         school.subscription_expiry = request.data.get('subscription_expiry') or None
 
     school.save(update_fields=['subscription_status', 'subscription_active', 'subscription_expiry'])
+
+    # ✅ NORMALIZED — this used to log the free-text action string
+    # 'update_school_subscription', which isn't one of
+    # AuditLog.ACTION_CHOICES (so it rendered via the raw fallback in
+    # AuditLogSerializer.action_display instead of a real label, and
+    # couldn't be filtered by the Activity Log page's action dropdown).
+    # Map the actual transition onto the real choices instead. Only
+    # suspend/reactivate have dedicated entries — 'approved' from a
+    # non-suspended state and the 'pending'/'rejected' transitions aren't
+    # a suspend/reactivate, so those fall back to the closest existing
+    # generic entry, SETTINGS_CHANGE, rather than inventing more
+    # single-use choices for cases the current frontend doesn't trigger.
+    if new_status == 'suspended':
+        action = 'SCHOOL_SUSPEND'
+    elif new_status == 'approved':
+        action = 'SCHOOL_REACTIVATE'
+    else:
+        action = 'SETTINGS_CHANGE'
+
     log_action(
-        request.user, 'update_school_subscription',
+        request.user, action,
         details=f"School {school.name} ({school.code}) -> {school.subscription_status}",
         request=request,
     )
@@ -198,9 +217,22 @@ def toggle_school_admin_active(request, user_id):
         return Response({'error': 'is_active is required'}, status=400)
     user.is_active = bool(is_active)
     user.save(update_fields=['is_active'])
+
+    # ✅ NORMALIZED — was logging the free-text 'toggle_school_admin_active'.
+    # Uses its own SCHOOL_ADMIN_LOGIN_GRANTED/REVOKED pair rather than the
+    # STAFF_LOGIN_GRANTED/REVOKED choices used elsewhere for staff: those
+    # two look identical in the Activity Log regardless of who they're
+    # about, so a school owner being locked out would be indistinguishable
+    # from a teacher's access being revoked. Kept as a distinct pair
+    # (rather than folding into SETTINGS_CHANGE) so the super-admin
+    # Activity Log page can filter specifically on "who touched a school
+    # admin's login access".
+    school_profile = SchoolAdminProfile.objects.filter(user=user).first()
+    school_label = school_profile.school.name if school_profile else 'no school on file'
+    action = 'SCHOOL_ADMIN_LOGIN_GRANTED' if user.is_active else 'SCHOOL_ADMIN_LOGIN_REVOKED'
     log_action(
-        request.user, 'toggle_school_admin_active',
-        details=f"{user.email} -> is_active={user.is_active}",
+        request.user, action,
+        details=f"{user.email} ({school_label}) -> is_active={user.is_active}",
         request=request,
     )
     return Response({'success': True, 'is_active': user.is_active})
@@ -314,7 +346,7 @@ def school_platform_payments(request, school_id):
     school.save(update_fields=['subscription_expiry', 'subscription_status', 'subscription_active'])
 
     log_action(
-        request.user, 'record_platform_payment',
+        request.user, 'PLATFORM_PAYMENT_RECORD',
         details=f"{school.name}: {amount} ETB ({method}, {period_months} mo) -> expiry {school.subscription_expiry}",
         request=request,
     )
@@ -399,7 +431,7 @@ def export_school_data(request, school_id):
             writer.writerow([p.id, p.amount, p.method, p.period_months, p.paid_on, p.note])
         zf.writestr('platform_billing_history.csv', b_io.getvalue())
 
-    log_action(request.user, 'export_school_data', details=f"Exported data for {school.name}", request=request)
+    log_action(request.user, 'SCHOOL_DATA_EXPORT', details=f"Exported data for {school.name}", request=request)
 
     buffer.seek(0)
     response = HttpResponse(buffer.read(), content_type='application/zip')
