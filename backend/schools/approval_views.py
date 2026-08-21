@@ -3,9 +3,44 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 from django.contrib.auth.models import User
+from django.db import models, transaction, IntegrityError
 from schools.models import School, SchoolAdminProfile
-from common.email_service import send_approval_notification
+from common.email_service import send_approval_notification, send_rejection_notification
 from common.utils import log_action
+
+
+def _force_delete_school(school):
+    """
+    ✅ FIX — reject_school() was crashing with a 500 (ForeignKeyViolation)
+    whenever a school already had related rows (AcademicYear, deadlines,
+    subjects, etc.) pointing at it. Every one of those relations is
+    defined with on_delete=models.CASCADE on the model, so in theory
+    school.delete() alone should already cascade — but in practice the
+    live database's FK constraints were out of sync with that (a
+    migration drift issue independent of this code, e.g.
+    "academics_academicyear_school_id_fkey" not actually set to
+    ON DELETE CASCADE in Postgres even though the Django migration says
+    it is).
+    Rather than depend on the database enforcing the cascade correctly,
+    this explicitly walks every reverse relation defined on School and
+    clears it first, in Python, before deleting the school itself. This
+    makes the delete work correctly regardless of what the live DB
+    constraint actually is, and needs no manual DB changes.
+    """
+    for related in school._meta.related_objects:
+        # Only auto-clear relations the model itself says are CASCADE —
+        # anything else (PROTECT, SET_NULL, etc.) is a deliberate choice
+        # elsewhere in the codebase and shouldn't be silently overridden
+        # here.
+        if related.on_delete is not models.CASCADE:
+            continue
+        accessor_name = related.get_accessor_name()
+        if not accessor_name:
+            continue
+        related_manager = getattr(school, accessor_name, None)
+        if related_manager is not None and hasattr(related_manager, 'all'):
+            related_manager.all().delete()
+    school.delete()
 
 
 class IsPlatformOwner(BasePermission):
@@ -96,28 +131,75 @@ def approve_school(request, user_id):
 @api_view(['POST'])
 @permission_classes([IsPlatformOwner])
 def reject_school(request, user_id):
-    """Reject a school registration"""
+    """
+    Reject a school registration.
+
+    ✅ FIX — this used to 500 whenever the school had related rows
+    (see _force_delete_school above), and never sent the school admin
+    any notification email or read a rejection reason. Both are fixed
+    below. Everything else (log_action, response shape, URL, method)
+    is unchanged so nothing calling this endpoint needs to change.
+    """
+    # ✅ NEW — optional free-text reason from the request body, e.g.
+    # {"reason": "Missing required documentation"}. Frontend can send
+    # this or omit it entirely; the email just skips the reason line
+    # if it's blank, same as before.
+    reason = request.data.get('reason', '')
+
     try:
         user = User.objects.get(id=user_id)
         profile = SchoolAdminProfile.objects.get(user=user)
         school = profile.school
 
-        # ✅ NEW — same gap as approve_school: this was never logged.
-        # Logged BEFORE the delete() calls below, since school/user are
-        # about to be removed and we want their name/email captured in
-        # the log's free-text details (AuditLog.user here is the acting
-        # super admin, request.user — unaffected by the deletion).
-        log_action(
-            request.user, 'SCHOOL_REJECT',
-            details=f"Rejected {school.name} ({school.code}) — admin: {user.email}",
-            request=request,
-        )
+        # Captured BEFORE deletion — user/school are about to be removed,
+        # so we can't read these off them afterwards.
+        admin_email = user.email
+        school_name = school.name
+        school_code = school.code
 
-        user.delete()
-        school.delete()
+        # ✅ FIX — log_action + both delete()s now all happen inside one
+        # transaction. Previously log_action ran, then the plain
+        # user.delete(); school.delete() crashed — so a "SCHOOL_REJECT"
+        # entry landed in the audit log for a school that, because of the
+        # crash, never actually got deleted. Wrapping all three in
+        # atomic() means either everything succeeds together, or nothing
+        # is written/deleted at all. _force_delete_school replaces the
+        # old two-line `user.delete(); school.delete()` that crashed.
+        with transaction.atomic():
+            log_action(
+                request.user, 'SCHOOL_REJECT',
+                details=f"Rejected {school_name} ({school_code}) — admin: {admin_email}"
+                        + (f" — reason: {reason}" if reason else ""),
+                request=request,
+            )
+            user.delete()
+            _force_delete_school(school)
+
+        # ✅ NEW — send the rejection email only after the delete
+        # succeeded, using the values captured above (school/user
+        # objects are gone at this point).
+        send_rejection_notification(admin_email, school_name, reason)
+
         return Response({
             'success': True,
             'message': 'School registration rejected and removed'
         })
     except User.DoesNotExist:
         return Response({'error': 'User not found'}, status=404)
+    except SchoolAdminProfile.DoesNotExist:
+        # ✅ NEW — approve_school already handles this case; reject_school
+        # was missing it, so a user with no profile caused an unhandled
+        # 500 instead of a clean 404 like everywhere else in this file.
+        return Response({'error': 'School admin profile not found'}, status=404)
+    except IntegrityError as e:
+        # ✅ NEW — last-resort safety net. If the database still refuses
+        # the delete for some reason _force_delete_school didn't
+        # anticipate (e.g. a new related model added later without
+        # CASCADE), this returns a clean, understandable error instead
+        # of a raw 500 stack trace.
+        return Response({
+            'error': 'Could not reject this school because other records still '
+                      'reference it. Please check for related data and try again, '
+                      'or contact support.',
+            'detail': str(e),
+        }, status=409)

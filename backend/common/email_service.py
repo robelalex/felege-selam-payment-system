@@ -333,6 +333,51 @@ def send_approval_notification(recipient_email, school_name):
         return False, str(e)
 
 
+def send_rejection_notification(recipient_email, school_name, reason=''):
+    """
+    ✅ NEW — mirrors send_approval_notification above, but for the reject
+    path. Previously reject_school() never sent anything at all, so a
+    rejected school's admin had no idea what happened to their
+    registration. `reason` is optional free text Robel can type in the
+    admin UI when rejecting (see reject_school in approval_views.py).
+    """
+    reason_html = (
+        f'<p style="margin-top:12px;"><strong>Reason:</strong> {reason}</p>'
+        if reason else ''
+    )
+    reason_plain = f"\nReason: {reason}" if reason else ''
+
+    html_message = f"""
+    <!DOCTYPE html>
+    <html>
+    <body style="font-family: Arial, sans-serif; text-align: center; padding: 20px;">
+        <h2>Registration Update</h2>
+        <p>We're sorry to let you know that your school
+           <strong>{school_name}</strong>'s registration was not approved.</p>
+        {reason_html}
+        <p style="color:#666; font-size: 13px; margin-top: 16px;">
+           If you believe this was a mistake or would like more information,
+           please contact us and we'll be happy to help.
+        </p>
+    </body>
+    </html>
+    """
+    try:
+        send_mail(
+            subject=f"School Registration Update - {school_name}",
+            message=f"Your school {school_name}'s registration was not approved.{reason_plain}",
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[recipient_email],
+            fail_silently=False,
+            html_message=html_message,
+        )
+        logger.info(f"✅ Rejection email sent to {recipient_email}")
+        return True, "Email sent successfully"
+    except Exception as e:
+        logger.error(f"❌ Failed to send rejection email: {e}")
+        return False, str(e)
+
+
 def send_registration_confirmation_email(recipient_email, school_name, admin_first_name, token):
     """
     ✅ NEW — sent immediately when a school registers (authentication/views.py
