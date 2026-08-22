@@ -93,6 +93,16 @@ function SuperAdminLogin() {
         localStorage.removeItem('selectedStudent');
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
+        // ✅ SECURITY FIX: 'selectedSchool' is how a school-admin login
+        // remembers which school it belongs to — services/api.js attaches
+        // it as an X-School-ID header on every request, and the backend
+        // honors that header for super-admin accounts specifically. If a
+        // school-admin session ran in this same browser earlier, that
+        // value would otherwise still be sitting in storage and would get
+        // silently attached to every request this super-admin session
+        // makes from here on, scoping otherwise-unscoped endpoints to
+        // whatever school happened to be cached. Must clear it.
+        localStorage.removeItem('selectedSchool');
 
         localStorage.setItem('isAdmin', 'true');
         localStorage.setItem('adminUser', JSON.stringify(response.data.user));

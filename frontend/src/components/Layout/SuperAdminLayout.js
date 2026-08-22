@@ -21,8 +21,9 @@ import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ShieldCheck, LayoutDashboard, Building2, ClipboardCheck, Users,
-  History, LogOut, Menu, X, Sun, Moon,
+  History, Menu, X, Sun, Moon,
 } from 'lucide-react';
+import SuperAdminProfileMenu from './SuperAdminProfileMenu';
 
 const NAV_ITEMS = [
   { to: '/superadmin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -36,18 +37,12 @@ const THEME_KEY = 'superadmin_theme';
 
 function SuperAdminLayout({ children, pendingCount = 0 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [adminUser, setAdminUser] = useState(null);
   // Persisted (localStorage), and explicitly NOT derived from the OS-level
   // prefers-color-scheme media query — only from what the user picked
   // last time via the toggle below, so the manual choice always wins.
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem(THEME_KEY) === 'dark');
   const location = useLocation();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    const raw = localStorage.getItem('adminUser');
-    if (raw) setAdminUser(JSON.parse(raw));
-  }, []);
 
   useEffect(() => {
     localStorage.setItem(THEME_KEY, darkMode ? 'dark' : 'light');
@@ -126,22 +121,7 @@ function SuperAdminLayout({ children, pendingCount = 0 }) {
           </nav>
 
           <div className="px-3 py-4 border-t border-slate-800">
-            <div className="flex items-center gap-2 px-3 py-2">
-              <div className="h-8 w-8 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-300 text-sm font-medium">
-                {(adminUser?.first_name || adminUser?.username || 'A').charAt(0).toUpperCase()}
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm text-white truncate">{adminUser?.first_name || adminUser?.username || 'Admin'}</p>
-                <p className="text-xs text-slate-400 truncate">Platform owner</p>
-              </div>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center gap-2 px-3 py-2 mt-1 rounded-lg text-sm text-red-300 hover:bg-red-500/10 transition-colors"
-            >
-              <LogOut className="h-4 w-4" />
-              Log out
-            </button>
+            <SuperAdminProfileMenu onLogout={handleLogout} />
           </div>
         </aside>
 

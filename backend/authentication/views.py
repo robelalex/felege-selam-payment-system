@@ -886,13 +886,16 @@ def update_profile(request):
     """
     try:
         user = request.user
-        profile = getattr(user, 'profile', None)
-        if not profile:
-            return Response(
-                {'success': False, 'error': 'No profile found for this account.'},
-                status=400,
-            )
-
+        # ✅ FIX: previously this 400'd for any account with no
+        # UserProfile row — which includes Robel's own superuser account,
+        # since createsuperuser doesn't create one (only the registration/
+        # staff-creation flows do). That's exactly the account that needs
+        # this endpoint to work for the super-admin profile editor, so
+        # auto-create it here instead of erroring.
+        profile, _ = UserProfile.objects.get_or_create(
+            user=user,
+            defaults={'role': 'super_admin' if user.is_superuser else 'staff'},
+        )
         first_name = request.data.get('first_name')
         last_name = request.data.get('last_name')
         phone = request.data.get('phone')
@@ -934,10 +937,21 @@ def update_profile(request):
 
         return Response({
             'success': True,
-            'first_name': user.first_name,
-            'last_name': user.last_name,
-            'phone': profile.phone,
-            'photo': profile.photo.url if profile.photo else None,
+            # ✅ FIX: was returning these fields at the top level
+            # (res.data.first_name, etc.), but ProfileMenu.js (the only
+            # caller) reads res.data.user.* — matching get_current_user's
+            # response shape, which nests everything under 'user' too.
+            # Previously this mismatch meant the freshly-uploaded photo/
+            # name never actually appeared after saving — the save
+            # succeeded, `res.data.user` was just always undefined, so
+            # the local state update silently did nothing until the next
+            # full page reload re-fetched /me/.
+            'user': {
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'phone': profile.phone,
+                'photo': profile.photo.url if profile.photo else None,
+            },
         })
     except Exception as e:
         print(f"Error in update_profile: {e}")

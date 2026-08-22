@@ -28,6 +28,22 @@ def is_super_admin(user):
 
 def get_school_id_from_request(request):
     """Get school ID from request header or user profile"""
+    # ✅ SECURITY FIX: previously trusted the X-School-ID header for
+    # ANYONE, including a super admin, before falling back to their
+    # profile. Combined with the frontend attaching a stale cached school
+    # (services/api.js reads localStorage.selectedSchool on every
+    # request) to a super-admin session, this let a super admin end up
+    # scoped into one specific school's data through general endpoints —
+    # not just the dedicated /api/admin/... platform-owner endpoints,
+    # which don't use this function at all (they take school_id from the
+    # URL path and are separately gated by IsPlatformOwner). A super
+    # admin now gets no implicit school context here, the same as if they
+    # had no header at all — see get_verified_school_id() below for the
+    # newer version of this same fix, and its docstring for why callers
+    # should prefer that one anyway.
+    if request.user.is_authenticated and is_super_admin(request.user):
+        return None
+
     # First check header (sent from frontend)
     school_id = request.headers.get('X-School-ID')
     if school_id:
@@ -57,21 +73,31 @@ def get_verified_school_id(request):
     - Non-super-admins: ALWAYS resolved from their own profile
       (SchoolAdminProfile or UserProfile.school_id). The header is ignored
       entirely for them — they cannot override which school they're scoped to.
-    - Super admins: may use the X-School-ID header to switch which school's
-      data they're viewing/managing, since they're allowed to see all schools
-      anyway.
+    - Super admins: get NO implicit school context here at all — this used
+      to let a super admin switch which school they're viewing via the
+      X-School-ID header ("since they're allowed to see all schools
+      anyway"), but nothing in the app actually needs that: every real
+      super-admin feature (dashboard stats, approvals, schools list,
+      billing, activity log, data export) is a dedicated endpoint under
+      /api/admin/..., gated by IsPlatformOwner, that takes its school_id
+      from the URL path — never from this function. Meanwhile, the
+      frontend attaches whatever school happens to be cached in
+      localStorage as this same header on EVERY request regardless of who's
+      logged in, so honoring it here meant a super admin could end up
+      silently scoped into one specific school's general (non-platform-
+      admin) endpoints — students, staff, payments, exams — with full
+      read/write access, indistinguishable from being that school's own
+      admin, and with no audit trail flagging it as cross-school access.
+      If a genuine "view/manage school X as its admin" support tool is
+      ever needed, it should be built as an explicit, separately-audited
+      impersonation feature (logged to AuditLog, clearly labeled in the
+      UI) — not an implicit header override available to every endpoint.
     """
     user = request.user
     if not user.is_authenticated:
         return None
 
     if is_super_admin(user):
-        school_id = request.headers.get('X-School-ID')
-        if school_id:
-            try:
-                return int(school_id)
-            except ValueError:
-                return None
         return None
 
     school = get_user_school(user)

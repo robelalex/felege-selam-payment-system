@@ -86,7 +86,29 @@ const queryClient = new QueryClient({
 const ProtectedRoute = ({ children }) => {
   const isAdmin = localStorage.getItem('isAdmin') === 'true';
   const token = localStorage.getItem('access_token');
-  return (isAdmin || token) ? children : <Navigate to="/admin/login" />;
+  if (!isAdmin && !token) return <Navigate to="/admin/login" />;
+
+  // ✅ SECURITY FIX: this previously only checked "is SOME admin logged
+  // in" — it never checked WHO. A super admin's own token satisfied this
+  // trivially, which meant /admin/dashboard and every other school-scoped
+  // /admin/* page was reachable with super-admin credentials. Combined
+  // with a stale 'selectedSchool' left in localStorage from a previous
+  // school-admin session in the same browser (every request attaches
+  // that as an X-School-ID header — see services/api.js), this meant a
+  // super admin could end up looking at, and editing, one specific
+  // school's live data as if logged in as that school's own admin, with
+  // no indication anywhere that this was happening. A super admin has
+  // their own dedicated surface (/superadmin/*) and should never render
+  // this one — same direction of fix as SuperAdminProtectedRoute below,
+  // just applied the other way around.
+  try {
+    const adminUser = JSON.parse(localStorage.getItem('adminUser') || '{}');
+    if (adminUser.is_super_admin) return <Navigate to="/superadmin/dashboard" />;
+  } catch {
+    // malformed adminUser shouldn't block a legitimate school-admin session
+  }
+
+  return children;
 };
 
 // ✅ NEW — the old /superadmin/dashboard route only reused ProtectedRoute,
