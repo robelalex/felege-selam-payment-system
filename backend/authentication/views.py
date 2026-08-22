@@ -145,6 +145,28 @@ def admin_login_step1(request):
     if not user.is_active:
         return Response({'error': 'Account pending approval'}, status=401)
 
+    # ✅ NEW — a super admin has no business logging in through ANY portal
+    # other than the dedicated /superadmin/login (which sends
+    # portal='superadmin'). Previously this endpoint would still happily
+    # authenticate a superuser through the plain /admin/login form (or
+    # the teacher portal) too — AdminLogin.js sends no portal field at
+    # all, so neither of the portal-specific checks below ever applied to
+    # it. The account just wouldn't get redirected anywhere useful
+    # afterward (see ProtectedRoute in App.js), which is a landing-page
+    # fix, not a login-time rejection — the login itself still succeeded
+    # and an OTP still went out. Reject it here instead, at the earliest
+    # possible point, so a super-admin credential simply cannot
+    # authenticate through the wrong door at all.
+    if user.is_superuser and request.data.get('portal') != 'superadmin':
+        return Response(
+            {
+                'error': 'This is a platform administrator account. '
+                         'Please sign in at the Super Admin login instead.',
+                'is_super_admin_account': True,
+            },
+            status=403,
+        )
+
     # ✅ FIX: the teacher web portal (TeacherLogin.js) reuses this exact
     # endpoint for convenience, but had no check that the account logging
     # in is actually a teacher — any staff role (accountant, registrar...)
@@ -244,6 +266,20 @@ def admin_login_step2(request):
         return Response({'error': 'User not found'}, status=404)
     
     profile = user.profile
+
+    # ✅ NEW — same reasoning as step1: a super admin should never
+    # complete a login through any portal other than 'superadmin', even
+    # if step1 were somehow bypassed (e.g. a captured user_id reused
+    # directly against step2).
+    if user.is_superuser and request.data.get('portal') != 'superadmin':
+        return Response(
+            {
+                'error': 'This is a platform administrator account. '
+                         'Please sign in at the Super Admin login instead.',
+                'is_super_admin_account': True,
+            },
+            status=403,
+        )
 
     # ✅ FIX: same teacher-portal check as step1, so a call directly to
     # step2 (skipping step1) can't bypass the role gate.
@@ -934,6 +970,24 @@ def update_profile(request):
             if salutation is not None:
                 staff.salutation = salutation
             staff.save()
+
+        # ✅ NEW — keep School.phone in sync too, for school_admin accounts.
+        # At registration, the phone number typed in goes to BOTH
+        # UserProfile.phone (the admin's personal profile) AND
+        # School.phone (the school's own registered contact number) — see
+        # register() above. But this endpoint only ever updated
+        # UserProfile.phone, and there was no other UI anywhere in the app
+        # to edit School.phone. That's the number
+        # payments/services/multi_school_sms_service.py actually sends
+        # AfroMessage SMS to/uses for the school's SMS credentials test —
+        # so a school admin changing "their" phone here had no effect on
+        # what AfroMessage used, silently keeping the number from
+        # registration forever. Only applies to school_admin accounts —
+        # a teacher/staff member updating their own personal phone should
+        # never overwrite the school's registered contact number.
+        if profile.role == 'school_admin' and profile.school_id and phone is not None:
+            from schools.models import School
+            School.objects.filter(id=profile.school_id).update(phone=phone)
 
         return Response({
             'success': True,
