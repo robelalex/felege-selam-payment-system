@@ -24,6 +24,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import api from '../services/api';
+import { getMediaUrl } from '../utils/imageUrl';
 import StudentRegistrationForm from '../components/Admin/StudentRegistrationForm';
 import BulkImport from '../components/Admin/BulkImport';
 import BulkPhotoUpload from '../components/Admin/BulkPhotoUpload';
@@ -242,11 +243,7 @@ function AdminStudents() {
             onChange={() => toggleSelected(student.id)}
             className="mt-1"
           />
-          <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-full flex items-center justify-center">
-            <span className="text-white font-semibold text-sm">
-              {student.full_name?.charAt(0) || '?'}
-            </span>
-          </div>
+          <StudentAvatar student={student} size="w-10 h-10" />
           <div>
             <h3 className="font-semibold text-gray-900">{student.full_name}</h3>
             <p className="text-xs text-gray-500 font-mono">{student.student_id}</p>
@@ -318,6 +315,31 @@ function AdminStudents() {
       </div>
     );
   }
+
+  // ✅ NEW: shows the student's actual photo in the circle (same pattern
+  // already used for staff — see AdminStaff.js StaffAvatar) instead of a
+  // plain letter initial. Falls back to the initial only when the
+  // student has no photo uploaded yet, so nothing looks broken for
+  // students still mid-registration.
+  const StudentAvatar = ({ student, size = 'w-10 h-10', textSize = 'text-sm' }) => {
+    const photoUrl = student.photo ? getMediaUrl(student.photo) : null;
+    if (photoUrl) {
+      return (
+        <img
+          src={photoUrl}
+          alt={student.full_name}
+          className={`${size} rounded-full object-cover border border-gray-200 flex-shrink-0`}
+        />
+      );
+    }
+    return (
+      <div className={`${size} bg-gradient-to-br from-primary-500 to-primary-700 rounded-full flex items-center justify-center flex-shrink-0`}>
+        <span className={`text-white font-semibold ${textSize}`}>
+          {student.full_name?.charAt(0) || '?'}
+        </span>
+      </div>
+    );
+  };
 
   return (
     <>
@@ -552,11 +574,7 @@ function AdminStudents() {
                           </td>
                           <td className="table-cell">
                             <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
-                                <span className="text-primary-600 font-semibold text-sm">
-                                  {student.full_name?.charAt(0) || '?'}
-                                </span>
-                              </div>
+                              <StudentAvatar student={student} size="w-8 h-8" />
                               <span className="font-medium">{student.full_name}</span>
                             </div>
                           </td>

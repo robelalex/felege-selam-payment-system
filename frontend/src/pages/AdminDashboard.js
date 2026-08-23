@@ -160,12 +160,33 @@ function AdminDashboard() {
       
       const queryString = queryParams.toString();
       const queryPrefix = queryString ? '?' + queryString : '';
-      
+
+      // ✅ BUG FIX: clicking a grade card showed "0 students" even though
+      // the grade's pending/paid totals displayed correctly. Root cause:
+      // this component was sending the SAME date-range params
+      // (start_date/end_date, meant to scope payments/reports to a
+      // period like "this month") to the /students/ endpoint too. The
+      // backend applies start_date/end_date as an `enrollment_date`
+      // filter there — so it was silently excluding every student who
+      // didn't happen to ENROLL within the selected reporting period,
+      // which for most schools is nearly everyone outside the very
+      // start of the year. The grade totals stayed correct because
+      // those come from /reports/grades/, a separate endpoint that
+      // filters payments (not student existence) by date. Students are
+      // scoped by academic year only — never by the reporting
+      // date-range — so this uses its own narrower query string.
+      const studentsQueryParams = new URLSearchParams();
+      if (selectedYear && selectedYear.id) {
+        studentsQueryParams.append('academic_year_id', selectedYear.id);
+      }
+      const studentsQueryString = studentsQueryParams.toString();
+      const studentsQueryPrefix = studentsQueryString ? '?' + studentsQueryString : '';
+
       const signal = abortController.current.signal;
       
       const [statsRes, studentsRes, paymentsRes, gradesRes, pendingRes] = await Promise.all([
         api.get(`/reports/stats-filtered/${queryPrefix}`, { signal }),
-        api.get(`/students/${queryPrefix}`, { signal }),
+        api.get(`/students/${studentsQueryPrefix}`, { signal }),
         api.get(`/payments/${queryPrefix}`, { signal }),
         api.get(`/reports/grades/${queryPrefix}`, { signal }),
         api.get(`/reports/pending-filtered/${queryPrefix}`, { signal })
