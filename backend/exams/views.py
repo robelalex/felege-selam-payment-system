@@ -312,7 +312,7 @@ class MarkViewSet(viewsets.ModelViewSet):
             mark = existing_marks.get(student.id)
             rows.append({
                 'student_id': student.id,
-                'student_name': f"{student.first_name} {student.last_name}",
+                'student_name': f"{student.formatted_name}",
                 'student_id_display': student.student_id,
                 'mark_id': mark.id if mark else None,
                 'score': mark.score if mark else None,
@@ -531,7 +531,7 @@ class MarkViewSet(viewsets.ModelViewSet):
 
             rows.append({
                 'student_id': student.id,
-                'student_name': f"{student.first_name} {student.last_name}",
+                'student_name': f"{student.formatted_name}",
                 'student_id_display': student.student_id,
                 'columns': columns,
                 'raw_total': raw_total if any_score_entered else None,
@@ -658,6 +658,35 @@ class DailyAttendanceViewSet(viewsets.ModelViewSet):
             if value:
                 queryset = queryset.filter(**{param: value})
 
+        # ✅ SECURITY FIX — this list endpoint (unlike roster/bulk_save
+        # below) never checked homeroom ownership, so any teacher at the
+        # school could pull up any OTHER class's attendance summary just
+        # by passing a grade/section they don't teach — e.g. reusing this
+        # same endpoint for TeacherAttendance.js's new summary view would
+        # have silently inherited that gap. Admins still see everything;
+        # a non-admin teacher only ever sees their own homeroom class(es).
+        if not _is_admin(self.request):
+            staff = _get_staff_profile(self.request)
+            if not staff:
+                return DailyAttendance.objects.none()
+            owned = HomeroomAssignment.objects.filter(teacher=staff).values_list('grade', 'section__name')
+            owned_pairs = set(owned)
+            if not owned_pairs:
+                return DailyAttendance.objects.none()
+            grade_param = params.get('grade')
+            section_param = params.get('section')
+            if grade_param and section_param:
+                # Both given — enforce that exact pair is one they own.
+                if (int(grade_param), section_param) not in owned_pairs:
+                    return DailyAttendance.objects.none()
+            else:
+                # Neither/partial filter given — restrict to the union of
+                # every class this teacher actually owns.
+                q = models.Q()
+                for g, s in owned_pairs:
+                    q |= models.Q(grade=g, section=s)
+                queryset = queryset.filter(q)
+
         return queryset
 
     @action(detail=False, methods=['get'])
@@ -690,7 +719,7 @@ class DailyAttendanceViewSet(viewsets.ModelViewSet):
 
         rows = [{
             'student_id': s.id,
-            'student_name': f"{s.first_name} {s.last_name}",
+            'student_name': f"{s.formatted_name}",
             'student_id_display': s.student_id,
             'attendance_id': existing[s.id].id if s.id in existing else None,
             'status': existing[s.id].status if s.id in existing else 'present',
@@ -769,6 +798,45 @@ class SubjectAttendanceViewSet(viewsets.ModelViewSet):
             if value:
                 queryset = queryset.filter(**{param: value})
 
+        # ✅ SECURITY FIX — same gap and same fix as DailyAttendanceViewSet
+        # above: this list endpoint never checked TeacherClassAssignment
+        # ownership, so any teacher at the school could list any OTHER
+        # teacher's subject/class attendance. A blank section on an
+        # assignment means "the whole grade" (see _teacher_owns_subject),
+        # so an owned pair with section='' covers every section of that
+        # grade for that subject.
+        if not _is_admin(self.request):
+            staff = _get_staff_profile(self.request)
+            if not staff:
+                return SubjectAttendance.objects.none()
+            current_year = AcademicYear.objects.filter(school_id=school_id, is_current=True).first()
+            owned = TeacherClassAssignment.objects.filter(
+                staff=staff, is_active=True,
+                academic_year=current_year.name if current_year else None,
+            ).values_list('subject_id', 'grade', 'section')
+            owned = list(owned)
+            if not owned:
+                return SubjectAttendance.objects.none()
+            subject_param = params.get('subject_id')
+            grade_param = params.get('grade')
+            section_param = params.get('section', '')
+            if subject_param and grade_param:
+                matches = any(
+                    str(subj_id) == str(subject_param) and str(g) == str(grade_param)
+                    and (sec == '' or sec == section_param)
+                    for subj_id, g, sec in owned
+                )
+                if not matches:
+                    return SubjectAttendance.objects.none()
+            else:
+                q = models.Q()
+                for subj_id, g, sec in owned:
+                    if sec == '':
+                        q |= models.Q(subject_id=subj_id, grade=g)
+                    else:
+                        q |= models.Q(subject_id=subj_id, grade=g, section=sec)
+                queryset = queryset.filter(q)
+
         return queryset
 
     @action(detail=False, methods=['get'])
@@ -805,7 +873,7 @@ class SubjectAttendanceViewSet(viewsets.ModelViewSet):
 
         rows = [{
             'student_id': s.id,
-            'student_name': f"{s.first_name} {s.last_name}",
+            'student_name': f"{s.formatted_name}",
             'student_id_display': s.student_id,
             'attendance_id': existing[s.id].id if s.id in existing else None,
             'status': existing[s.id].status if s.id in existing else 'present',
@@ -995,7 +1063,7 @@ class StudentTermResultViewSet(viewsets.ReadOnlyModelViewSet):
             per_term = entry.get('per_term', {})
             results.append({
                 'student_id': s.id,
-                'student_name': f"{s.first_name} {s.last_name}",
+                'student_name': f"{s.formatted_name}",
                 'student_id_display': s.student_id,
                 'terms': [
                     {
@@ -1067,7 +1135,7 @@ class StudentTermResultViewSet(viewsets.ReadOnlyModelViewSet):
             entry = data.get(s.id, {})
             per_term = entry.get('per_term', {})
             results.append({
-                'student_name': f"{s.first_name} {s.last_name}",
+                'student_name': f"{s.formatted_name}",
                 'student_id_display': s.student_id,
                 'terms': [
                     {'term_id': t.id, 'term_name': t.name, 'average': per_term.get(t.id, {}).get('average')}
@@ -1253,7 +1321,7 @@ class StudentSemesterResultViewSet(viewsets.ReadOnlyModelViewSet):
             student_semesters = per_student.get(s.id, {})
             results.append({
                 'student_id': s.id,
-                'student_name': f"{s.first_name} {s.last_name}",
+                'student_name': f"{s.formatted_name}",
                 'student_id_display': s.student_id,
                 'semesters': [
                     {
@@ -1329,7 +1397,7 @@ class StudentSemesterResultViewSet(viewsets.ReadOnlyModelViewSet):
             entry = cumulative.get(s.id, {})
             student_semesters = per_student.get(s.id, {})
             results.append({
-                'student_name': f"{s.first_name} {s.last_name}",
+                'student_name': f"{s.formatted_name}",
                 'student_id_display': s.student_id,
                 'semesters': [
                     {

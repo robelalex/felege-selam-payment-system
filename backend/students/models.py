@@ -83,29 +83,35 @@ class Student(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.student_id} - {self.first_name} {self.last_name}"
+        return f"{self.student_id} - {self.formatted_name}"
 
     @property
     def full_name(self):
-        return f"{self.first_name} {self.last_name}"
-
-    @property
-    def formatted_name(self):
         """
-        ✅ Display name used on ID cards, report cards, receipts and lists.
-        Respects the owning school's naming_convention:
-          - 'ethiopian'      -> "First Name + Father Name" (standard Ethiopian
-            convention; last_name is typically the grandfather's name and is
-            not printed).
-          - 'international'  -> "First Name + Last Name" (unchanged/default
-            behavior for non-Ethiopian schools using this system).
-        Falls back to full_name if father_name is missing so nothing breaks
-        for existing records that predate this field.
+        ✅ Display name — respects the owning school's naming_convention.
+        This is what virtually every part of the app (SMS, email,
+        receipts, PDFs, parent/teacher/admin portals) calls to show a
+        student's name to a human. Previously this was unconditionally
+        "First Name + Last Name" — Western family-surname order — which
+        is wrong for the 'ethiopian' convention (the default for every
+        school here): Ethiopian names are First Name + Father's Name,
+        not a shared family surname, and last_name here is typically the
+        grandfather's name, not meant to be printed on its own.
+
+        Falls back to "First Name + Last Name" if father_name is missing
+        (so nothing breaks for records that predate that field) or if the
+        school is explicitly set to the 'international' convention.
         """
         convention = getattr(self.school, 'naming_convention', 'ethiopian')
         if convention == 'ethiopian' and self.father_name:
             return f"{self.first_name} {self.father_name}"
-        return self.full_name
+        return f"{self.first_name} {self.last_name}"
+
+    # Alias — some call sites already used this more self-documenting
+    # name ("the name to print/display") explicitly. Both names now
+    # return the exact same value; kept as one property, not two
+    # separate implementations, so they can never drift apart again.
+    formatted_name = full_name
 
     @property
     def school_level(self):

@@ -125,7 +125,7 @@ class ReminderService:
                     
                     student_overdue.append({
                         'student_id': student.student_id,
-                        'student_name': f"{student.first_name} {student.last_name}",
+                        'student_name': f"{student.formatted_name}",
                         'grade': student.grade, 'section': student.section,
                         'parent_phone': student.parent_phone, 'parent_name': student.parent_full_name,
                         'parent_email': getattr(student, 'parent_email', ''),
@@ -142,7 +142,7 @@ class ReminderService:
                 student_overdue.sort(key=lambda x: x['days_overdue'], reverse=True)
                 overdue_students.append({
                     'student_id': student.student_id,
-                    'student_name': f"{student.first_name} {student.last_name}",
+                    'student_name': f"{student.formatted_name}",
                     'grade': student.grade, 'section': student.section,
                     'parent_phone': student.parent_phone,
                     'parent_email': getattr(student, 'parent_email', ''),
@@ -299,7 +299,7 @@ class ReminderService:
                     
                     pending_info = {
                         'student_id': student.student_id,
-                        'student_name': f"{student.first_name} {student.last_name}",
+                        'student_name': f"{student.formatted_name}",
                         'grade': student.grade,
                         'section': student.section,
                         'parent_phone': student.parent_phone,
@@ -323,7 +323,7 @@ class ReminderService:
             if student_pending:
                 pending_students.append({
                     'student_id': student.student_id,
-                    'student_name': f"{student.first_name} {student.last_name}",
+                    'student_name': f"{student.formatted_name}",
                     'grade': student.grade,
                     'section': student.section,
                     'parent_phone': student.parent_phone,
@@ -426,7 +426,7 @@ class ReminderService:
                 if school_id and str(student.school_id) != str(school_id):
                     results.append({
                         'student_id': student.student_id,
-                        'student_name': f"{student.first_name} {student.last_name}",
+                        'student_name': f"{student.formatted_name}",
                         'phone': student.parent_phone,
                         'email': getattr(student, 'parent_email', ''),
                         'success': False,
@@ -438,7 +438,7 @@ class ReminderService:
                 if year_name and student.academic_year != year_name:
                     results.append({
                         'student_id': student.student_id,
-                        'student_name': f"{student.first_name} {student.last_name}",
+                        'student_name': f"{student.formatted_name}",
                         'phone': student.parent_phone,
                         'email': getattr(student, 'parent_email', ''),
                         'success': False,
@@ -576,7 +576,7 @@ class ReminderService:
                 
                 results.append({
                     'student_id': student.student_id,
-                    'student_name': f"{student.first_name} {student.last_name}",
+                    'student_name': f"{student.formatted_name}",
                     'phone': student.parent_phone,
                     'email': parent_email,
                     'success': overall_success,
@@ -645,7 +645,7 @@ class ReminderService:
                 if school_id and str(student.school_id) != str(school_id):
                     results.append({
                         'student_id': student.student_id,
-                        'student_name': f"{student.first_name} {student.last_name}",
+                        'student_name': f"{student.formatted_name}",
                         'success': False,
                         'message': "Student does not belong to this school"
                     })
@@ -665,7 +665,7 @@ class ReminderService:
                 if not registration_deadline:
                     results.append({
                         'student_id': student.student_id,
-                        'student_name': f"{student.first_name} {student.last_name}",
+                        'student_name': f"{student.formatted_name}",
                         'success': False,
                         'message': "No unpaid registration fee for this student/year"
                     })
@@ -675,7 +675,7 @@ class ReminderService:
                 if amount <= 0:
                     results.append({
                         'student_id': student.student_id,
-                        'student_name': f"{student.first_name} {student.last_name}",
+                        'student_name': f"{student.formatted_name}",
                         'success': False,
                         'message': "Registration fee amount is 0 for this student — nothing to remind about"
                     })
@@ -804,7 +804,7 @@ class ReminderService:
 
                 results.append({
                     'student_id': student.student_id,
-                    'student_name': f"{student.first_name} {student.last_name}",
+                    'student_name': f"{student.formatted_name}",
                     'phone': student.parent_phone,
                     'email': parent_email,
                     'success': overall_success,

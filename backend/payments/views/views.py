@@ -456,7 +456,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 if payment.verified_by else ''
             )
             writer.writerow([
-                f"{student.first_name} {student.last_name}",
+                f"{student.formatted_name}",
                 student.student_id,
                 student.grade,
                 student.section,

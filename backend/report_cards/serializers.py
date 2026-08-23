@@ -28,7 +28,7 @@ class ReportCardSerializer(serializers.ModelSerializer):
         read_only_fields = [f for f in fields if f != 'homeroom_comment']
 
     def get_student_name(self, obj):
-        return f"{obj.student.first_name} {obj.student.last_name}"
+        return f"{obj.student.formatted_name}"
 
     def get_pdf_url(self, obj):
         if not obj.pdf_file:

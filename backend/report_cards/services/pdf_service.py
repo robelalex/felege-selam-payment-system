@@ -151,7 +151,7 @@ def _header_table(report_card, styles, usable_mm=USABLE_MM):
 def _student_info_table(report_card, styles, usable_mm=USABLE_MM):
     student = report_card.student
     rows = [
-        ['Student Name', f"{student.first_name} {student.last_name}", 'Student ID', student.student_id],
+        ['Student Name', f"{student.formatted_name}", 'Student ID', student.student_id],
         ['Grade / Section',
          f"Grade {report_card.grade}{(' ' + report_card.section) if report_card.section else ''}",
          'Homeroom Teacher', report_card.homeroom_teacher_name or '—'],

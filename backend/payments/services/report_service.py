@@ -194,7 +194,7 @@ class ReportService:
         students_detail = [
             {
                 'student_id': p.student.student_id,
-                'student_name': f"{p.student.first_name} {p.student.last_name}",
+                'student_name': f"{p.student.formatted_name}",
                 'grade': p.student.grade,
                 'section': p.student.section,
                 'month_name': p.deadline.get_month_display(),
@@ -322,7 +322,7 @@ class ReportService:
         return {
             'student': {
                 'id': student.student_id,
-                'name': f"{student.first_name} {student.last_name}",
+                'name': f"{student.formatted_name}",
                 'grade': student.grade,
                 'section': student.section,
                 'parent_phone': student.parent_phone,
@@ -500,7 +500,7 @@ class ReportService:
                 partial_count += 1
             detailed.append({
                 'student_id': o.student.student_id,
-                'student_name': f"{o.student.first_name} {o.student.last_name}",
+                'student_name': f"{o.student.formatted_name}",
                 'grade': o.student.grade,
                 'section': o.student.section,
                 'override_type': o.override_type,
@@ -569,7 +569,7 @@ class ReportService:
             if key not in per_student:
                 per_student[key] = {
                     'student_id': p.student.student_id,
-                    'student_name': f"{p.student.first_name} {p.student.last_name}",
+                    'student_name': f"{p.student.formatted_name}",
                     'grade': p.student.grade,
                     'section': p.student.section,
                     'months_paid': 0,

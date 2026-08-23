@@ -131,12 +131,26 @@ export const getAttendanceRoster = ({ grade, section, date }) =>
 export const saveAttendance = ({ grade, section, date, entries }) =>
   teacherApi.post('/attendance/bulk_save/', { grade, section, date, entries });
 
+// ✅ NEW — "how many days was this student present" summary. Reuses the
+// existing GET /attendance/ list endpoint (same one AdminAttendance.js
+// uses) with its grade/section/date_from/date_to filters — no new
+// backend endpoint needed. The backend now scopes this to only the
+// teacher's own homeroom class(es) (see DailyAttendanceViewSet.get_queryset).
+export const getAttendanceSummaryRecords = ({ grade, section, dateFrom, dateTo }) =>
+  teacherApi.get('/attendance/', { params: { grade, section, date_from: dateFrom, date_to: dateTo } });
+
 // ─── Subject teacher: period attendance ─────────────────────────────────
 export const getSubjectAttendanceRoster = ({ subjectId, grade, section, date }) =>
   teacherApi.get('/subject-attendance/roster/', { params: { subject_id: subjectId, grade, section, date } });
 
 export const saveSubjectAttendance = ({ subjectId, grade, section, date, entries }) =>
   teacherApi.post('/subject-attendance/bulk_save/', { subject_id: subjectId, grade, section, date, entries });
+
+// ✅ NEW — same idea as getAttendanceSummaryRecords above, for subject
+// attendance. Reuses GET /subject-attendance/, scoped server-side to
+// only this teacher's own assigned subject/grade/section(s).
+export const getSubjectAttendanceSummaryRecords = ({ subjectId, grade, section, dateFrom, dateTo }) =>
+  teacherApi.get('/subject-attendance/', { params: { subject_id: subjectId, grade, section, date_from: dateFrom, date_to: dateTo } });
 
 // ─── Results / ranking (Phase 4) ────────────────────────────────────────
 export const getClassResults = ({ termId, grade, section = '' }) =>

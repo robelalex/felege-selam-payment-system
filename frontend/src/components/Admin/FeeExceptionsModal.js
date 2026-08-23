@@ -135,7 +135,7 @@ const FeeExceptionsModal = ({ student, academicYear, onClose }) => {
               Fee Exception
             </h2>
             <p className="text-sm text-gray-500">
-              {student?.first_name} {student?.last_name} — Grade {student?.grade}
+              {student?.formatted_name || `${student?.first_name} ${student?.last_name}`} — Grade {student?.grade}
               {academicYear?.name ? ` — ${academicYear.name}` : ''}
             </p>
           </div>

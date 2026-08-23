@@ -208,7 +208,7 @@ const StudentDocumentsModal = ({ student, onClose }) => {
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-gray-900">Enrollment Documents</h2>
-            <p className="text-sm text-gray-500">{student?.first_name} {student?.last_name} — Grade {student?.grade}</p>
+            <p className="text-sm text-gray-500">{student?.formatted_name || `${student?.first_name} ${student?.last_name}`} — Grade {student?.grade}</p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
             <X className="h-5 w-5 text-gray-600" />

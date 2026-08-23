@@ -322,7 +322,7 @@ def generate_for_class(school, academic_year, grade, section, report_type, term=
         except ValueError as exc:
             failures.append({
                 'student_id': student.id,
-                'student_name': f"{student.first_name} {student.last_name}",
+                'student_name': f"{student.formatted_name}",
                 'error': str(exc),
             })
 

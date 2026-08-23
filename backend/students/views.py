@@ -762,7 +762,7 @@ class StudentViewSet(viewsets.ModelViewSet):
                 return Response({
                     'student': {
                         'student_id': student.student_id,
-                        'name': f"{student.first_name} {student.last_name}",
+                        'name': f"{student.formatted_name}",
                         'grade': student.grade,
                         'section': student.section,
                     },
@@ -841,7 +841,7 @@ class StudentViewSet(viewsets.ModelViewSet):
             return Response({
                 'student': {
                     'student_id': student.student_id,
-                    'name': f"{student.first_name} {student.last_name}",
+                    'name': f"{student.formatted_name}",
                     'grade': student.grade,
                     'section': student.section,
                 },

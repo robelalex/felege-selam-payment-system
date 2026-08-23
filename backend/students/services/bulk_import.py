@@ -166,7 +166,7 @@ class BulkImportService:
                     self.results['students'].append({
                         'id': student.id,
                         'student_id': student.student_id,
-                        'name': f"{student.first_name} {student.last_name}"
+                        'name': f"{student.formatted_name}"
                     })
                     
                 except Exception as e:

@@ -857,7 +857,7 @@ function AcademicYearManager() {
                                 />
                               </td>
                               <td className="px-4 py-3 font-medium text-gray-900">
-                                {student.first_name} {student.last_name}
+                                {student.formatted_name || `${student.first_name} ${student.last_name}`}
                               </td>
                               <td className="px-4 py-3 text-gray-500 font-mono text-xs">
                                 {student.student_id}

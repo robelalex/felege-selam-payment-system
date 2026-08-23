@@ -62,7 +62,7 @@ class MarkSerializer(serializers.ModelSerializer):
         read_only_fields = ['school', 'academic_year', 'entered_by', 'status', 'reviewed_by', 'reviewed_at']
 
     def get_student_name(self, obj):
-        return f"{obj.student.first_name} {obj.student.last_name}"
+        return f"{obj.student.formatted_name}"
 
     def get_term_id(self, obj):
         return obj.assessment_type.term_id if obj.assessment_type else None
@@ -86,7 +86,7 @@ class DailyAttendanceSerializer(serializers.ModelSerializer):
         read_only_fields = ['school', 'academic_year', 'recorded_by']
 
     def get_student_name(self, obj):
-        return f"{obj.student.first_name} {obj.student.last_name}"
+        return f"{obj.student.formatted_name}"
 
 
 class SubjectAttendanceSerializer(serializers.ModelSerializer):
@@ -105,7 +105,7 @@ class SubjectAttendanceSerializer(serializers.ModelSerializer):
         read_only_fields = ['school', 'academic_year', 'recorded_by']
 
     def get_student_name(self, obj):
-        return f"{obj.student.first_name} {obj.student.last_name}"
+        return f"{obj.student.formatted_name}"
 
 
 # ============================================================================
@@ -143,7 +143,7 @@ class StudentTermResultSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_student_name(self, obj):
-        return f"{obj.student.first_name} {obj.student.last_name}"
+        return f"{obj.student.formatted_name}"
 
     def get_subject_results(self, obj):
         """Only included when the view explicitly asks for it (see StudentTermResultViewSet.retrieve), to keep list responses light."""
@@ -188,7 +188,7 @@ class StudentSemesterResultSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_student_name(self, obj):
-        return f"{obj.student.first_name} {obj.student.last_name}"
+        return f"{obj.student.formatted_name}"
 
     def get_subject_results(self, obj):
         """Only included when the view explicitly asks for it, to keep list responses light — same convention as StudentTermResultSerializer."""

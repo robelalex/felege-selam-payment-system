@@ -188,12 +188,12 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
                 student.academic_year = f"{year.year_ec + 1} E.C."
                 student.save()
                 retained_count += 1
-                retained_students.append({'id': student.id, 'name': f"{student.first_name} {student.last_name}", 'grade': student.grade})
+                retained_students.append({'id': student.id, 'name': f"{student.formatted_name}", 'grade': student.grade})
                 continue
 
             if is_passing is None:
                 promoted_without_results_count += 1
-                no_result_students.append({'id': student.id, 'name': f"{student.first_name} {student.last_name}", 'grade': student.grade})
+                no_result_students.append({'id': student.id, 'name': f"{student.formatted_name}", 'grade': student.grade})
 
             if student.grade < GRADUATION_GRADE:
                 student.grade += 1

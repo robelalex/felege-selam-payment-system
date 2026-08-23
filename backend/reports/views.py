@@ -247,7 +247,7 @@ def pending_payments_report(request):
         if student_pending:
             pending_data.append({
                 'student_id': student.student_id,
-                'student_name': f"{student.first_name} {student.last_name}",
+                'student_name': f"{student.formatted_name}",
                 'grade': student.grade,
                 'section': student.section,
                 'parent_phone': student.parent_phone,
