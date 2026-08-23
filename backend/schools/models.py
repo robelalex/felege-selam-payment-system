@@ -1,5 +1,6 @@
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
+from common.encrypted_fields import EncryptedCharField
 
 class School(models.Model):
     name = models.CharField(max_length=200)
@@ -287,8 +288,14 @@ class School(models.Model):
     )
     
     # ========== NEW: Chapa Payment Configuration ==========
-    chapa_api_key = models.CharField(
-        max_length=200, 
+    # ✅ SECURITY FIX: switched from CharField (plain text) to
+    # EncryptedCharField — see common/encrypted_fields.py for how this
+    # stays 100% backward compatible (passthrough until
+    # FIELD_ENCRYPTION_KEY is configured, and reads legacy plaintext
+    # rows fine even after it is). Every school's Chapa credentials
+    # used to sit in the database as plain text; a single DB leak
+    # exposed all of them at once.
+    chapa_api_key = EncryptedCharField(
         blank=True, 
         null=True, 
         help_text="Chapa API key (starts with CHASECK_)"
@@ -297,8 +304,7 @@ class School(models.Model):
         default=False, 
         help_text="Is Chapa configured and working for this school?"
     )
-    chapa_webhook_secret = models.CharField(
-        max_length=200, 
+    chapa_webhook_secret = EncryptedCharField(
         blank=True, 
         null=True, 
         help_text="Chapa webhook secret for verifying webhook requests"
@@ -316,8 +322,9 @@ class School(models.Model):
     )
     
     # ========== NEW: Verify.ET API Configuration ==========
-    verify_et_api_key = models.CharField(
-        max_length=200,
+    # ✅ SECURITY FIX: same reasoning as chapa_api_key above — this is
+    # a live third-party API credential and shouldn't sit in plain text.
+    verify_et_api_key = EncryptedCharField(
         blank=True,
         null=True,
         help_text="Verify.ET API key for this school"

@@ -18,14 +18,28 @@ class ChapaService:
             'Authorization': f'Bearer {self.secret_key}',
             'Content-Type': 'application/json'
         }
-        
-        print("="*50)
-        print("CHAPA SERVICE INITIALIZED")
-        print(f"Secret Key exists: {'Yes' if self.secret_key else 'No'}")
-        if self.secret_key:
-            print(f"Secret Key length: {len(self.secret_key)}")
-            print(f"Secret Key starts with: {self.secret_key[:10]}...")
-        print("="*50)
+
+        # ✅ SECURITY FIX: this used to print whether the key exists, its
+        # length, and its first 10 characters to stdout/server logs on
+        # every single ChapaService instantiation. That's a live secret
+        # fragment sitting in plaintext logs (which are often less
+        # tightly access-controlled than the env vars/secret store
+        # itself, and get shipped to third-party log aggregators). A
+        # boolean "configured or not" is all any debugging session
+        # actually needs.
+        logger.info(f"ChapaService initialized (key configured: {bool(self.secret_key)})")
+
+        # ✅ SECURITY FIX (this whole file): every print() below was
+        # replaced with logger.debug/info/error. print() writes to
+        # stdout unconditionally, bypassing the DEBUG-gated logging
+        # level already configured in core/settings.py
+        # (logging.basicConfig(level=DEBUG if DEBUG else WARNING)) — so
+        # full payment payloads (amounts, parent emails, names) and raw
+        # Chapa API responses were being written to production logs on
+        # every single payment, regardless of the DEBUG flag. Using the
+        # logger instead means: verbose detail only shows up when
+        # DEBUG=True (local dev), and only real failures (logger.error)
+        # are guaranteed visible in production.
     
     def initialize_payment(self, **kwargs):
         """
@@ -40,15 +54,11 @@ class ChapaService:
         - callback_url: str (webhook URL)
         - return_url: str (redirect URL after payment)
         """
-        
-        print("="*50)
-        print("CHAPA INITIALIZE PAYMENT CALLED")
-        print(f"Kwargs received: {kwargs}")
-        print("="*50)
-        
+        logger.debug(f"Chapa initialize_payment called. tx_ref={kwargs.get('tx_ref')}")
+
         # Check if secret key exists
         if not self.secret_key:
-            print("❌ CHAPA_SECRET_KEY not set!")
+            logger.error("CHAPA_SECRET_KEY not set!")
             return {'success': False, 'error': 'Chapa secret key not configured'}
         
         # Get frontend URL from settings or use default
@@ -59,14 +69,14 @@ class ChapaService:
         required_fields = ['amount', 'email', 'first_name', 'last_name', 'tx_ref']
         for field in required_fields:
             if not kwargs.get(field):
-                print(f"❌ Missing required field: {field}")
+                logger.error(f"Chapa initialize_payment missing required field: {field}")
                 return {'success': False, 'error': f'Missing required field: {field}'}
         
         # Ensure title is max 16 characters
         title = kwargs.get('title', 'School Fee')
         if len(title) > 16:
             title = title[:16]
-            print(f"Title truncated to: {title}")
+            logger.debug(f"Chapa title truncated to: {title}")
         
         # ✅ FIXED: Use production URLs
         # callback_url: where Chapa sends webhook (backend)
@@ -74,8 +84,7 @@ class ChapaService:
         callback_url = kwargs.get('callback_url', f'{backend_url}/api/chapa/webhook/')
         return_url = kwargs.get('return_url', f'{frontend_url}/payment/success')
         
-        print(f"✅ Using callback_url: {callback_url}")
-        print(f"✅ Using return_url: {return_url}")
+        logger.debug(f"Chapa callback_url={callback_url} return_url={return_url}")
         
         # Build payload exactly as Chapa expects
         payload = {
@@ -93,16 +102,10 @@ class ChapaService:
             }
         }
         
-        print("="*50)
-        print("FINAL PAYLOAD:")
-        import json as json_lib
-        print(json_lib.dumps(payload, indent=2))
-        print("="*50)
+        logger.debug(f"Chapa payload built for tx_ref={payload['tx_ref']}")
         
         try:
-            import requests
-            print(f"Making request to: {self.base_url}/transaction/initialize")
-            print(f"Headers: Authorization: Bearer [HIDDEN], Content-Type: application/json")
+            logger.debug(f"Calling Chapa: {self.base_url}/transaction/initialize")
             
             response = requests.post(
                 f"{self.base_url}/transaction/initialize",
@@ -111,49 +114,45 @@ class ChapaService:
                 timeout=30
             )
             
-            print(f"Response Status: {response.status_code}")
-            print(f"Response Headers: {response.headers}")
-            print(f"Response Body: {response.text}")
+            logger.debug(f"Chapa initialize response: {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()
-                print(f"✅ Success: {data}")
                 
                 # Check if the response contains the checkout URL
                 if data.get('status') == 'success' and data.get('data', {}).get('checkout_url'):
+                    logger.info(f"Chapa payment initialized OK for tx_ref={payload['tx_ref']}")
                     return {
                         'success': True,
                         'data': data,
                         'checkout_url': data['data']['checkout_url']
                     }
                 else:
-                    print(f"❌ Unexpected response format: {data}")
+                    logger.error(f"Chapa unexpected response format for tx_ref={payload['tx_ref']}: {data}")
                     return {
                         'success': False,
                         'error': 'Unexpected response format from Chapa'
                     }
             else:
-                print(f"❌ Error Response: {response.text}")
+                logger.error(f"Chapa initialize error {response.status_code} for tx_ref={payload['tx_ref']}: {response.text}")
                 return {
                     'success': False,
                     'error': response.text
                 }
                 
         except requests.exceptions.ConnectionError as e:
-            print(f"❌ Connection Error: {e}")
+            logger.error(f"Chapa connection error: {e}")
             return {'success': False, 'error': f'Connection Error: {str(e)}'}
         except requests.exceptions.Timeout as e:
-            print(f"❌ Timeout Error: {e}")
+            logger.error(f"Chapa timeout: {e}")
             return {'success': False, 'error': f'Timeout: {str(e)}'}
         except Exception as e:
-            print(f"❌ Exception: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.exception("Chapa initialize_payment unexpected error")
             return {'success': False, 'error': str(e)}
     
     def verify_payment(self, tx_ref):
         """Verify a payment transaction"""
-        print(f"🔍 Verifying payment: {tx_ref}")
+        logger.debug(f"Verifying Chapa payment: {tx_ref}")
         
         if not self.secret_key:
             return {'success': False, 'error': 'Chapa secret key not configured'}
@@ -165,7 +164,7 @@ class ChapaService:
                 timeout=30
             )
             
-            print(f"Verify Response: {response.status_code} - {response.text}")
+            logger.debug(f"Chapa verify response for {tx_ref}: {response.status_code}")
             
             if response.status_code == 200:
                 return {
@@ -173,13 +172,14 @@ class ChapaService:
                     'data': response.json()
                 }
             else:
+                logger.error(f"Chapa verify error {response.status_code} for {tx_ref}: {response.text}")
                 return {
                     'success': False,
                     'error': response.text
                 }
                 
         except Exception as e:
-            print(f"❌ Verify error: {e}")
+            logger.exception(f"Chapa verify_payment error for {tx_ref}")
             return {'success': False, 'error': str(e)}
     
     def get_banks(self):
@@ -200,4 +200,5 @@ class ChapaService:
                 return {'success': False, 'error': response.text}
                 
         except Exception as e:
+            logger.exception("Chapa get_banks error")
             return {'success': False, 'error': str(e)}

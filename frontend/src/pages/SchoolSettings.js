@@ -68,6 +68,12 @@ const SchoolSettings = () => {
     });
     const [savingLocation, setSavingLocation] = useState(false);
 
+    // ✅ NEW: tabbed layout — see PR notes. Purely presentational; no
+    // state/handlers above this point were changed. Each tab below
+    // renders the exact same JSX/section that used to be stacked
+    // vertically on one long page.
+    const [activeTab, setActiveTab] = useState('profile');
+
     useEffect(() => {
         fetchAllConfigs();
         fetchSchoolProfile();
@@ -417,10 +423,47 @@ const SchoolSettings = () => {
         return <div className="text-center py-8">Loading...</div>;
     }
 
+
+
+    const TABS = [
+        { id: 'profile', label: 'Profile & Branding', icon: '\uD83C\uDFEB' },
+        { id: 'reportcard', label: 'Report Card Branding', icon: '\u270D\uFE0F' },
+        { id: 'academics', label: 'Academic Settings', icon: '\uD83D\uDCCA' },
+        { id: 'sms', label: 'SMS (Afro Message)', icon: '\uD83D\uDCF1' },
+        { id: 'email', label: 'Email (Brevo)', icon: '\uD83D\uDCE7' },
+        { id: 'bank', label: 'Bank Accounts', icon: '\uD83C\uDFE6' },
+    ];
+
     return (
-        <div className="max-w-4xl mx-auto p-6 space-y-8">
+        <div className="max-w-5xl mx-auto p-6">
             <h1 className="text-2xl font-bold mb-6">School Settings</h1>
 
+            {/* ==================== TAB NAVIGATION ==================== */}
+            <div className="mb-6 border-b border-gray-200 overflow-x-auto">
+                <nav className="flex gap-1 min-w-max" aria-label="School settings sections">
+                    {TABS.map((tab) => (
+                        <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                                activeTab === tab.id
+                                    ? 'border-indigo-600 text-indigo-700'
+                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                            }`}
+                        >
+                            <span>{tab.icon}</span>
+                            {tab.label}
+                        </button>
+                    ))}
+                </nav>
+            </div>
+
+            <div className="space-y-8">
+
+            {/* ==================== PROFILE & BRANDING TAB (Location + Logo) ==================== */}
+            {activeTab === 'profile' && (
+                <>
             {/* ==================== LOCATION SECTION — NEW (Jimma item 6) ==================== */}
             <div className="bg-white shadow rounded-lg overflow-hidden">
                 <div className="bg-amber-50 border-l-4 border-amber-400 p-4">
@@ -561,6 +604,12 @@ const SchoolSettings = () => {
                 </div>
             </div>
 
+                </>
+            )}
+
+            {/* ==================== REPORT CARD BRANDING TAB (Signature + Stamp) ==================== */}
+            {activeTab === 'reportcard' && (
+                <>
             {/* ==================== REPORT CARD BRANDING (SIGNATURE + STAMP) — NEW ==================== */}
             <div className="bg-white shadow rounded-lg overflow-hidden">
                 <div className="bg-indigo-50 border-l-4 border-indigo-400 p-4">
@@ -629,6 +678,12 @@ const SchoolSettings = () => {
                 </div>
             </div>
 
+                </>
+            )}
+
+            {/* ==================== ACADEMIC SETTINGS TAB (Grading + Term Structure) ==================== */}
+            {activeTab === 'academics' && (
+                <>
             {/* ==================== GRADING SYSTEM SECTION — NEW ==================== */}
             <div className="bg-white shadow rounded-lg overflow-hidden">
                 <div className="bg-teal-50 border-l-4 border-teal-400 p-4">
@@ -707,6 +762,12 @@ const SchoolSettings = () => {
                 </div>
             </div>
 
+                </>
+            )}
+
+            {/* ==================== SMS TAB ==================== */}
+            {activeTab === 'sms' && (
+                <>
             {/* ==================== SMS CONFIGURATION SECTION ==================== */}
             <div className="bg-white shadow rounded-lg overflow-hidden">
                 <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
@@ -795,6 +856,22 @@ const SchoolSettings = () => {
                 </form>
             </div>
 
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <h3 className="font-semibold text-blue-900 mb-2">How to Get Afro Message Credentials:</h3>
+                        <ol className="list-decimal list-inside text-sm text-blue-800 space-y-1">
+                            <li>Sign up at <a href="https://afromessage.com" target="_blank" rel="noopener noreferrer" className="underline">afromessage.com</a></li>
+                            <li>Go to your dashboard → API section → generate/copy your API Key</li>
+                            <li>Under Sender Names, request approval for your school's sender name (max 11 chars)</li>
+                            <li>Top up credit before testing — a zero balance will cause sends to fail</li>
+                            <li>Paste the API Key and Sender Name above, then click "Test SMS Credentials"</li>
+                        </ol>
+                    </div>
+                </>
+            )}
+
+            {/* ==================== EMAIL TAB ==================== */}
+            {activeTab === 'email' && (
+                <>
             {/* ==================== EMAIL CONFIGURATION SECTION (NEW) ==================== */}
             <div className="bg-white shadow rounded-lg overflow-hidden">
                 <div className="bg-blue-50 border-l-4 border-blue-400 p-4">
@@ -896,34 +973,30 @@ const SchoolSettings = () => {
                 </form>
             </div>
 
+                    <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                        <h3 className="font-semibold text-indigo-900 mb-2">How to Get Brevo Credentials:</h3>
+                        <ol className="list-decimal list-inside text-sm text-indigo-800 space-y-1">
+                            <li>Sign up at <a href="https://www.brevo.com" target="_blank" rel="noopener noreferrer" className="underline">Brevo.com</a> (Free, no card)</li>
+                            <li>Go to "SMTP & API" → "API Keys" → Create v3 Key</li>
+                            <li>Go to "Senders & IP" → Add and verify your sender email</li>
+                            <li>Disable "Restrict access to specific IP addresses" on your API key</li>
+                            <li>Free tier: 300 emails/day forever</li>
+                        </ol>
+                    </div>
+                </>
+            )}
+
+            {/* ==================== BANK ACCOUNTS TAB ==================== */}
+            {activeTab === 'bank' && (
+                <>
             {/* ==================== BANK ACCOUNTS ==================== */}
             <div className="bg-white shadow rounded-lg overflow-hidden p-6 mt-6">
                 <SchoolBankAccounts />
             </div>
 
-            {/* ==================== INSTRUCTIONS ==================== */}
-            <div className="mt-8 grid md:grid-cols-2 gap-6">
-<div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-    <h3 className="font-semibold text-blue-900 mb-2">How to Get Afro Message Credentials:</h3>
-    <ol className="list-decimal list-inside text-sm text-blue-800 space-y-1">
-        <li>Sign up at <a href="https://afromessage.com" target="_blank" rel="noopener noreferrer" className="underline">afromessage.com</a></li>
-        <li>Go to your dashboard → API section → generate/copy your API Key</li>
-        <li>Under Sender Names, request approval for your school's sender name (max 11 chars)</li>
-        <li>Top up credit before testing — a zero balance will cause sends to fail</li>
-        <li>Paste the API Key and Sender Name above, then click "Test SMS Credentials"</li>
-    </ol>
-</div>
+                </>
+            )}
 
-                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
-                    <h3 className="font-semibold text-indigo-900 mb-2">How to Get Brevo Credentials:</h3>
-                    <ol className="list-decimal list-inside text-sm text-indigo-800 space-y-1">
-                        <li>Sign up at <a href="https://www.brevo.com" target="_blank" rel="noopener noreferrer" className="underline">Brevo.com</a> (Free, no card)</li>
-                        <li>Go to "SMTP & API" → "API Keys" → Create v3 Key</li>
-                        <li>Go to "Senders & IP" → Add and verify your sender email</li>
-                        <li>Disable "Restrict access to specific IP addresses" on your API key</li>
-                        <li>Free tier: 300 emails/day forever</li>
-                    </ol>
-                </div>
             </div>
         </div>
     );

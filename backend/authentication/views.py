@@ -5,7 +5,7 @@ from django.http import HttpResponse, HttpResponseRedirect
 from django.middleware.csrf import get_token
 from django.core.mail import send_mail
 from django.conf import settings
-from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
@@ -26,7 +26,7 @@ from .models import UserProfile, PasswordHistory
 from datetime import date
 from .throttles import LoginRateThrottle
 from common.utils import log_action
-from .utils import generate_otp, verify_otp
+from .utils import generate_otp, verify_otp, reset_otp_attempts
 from .permissions import IsSuperAdmin, IsSchoolAdmin
 
 
@@ -113,6 +113,7 @@ def get_school_name_for_otp(school_id):
 # ===== OTP 2FA: ADMIN LOGIN WITH 2FA =====
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([LoginRateThrottle])  # ✅ SECURITY FIX: now actually wired up
 @csrf_exempt
 def admin_login_step1(request):
     """Step 1: Admin login with email and password -> Send REAL OTP"""
@@ -229,6 +230,7 @@ def admin_login_step1(request):
     profile = user.profile
     profile.otp_code = otp_code
     profile.otp_created_at = timezone.now()
+    reset_otp_attempts(profile)  # ✅ SECURITY FIX: fresh code, fresh attempt count/lock
     profile.save()
     
     # ✅ SEND REAL EMAIL VIA RESEND — school-branded (Jimma request #3)
@@ -251,6 +253,7 @@ def admin_login_step1(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([LoginRateThrottle])  # ✅ SECURITY FIX: now actually wired up (keys on user_id here)
 @csrf_exempt
 def admin_login_step2(request):
     """Step 2: Verify REAL OTP and complete admin login"""
@@ -308,6 +311,7 @@ def admin_login_step2(request):
     # Clear OTP after successful verification
     profile.otp_code = None
     profile.otp_created_at = None
+    reset_otp_attempts(profile)
     profile.save()
     
     auth_login(request, user)
@@ -377,6 +381,7 @@ def admin_login_step2(request):
 # ===== OTP 2FA: PARENT LOGIN WITH OTP ONLY =====
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([LoginRateThrottle])  # ✅ SECURITY FIX: now actually wired up
 @authentication_classes([])
 @csrf_exempt
 def parent_login_step1(request):
@@ -431,6 +436,7 @@ def parent_login_step1(request):
     profile = user.profile
     profile.otp_code = otp_code
     profile.otp_created_at = timezone.now()
+    reset_otp_attempts(profile)  # ✅ SECURITY FIX: fresh code, fresh attempt count/lock
     profile.save()
     
     # ✅ SEND REAL EMAIL VIA RESEND — school-branded (Jimma request #3).
@@ -455,6 +461,7 @@ def parent_login_step1(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([LoginRateThrottle])  # ✅ SECURITY FIX: now actually wired up (keys on user_id here)
 @authentication_classes([])
 @csrf_exempt
 def parent_login_step2(request):
@@ -479,6 +486,7 @@ def parent_login_step2(request):
     
     profile.otp_code = None
     profile.otp_created_at = None
+    reset_otp_attempts(profile)
     profile.save()
     
     auth_login(request, user)
@@ -679,6 +687,7 @@ def verify_email(request, token):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([LoginRateThrottle])  # ✅ SECURITY FIX: now actually wired up
 def forgot_password(request):
     serializer = ForgotPasswordSerializer(data=request.data)
     if not serializer.is_valid():
@@ -715,6 +724,7 @@ def forgot_password(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([LoginRateThrottle])  # ✅ SECURITY FIX: now actually wired up
 def reset_password(request):
     serializer = ResetPasswordSerializer(data=request.data)
     if not serializer.is_valid():

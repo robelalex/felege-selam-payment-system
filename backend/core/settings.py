@@ -271,6 +271,18 @@ if not DEBUG:
 # ===== CHAPA =====
 CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY', '')
 
+# ===== FIELD-LEVEL ENCRYPTION =====
+# ✅ SECURITY FIX: encrypts School.chapa_api_key, chapa_webhook_secret,
+# and verify_et_api_key at rest (see common/encrypted_fields.py).
+# Optional by design — if unset, those fields keep working exactly as
+# before (plain text) so this change can never break an existing
+# deployment. Set this env var to actually turn encryption on:
+#   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Store the generated value as FIELD_ENCRYPTION_KEY in your environment
+# (same place as DJANGO_SECRET_KEY) and keep a backup of it somewhere
+# safe — losing it makes every already-encrypted value unrecoverable.
+FIELD_ENCRYPTION_KEY = os.getenv('FIELD_ENCRYPTION_KEY', '')
+
 # ===== AI SLIP READING (Claude) =====
 # ✅ NEW: used by ai_slip_extraction_service.py to read payment slip photos
 # directly (amount, bank, reference number) instead of relying only on

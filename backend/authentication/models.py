@@ -54,6 +54,16 @@ class UserProfile(models.Model):
     otp_code = models.CharField(max_length=6, blank=True, null=True)
     otp_created_at = models.DateTimeField(blank=True, null=True)
     otp_verified = models.BooleanField(default=False)
+
+    # ✅ SECURITY FIX: OTP brute-force lockout. Previously a wrong code
+    # could be retried unlimited times within the 10-minute window with
+    # only the generic per-IP rate limit as a backstop. otp_attempts
+    # counts consecutive wrong tries for the CURRENT otp_code; it resets
+    # to 0 every time a fresh OTP is generated. otp_locked_until, once
+    # set, blocks all verification attempts (even with the right code)
+    # until it passes — see verify_otp() in authentication/utils.py.
+    otp_attempts = models.PositiveSmallIntegerField(default=0)
+    otp_locked_until = models.DateTimeField(blank=True, null=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
