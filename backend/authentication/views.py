@@ -53,9 +53,20 @@ def check_password_history(user, new_password):
             return False, "You cannot reuse a recent password. Please choose a different password."
     return True, ""
 
-def send_otp_via_email(email, otp_code, school_name=None):
+def send_otp_via_email(email, otp_code, school_name=None, school_id=None):
     """
-    Send OTP code via Resend/django-anymail.
+    Send OTP code — tries the SCHOOL's own Brevo account first (so the
+    email cost sits with the school, same as payment reminders already
+    do), and only falls back to the platform's own Resend account if
+    that school hasn't configured Brevo yet.
+
+    ✅ COST FIX (requested): OTP emails previously always went through
+    the platform-wide Resend account — i.e. every login OTP, for every
+    school, was an email YOU paid for. Reminder emails already used
+    each school's own Brevo credentials; this brings OTP emails in
+    line with that, without breaking login for any school that hasn't
+    set up Brevo yet — those schools transparently keep using Resend,
+    exactly as before.
 
     ✅ FIX (Jimma request #3): this used to hardcode "Felege Selam
     Payment System" in the subject and body for every school, regardless
@@ -66,8 +77,42 @@ def send_otp_via_email(email, otp_code, school_name=None):
     with no school_id), so no school is ever shown the wrong school's name.
     """
     display_name = school_name or "your school"
+    subject = f"Your {display_name} Verification Code: {otp_code}"
+
+    # --- Attempt 1: the school's own Brevo account ---
+    if school_id:
+        try:
+            from common.email_service import SchoolEmailService
+            html_content = f"""
+            <div style="font-family: Arial, sans-serif; padding: 20px;">
+                <h2>{display_name} Verification Code</h2>
+                <p>Your verification code is:</p>
+                <p style="font-size: 32px; font-weight: bold; letter-spacing: 4px;">{otp_code}</p>
+                <p>This code expires in 10 minutes. Do not share this code with anyone.</p>
+                <p style="color: #999; font-size: 12px;">If you did not request this code, please ignore this email.</p>
+            </div>
+            """
+            text_content = (
+                f"Your {display_name} verification code is: {otp_code}\n\n"
+                "This code expires in 10 minutes. Do not share this code with anyone.\n\n"
+                "If you did not request this code, please ignore this email."
+            )
+            email_service = SchoolEmailService(school_id)
+            email_service.send_email(
+                recipient_email=email,
+                subject=subject,
+                html_content=html_content,
+                text_content=text_content,
+            )
+            return True
+        except Exception as e:
+            # School hasn't configured Brevo, quota exceeded, or a
+            # transient failure — fall through to Resend below rather
+            # than blocking the user's login.
+            print(f"[OTP EMAIL] School Brevo unavailable for school_id={school_id}, falling back to Resend: {e}")
+
+    # --- Attempt 2 (fallback): platform Resend account ---
     try:
-        subject = f"Your {display_name} Verification Code: {otp_code}"
         message = f"""
         Hello,
         
@@ -233,9 +278,10 @@ def admin_login_step1(request):
     reset_otp_attempts(profile)  # ✅ SECURITY FIX: fresh code, fresh attempt count/lock
     profile.save()
     
-    # ✅ SEND REAL EMAIL VIA RESEND — school-branded (Jimma request #3)
+    # ✅ Tries the school's own Brevo account first, falls back to
+    # platform Resend if not configured (Jimma request #3, cost fix)
     school_name = get_school_name_for_otp(profile.school_id)
-    email_sent = send_otp_via_email(user.email, otp_code, school_name)
+    email_sent = send_otp_via_email(user.email, otp_code, school_name, school_id=profile.school_id)
     
     if not email_sent:
         return Response({
@@ -439,12 +485,13 @@ def parent_login_step1(request):
     reset_otp_attempts(profile)  # ✅ SECURITY FIX: fresh code, fresh attempt count/lock
     profile.save()
     
-    # ✅ SEND REAL EMAIL VIA RESEND — school-branded (Jimma request #3).
+    # ✅ Tries the school's own Brevo account first, falls back to
+    # platform Resend if not configured (Jimma request #3, cost fix).
     # student_school_id was already resolved above from the parent's
     # student record, so this is always the parent's own school, not
     # whatever school_id happened to be on a stale profile.
     school_name = get_school_name_for_otp(student_school_id)
-    email_sent = send_otp_via_email(user.email, otp_code, school_name)
+    email_sent = send_otp_via_email(user.email, otp_code, school_name, school_id=student_school_id)
     
     if not email_sent:
         return Response({

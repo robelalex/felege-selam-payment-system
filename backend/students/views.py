@@ -31,6 +31,42 @@ RECOMMENDED_DOC_TYPES_BY_GRADE = {
 }
 
 
+def get_required_document_types(grade):
+    """
+    ✅ BUG FIX (requested): every document type required for a student
+    currently in `grade`, ACCUMULATED across every earlier transition
+    threshold up to and including their current grade — not just
+    whichever single entry happens to match their exact current grade.
+
+    Before this fix, RECOMMENDED_DOC_TYPES_BY_GRADE.get(student.grade, [])
+    only ever checked the ONE grade the student is currently in. So a
+    student in Grade 9 was correctly asked for their Grade 8 leaving
+    certificate — but the moment that same student was promoted to
+    Grade 10, the requirement silently disappeared, because there's no
+    entry for grade 10 in the dict. The system would then only ever
+    check for a photo and (if they were in Grade 1) a birth certificate,
+    which matches exactly what was reported: older/higher-grade students
+    kept showing as "complete" or only missing a photo, even when a
+    leaving certificate was never actually uploaded.
+
+    A required document doesn't stop being required once a student
+    moves past that grade — it should stay on the checklist until it's
+    actually uploaded. So this returns the UNION of every threshold at
+    or below the student's current grade: e.g. a Grade 10 student
+    requires birth_certificate (grade 1) + leaving_certificate_grade6
+    (grade 7) + leaving_certificate_grade8 (grade 9) all at once — not
+    just whichever one matches grade 10 exactly (nothing, previously).
+    A student who has already uploaded the Grade 6 certificate simply
+    shows that one as satisfied and moves on to checking Grade 8 — it
+    doesn't stop checking altogether.
+    """
+    required = []
+    for threshold_grade in sorted(RECOMMENDED_DOC_TYPES_BY_GRADE):
+        if threshold_grade <= grade:
+            required.extend(RECOMMENDED_DOC_TYPES_BY_GRADE[threshold_grade])
+    return required
+
+
 def _current_academic_year_for(student):
     """Best-effort lookup of this student's school's current AcademicYear
     row, to tag a newly-uploaded StudentDocument with. Returns None
@@ -1212,7 +1248,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         results = []
 
         for student in queryset:
-            required_types = RECOMMENDED_DOC_TYPES_BY_GRADE.get(student.grade, [])
+            required_types = get_required_document_types(student.grade)  # ✅ BUG FIX: cumulative, not exact-grade-only
             uploaded_types = {d.document_type for d in student.documents.all()}
             missing_required = [t for t in required_types if t not in uploaded_types]
             open_requests = [r for r in student.document_requests.all() if not r.is_resolved]
@@ -1265,7 +1301,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         manually flagged for this specific student. Used to render the
         parent's checklist and the admin's 'incomplete' badge."""
         student = self.get_object()
-        required_types = RECOMMENDED_DOC_TYPES_BY_GRADE.get(student.grade, [])
+        required_types = get_required_document_types(student.grade)  # ✅ BUG FIX: cumulative, not exact-grade-only
         docs_by_type = {}
         for doc in student.documents.all():
             # a type can have multiple rows historically; keep the most
@@ -1405,7 +1441,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         sent, skipped_no_email, still_missing_but_not_sent = [], [], []
 
         for student in queryset:
-            required_types = RECOMMENDED_DOC_TYPES_BY_GRADE.get(student.grade, [])
+            required_types = get_required_document_types(student.grade)  # ✅ BUG FIX: cumulative, not exact-grade-only
             uploaded_types = set(student.documents.values_list('document_type', flat=True))
             incomplete = (not student.photo) or any(t not in uploaded_types for t in required_types)
             if not incomplete:
