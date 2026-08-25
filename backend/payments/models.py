@@ -197,6 +197,23 @@ class Payment(models.Model):
         help_text="Public token for the receipt page — generated only after payment is verified."
     )
 
+    # ✅ NEW: developer usage fee (requested) — a small per-payment amount
+    # (e.g. 5 ETB on a monthly fee, 2 ETB on a registration fee) owed to
+    # the PLATFORM DEVELOPER, not Chapa and not the school's own money.
+    # This is NEVER moved automatically — no parent, Chapa, or bank
+    # transfer touches this field. It's purely a running tally: schools
+    # see what they owe and pay the developer directly, the same safe
+    # way as the annual license fee. See PlatformFeeSettings (current
+    # rate) and PlatformFeeSettlement (recording when a school actually
+    # pays) below. Snapshotted once, in save() below, at the moment a
+    # payment first becomes 'verified' — using whatever rate was active
+    # THEN, so a later rate change never silently rewrites what a school
+    # already owes for past payments.
+    platform_fee_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Developer usage fee owed for this payment, snapshotted at verification time. Null = not yet computed (payment isn't verified) or fees weren't configured yet."
+    )
+
     class Meta:
         ordering = ['-created_at']
         indexes = [
@@ -209,6 +226,31 @@ class Payment(models.Model):
 
     def __str__(self):
         return f"{self.student.student_id} - {self.amount} Birr"
+
+    def save(self, *args, **kwargs):
+        """
+        ✅ NEW: snapshots the developer usage fee the FIRST time this
+        payment becomes 'verified' — regardless of which of the several
+        code paths verified it (Chapa webhook, manual admin verification,
+        bank-slip verification, etc.), since all of them ultimately call
+        Payment.save(). Only ever set once (platform_fee_amount stays
+        None until then, and is never recomputed after) — so changing
+        PlatformFeeSettings' rate later only affects future payments,
+        never rewrites what a school already owes for past ones.
+        """
+        if self.status == 'verified' and self.platform_fee_amount is None:
+            try:
+                settings_row = PlatformFeeSettings.get_current()
+                if self.deadline_id and self.deadline.deadline_type == 'registration':
+                    self.platform_fee_amount = settings_row.registration_payment_fee
+                else:
+                    self.platform_fee_amount = settings_row.monthly_payment_fee
+            except Exception:
+                # Never let a fee-calculation problem block an actual
+                # payment from saving — worst case, this stays null and
+                # is simply excluded from the developer-fee totals.
+                pass
+        super().save(*args, **kwargs)
 
     def generate_invoice_number(self):
         """
@@ -710,3 +752,72 @@ class PaymentLinkToken(models.Model):
 
     def __str__(self):
         return f"Token for {self.payment.student.full_name} - {self.payment.amount} ETB"
+
+# ========== Platform Developer Usage Fee ==========
+# ✅ NEW (requested): a small per-payment fee owed to the platform
+# developer, separate from anything Chapa or the school ever handles.
+# Deliberately built as a "system calculates, school pays developer
+# directly, manually" model — see Payment.platform_fee_amount and
+# PlatformFeeSettlement below for why: no money is ever moved
+# automatically between a parent, Chapa, and the developer.
+class PlatformFeeSettings(models.Model):
+    """
+    Singleton (always exactly one row) holding the CURRENT developer
+    usage fee rates. Editable only by the platform owner (super admin).
+    Changing these only affects payments verified AFTER the change —
+    see Payment.save() above, which snapshots the rate in effect at the
+    moment each payment is verified and never recomputes it later. This
+    is deliberate: hosting/Cloudinary costs may rise over time (noted
+    by the developer), and this lets the rate be adjusted for the
+    future without silently changing what a school already owes for
+    past months.
+    """
+    monthly_payment_fee = models.DecimalField(
+        max_digits=6, decimal_places=2, default=5.00,
+        help_text="Developer usage fee (ETB) charged per verified MONTHLY tuition payment."
+    )
+    registration_payment_fee = models.DecimalField(
+        max_digits=6, decimal_places=2, default=2.00,
+        help_text="Developer usage fee (ETB) charged per verified REGISTRATION (one-time) payment."
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        'auth.User', on_delete=models.SET_NULL, null=True, blank=True,
+        help_text="Which super admin last changed these rates."
+    )
+
+    @classmethod
+    def get_current(cls):
+        """Returns the single settings row, creating it with the
+        default rates (5 ETB / 2 ETB) the first time it's ever needed."""
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def save(self, *args, **kwargs):
+        self.pk = 1  # enforce singleton
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Platform fees: {self.monthly_payment_fee} ETB/monthly, {self.registration_payment_fee} ETB/registration"
+
+
+class PlatformFeeSettlement(models.Model):
+    """
+    A record of a school actually paying the developer their accrued
+    usage fees — entered manually by the super admin once the money has
+    genuinely arrived (bank transfer, cash, however the school chooses
+    to pay). This is bookkeeping only; creating a row here does not
+    move any money anywhere. A school's outstanding balance is always:
+        sum(their verified payments' platform_fee_amount) - sum(their settlements)
+    """
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='fee_settlements')
+    amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
+    note = models.CharField(max_length=255, blank=True, help_text="e.g. 'Bank transfer, CBE, 12 Sep 2026'")
+    recorded_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.school.name} paid {self.amount} ETB on {self.created_at.date()}"

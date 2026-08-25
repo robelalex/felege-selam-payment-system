@@ -185,6 +185,17 @@ class School(models.Model):
     subscription_active = models.BooleanField(default=True)
     subscription_expiry = models.DateField(null=True, blank=True)
 
+    # Optional: per-school admin IP allowlist. Disabled by default.
+    admin_ip_restriction_enabled = models.BooleanField(
+        default=False,
+        help_text="If True, only IPs in admin_allowed_ip_list may access school admin logins",
+    )
+    admin_allowed_ip_list = models.JSONField(
+        blank=True,
+        default=list,
+        help_text="List of allowed IP strings for school admin/staff logins when the restriction is enabled",
+    )
+
     # ✅ NEW — Platform billing enforcement. Matches the Service Agreement:
     # a school is only ever locked out of the SCHOOL-ADMIN/STAFF/TEACHER
     # side of the platform (not deleted, not touched for parents) — and

@@ -265,11 +265,25 @@ class StudentViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     def perform_create(self, serializer):
-        """✅ Automatically set school from X-School-ID header when creating a student"""
-        school_id = self.request.headers.get('X-School-ID')
+        """
+        ✅ SECURITY FIX (tenant isolation): this used to trust the raw
+        X-School-ID header directly, with NO check that it matched the
+        authenticated user's own school. Any school_admin/staff account
+        anywhere on the platform could send a DIFFERENT school's ID and
+        have a student record silently created under that other school —
+        a real cross-tenant write, not just a read. Now uses
+        get_verified_school_id(), the same helper get_queryset() already
+        uses below: for a normal school_admin/staff user this is always
+        resolved from THEIR OWN profile and the header is ignored
+        entirely — they cannot override which school they're creating
+        into, no matter what they send. A super admin (who legitimately
+        manages multiple schools) is the only case where the header is
+        still honored, exactly as with every other view in this file.
+        """
+        school_id = get_verified_school_id(self.request)
 
         if not school_id:
-            raise serializers.ValidationError({"error": "School ID required (X-School-ID header)"})
+            raise serializers.ValidationError({"error": "Could not determine your school. If you manage multiple schools, set X-School-ID; otherwise contact support."})
 
         try:
             school = School.objects.get(id=int(school_id))
@@ -1586,9 +1600,18 @@ class SectionViewSet(viewsets.ModelViewSet):
         return queryset.order_by('grade', 'name')
 
     def perform_create(self, serializer):
-        school_id = self.request.headers.get('X-School-ID')
+        """
+        ✅ SECURITY FIX (tenant isolation) — same issue and same fix as
+        StudentViewSet.perform_create above: was trusting the raw
+        X-School-ID header with no check against the authenticated
+        user's actual school, allowing a cross-tenant write (a section
+        created under a different school than the one the acting admin
+        actually belongs to). Now resolved via get_verified_school_id(),
+        which ignores the header entirely for non-super-admins.
+        """
+        school_id = get_verified_school_id(self.request)
         if not school_id:
-            raise serializers.ValidationError({"error": "School ID required (X-School-ID header)"})
+            raise serializers.ValidationError({"error": "Could not determine your school. If you manage multiple schools, set X-School-ID; otherwise contact support."})
         try:
             school = School.objects.get(id=int(school_id))
             serializer.save(school=school)

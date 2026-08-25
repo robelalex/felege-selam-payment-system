@@ -54,12 +54,25 @@ class AuditLogListView(generics.ListAPIView):
 
 
 class SchoolFilteredViewSet(viewsets.ModelViewSet):
-    """Base ViewSet that automatically filters by school from header"""
-    
+    """
+    ⚠️ NOT CURRENTLY USED ANYWHERE — confirmed nothing in the codebase
+    inherits from this class. Left in place only because deleting a
+    class that something might reference elsewhere is riskier than
+    fixing it. Fixed anyway rather than just left alone, because this
+    was a live landmine: it filtered strictly by the raw, client-sent
+    X-School-ID header with NO check against the authenticated user's
+    own school — so any future view that inherited from this (an easy,
+    natural-looking thing to do) would have silently reintroduced a
+    cross-tenant READ vulnerability (any authenticated user could read
+    any school's data just by setting the header). Now uses
+    get_verified_school_id(), same as every other ViewSet in this
+    codebase — safe to inherit from if it's ever used.
+    """
+
     def get_queryset(self):
         queryset = super().get_queryset()
-        school_id = self.request.headers.get('X-School-ID')
-        
+        school_id = get_verified_school_id(self.request)
+
         if school_id:
             try:
                 # Filter by school_id field (works for Student, PaymentDeadline, etc.)

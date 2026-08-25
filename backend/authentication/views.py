@@ -10,6 +10,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenRefreshView
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.hashers import make_password, check_password
@@ -268,6 +269,33 @@ def admin_login_step1(request):
                 ),
                 'subscription_suspended': True,
             }, status=402)  # 402 Payment Required
+
+        # ✅ SECURITY FEATURE (requested): optional per-school IP
+        # allowlist for the office-staff/school-admin login. OFF by
+        # default — only enforced once a school explicitly turns it on
+        # in School Settings. Deliberately NEVER applied to teachers
+        # (checked by actual StaffMember.role, not just which portal
+        # URL was used, so a teacher is exempt even if they happen to
+        # log in through the general admin login page) — and super
+        # admins are already fully exempt via the outer `profile_role
+        # != 'super_admin'` check above, so a locked-out school can
+        # always be reached and fixed.
+        if school and school.admin_ip_restriction_enabled:
+            staff_profile = getattr(user, 'staff_profile', None)
+            is_teacher = bool(staff_profile and staff_profile.role == 'teacher')
+            if not is_teacher:
+                from common.utils import get_client_ip
+                client_ip = get_client_ip(request)
+                allowed_ips = school.admin_allowed_ip_list
+                if not allowed_ips or client_ip not in allowed_ips:
+                    return Response({
+                        'error': (
+                            "This account can only log in from your school's "
+                            "registered network. If you're at the school and "
+                            "still seeing this, contact your platform "
+                            "administrator to update the allowed network."
+                        ),
+                    }, status=403)
     
     # ✅ GENERATE REAL OTP
     otp_code = generate_secure_otp()
@@ -1182,3 +1210,56 @@ def delete_staff(request, user_id):
     except Exception as e:
         print(f"Error in delete_staff: {e}")
         return Response({'error': str(e)}, status=500)
+
+# ===== SUSPENSION-AWARE TOKEN REFRESH =====
+class SuspensionAwareTokenRefreshView(TokenRefreshView):
+    """
+    ✅ SECURITY / BUSINESS-RULE FIX: enforces the 7-day subscription
+    grace period (School.is_access_suspended) on every token refresh,
+    not just at initial OTP login.
+
+    Without this, the check in admin_login_step2 only ever ran once, at
+    login. A refresh token is valid for 7 days (SIMPLE_JWT setting) and
+    the frontend silently refreshes the access token every ~8 hours in
+    the background — so a school whose grace period expired WHILE a
+    staff member was already logged in could keep working, undetected,
+    for up to 7 more days past the cutoff, purely because nothing ever
+    re-checked suspension after the initial login. This closes that
+    gap: the next silent refresh after a school becomes suspended is
+    rejected, which forces the frontend back to a real login screen —
+    and that screen re-runs the normal, existing suspension check.
+
+    Deliberately excludes 'super_admin' (always exempt, same as
+    everywhere else) and 'parent' (parents use a separate login/token
+    flow entirely, but excluded here too as a second layer, since this
+    view sits on the one shared /api/token/refresh/ endpoint) — only
+    school_admin and staff (which covers teachers, registrars, etc.)
+    are ever affected by this check.
+    """
+    def post(self, request, *args, **kwargs):
+        refresh_token = request.data.get('refresh')
+        if refresh_token:
+            try:
+                token = RefreshToken(refresh_token)
+                user_id = token.get('user_id')
+                if user_id:
+                    user = User.objects.filter(id=user_id).select_related('profile').first()
+                    profile = getattr(user, 'profile', None) if user else None
+                    if profile and profile.role not in ('super_admin', 'parent') and profile.school_id:
+                        from schools.models import School
+                        school = School.objects.filter(id=profile.school_id).first()
+                        if school and school.is_access_suspended:
+                            return Response({
+                                'error': (
+                                    "This school's SchoolPay Ethiopia subscription is not active. "
+                                    "Please contact SchoolPay Ethiopia to reactivate access. "
+                                    "Student and payment records are safe and have not been affected."
+                                ),
+                                'subscription_suspended': True,
+                            }, status=402)
+            except Exception:
+                # Malformed/already-invalid token — let the parent
+                # class's normal validation handle and report that
+                # properly, rather than masking it with a different error.
+                pass
+        return super().post(request, *args, **kwargs)

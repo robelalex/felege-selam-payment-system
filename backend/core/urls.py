@@ -22,6 +22,11 @@ from schools.platform_admin_views import (
 from reports.views import dashboard_stats as reports_dashboard_stats, pending_payments_report
 from authentication.views import change_password
 from authentication import views as auth_views
+from authentication.views import SuspensionAwareTokenRefreshView
+from payments.views.platform_fee_views import (
+    developer_fees_overview, developer_fee_rates, record_fee_settlement,
+    school_fee_settlements, my_school_fee_summary,
+)
 from rest_framework_simplejwt.views import TokenRefreshView
 from academics.views import AcademicYearViewSet, SubjectViewSet, HomeroomAssignmentViewSet
 from exams.views import (
@@ -75,7 +80,14 @@ urlpatterns = [
     path('api/', include('payments.urls')),
     path('api/users/me/', CurrentUserView.as_view(), name='current_user'),
     path('api/me/', auth_views.get_current_user, name='current-user'),
-    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/token/refresh/', SuspensionAwareTokenRefreshView.as_view(), name='token_refresh'),
+
+    # ✅ NEW: developer usage fee endpoints (requested)
+    path('api/platform/developer-fees/', developer_fees_overview, name='developer-fees-overview'),
+    path('api/platform/developer-fees/rates/', developer_fee_rates, name='developer-fee-rates'),
+    path('api/platform/developer-fees/settle/', record_fee_settlement, name='developer-fee-settle'),
+    path('api/platform/developer-fees/<int:school_id>/settlements/', school_fee_settlements, name='developer-fee-settlements'),
+    path('api/developer-fee-summary/', my_school_fee_summary, name='my-developer-fee-summary'),
 
     # Payment endpoints
     path('api/payments-filtered/', payments_filtered_by_year, name='payments-filtered'),

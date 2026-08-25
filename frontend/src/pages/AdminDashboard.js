@@ -29,6 +29,54 @@ import { useYear } from '../context/YearContext';
 
 const ALL_GRADES = Array.from({ length: 12 }, (_, i) => i + 1); // 1-12
 
+// ✅ NEW: small, self-contained card showing the school's own running
+// developer usage fee balance (5 ETB/monthly payment, 2 ETB/registration
+// payment, both set by the platform — see School Settings for nothing,
+// this is intentionally NOT school-editable). Fetches its own data
+// independently of the rest of the dashboard so a slow/failed fetch
+// here never blocks anything else. Transparent by design — the whole
+// point of this feature working safely is that the school can always
+// see exactly what they owe, since they pay it manually, directly.
+function DeveloperFeeCard() {
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const meRes = await api.get('/me/');
+        const me = meRes.data || {};
+        const role = me.profile?.role;
+        const schoolId = me.profile?.school_id;
+        if (role === 'super_admin' || !schoolId) {
+          if (!cancelled) setLoading(false);
+          return;
+        }
+        const res = await api.get('/developer-fee-summary/');
+        if (!cancelled) setSummary(res.data);
+      } catch (err) {
+        // silently hide the card on error — non-critical
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading || !summary || Number(summary.balance_owed) <= 0) return null;
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center justify-between text-sm">
+      <span className="text-amber-800">
+        Platform usage fee outstanding: <strong>{summary.balance_owed} ETB</strong>
+        <span className="text-amber-600"> (based on payments processed through this system)</span>
+      </span>
+    </div>
+  );
+}
+
 function AdminDashboard() {
   const [selectedGrade, setSelectedGrade] = useState(null);
   const [levelFilter, setLevelFilter] = useState('all'); // 'all' | 'elementary' | 'high_school'
@@ -386,6 +434,7 @@ function AdminDashboard() {
 
   return (
     <div className="space-y-6 md:space-y-8 pb-20 md:pb-0">
+      <DeveloperFeeCard />
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
