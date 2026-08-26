@@ -267,6 +267,19 @@ if not DEBUG:
     SECURE_PROXY_SSL_HEADER      = ('HTTP_X_FORWARDED_PROTO', 'https')
     USE_X_FORWARDED_HOST         = True
 
+    # ✅ SECURITY FIX: SECURE_SSL_REDIRECT alone only redirects HTTP->HTTPS
+    # AFTER a plain HTTP request has already reached the server once — a
+    # network attacker positioned in between (e.g. on public wifi) can
+    # still intercept that very first request before the redirect happens.
+    # HSTS tells the BROWSER itself to never even attempt plain HTTP for
+    # this domain again, for as long as the max-age below, closing that
+    # gap for every subsequent visit. 31536000 seconds = 1 year, the
+    # standard recommended value.
+    SECURE_HSTS_SECONDS          = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD          = True
+
+
 
 # ===== CHAPA =====
 CHAPA_SECRET_KEY = os.getenv('CHAPA_SECRET_KEY', '')

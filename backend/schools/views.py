@@ -4,10 +4,12 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 from django.core.exceptions import ObjectDoesNotExist
 from .models import School, SchoolAdminProfile, SchoolBankAccount
 from .serializers import SchoolSerializer, BankAccountSerializer
 from .utils import get_school_for_user
+from .security import require_school_admin, generate_reauth_token, verify_reauth_token
 
 # Import the SMS service
 from payments.services.multi_school_sms_service import MultiSchoolSMSService
@@ -71,6 +73,34 @@ class SchoolViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         return super().create(request, *args, **kwargs)
+
+    # ✅ SECURITY FIX: update/partial_update had no role check at all — any
+    # authenticated staff member of a school (a teacher, a registrar...)
+    # could PATCH their own school's row directly, including
+    # admin_ip_restriction_enabled, admin_allowed_ip_list, bank details,
+    # and branding. get_queryset()/check_object_permissions() above only
+    # ever checked "does this user belong to this school", never "is this
+    # user actually the school's admin". Only school_admin/super_admin may
+    # write here now; every other role gets a clear 403 instead of a
+    # silent write.
+    def update(self, request, *args, **kwargs):
+        if not (request.user.is_staff or request.user.is_superuser):
+            from common.utils import get_effective_role
+            if get_effective_role(request.user) != 'school_admin':
+                return Response(
+                    {'detail': 'Only a school admin can change school settings.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        # ✅ Must set partial=True ourselves — we're overriding update()
+        # directly rather than relying on DRF's own partial_update, so we
+        # need to reproduce that flag or every PATCH (used everywhere in
+        # the frontend, e.g. saving just the logo or just grading_system)
+        # would suddenly require every required field to be present too.
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
 
     def perform_update(self, serializer):
         # ✅ Item 7 — School.term_structure ('semester' vs 'quarter')
@@ -201,11 +231,17 @@ def fix_missing_profiles(request):
 # ========== SMS CONFIGURATION VIEWS ==========
 
 class SchoolSMSConfigView(APIView):
-    """View for schools to update their SMSEthiopia credentials"""
+    """View for schools to update their SMSEthiopia credentials.
+
+    ✅ SECURITY FIX: previously reachable (read AND write) by any
+    authenticated staff member of the school — now school_admin/
+    super_admin only (require_school_admin).
+    """
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
         """Get current SMS configuration for the school"""
+        require_school_admin(request)
         try:
             school = get_school_for_user(request)
         except ObjectDoesNotExist as e:
@@ -232,6 +268,7 @@ class SchoolSMSConfigView(APIView):
     
     def post(self, request):
         """Save SMS credentials"""
+        require_school_admin(request)
         try:
             school = get_school_for_user(request)
         except ObjectDoesNotExist as e:
@@ -263,10 +300,14 @@ class SchoolSMSConfigView(APIView):
 
 
 class SchoolSMSTestView(APIView):
-    """Test school's Afro Message credentials"""
+    """Test school's Afro Message credentials.
+
+    ✅ SECURITY FIX: role-gated to school_admin/super_admin.
+    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        require_school_admin(request)
         from django.utils import timezone
 
         try:
@@ -309,7 +350,17 @@ class SchoolSMSTestView(APIView):
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def verify_et_settings(request):
-    """Get or update Verify.ET settings for the school"""
+    """Get or update Verify.ET settings for the school.
+
+    ✅ SECURITY FIX (two separate bugs):
+    1. This had no role check — any authenticated staff member of the
+       school could reach it, not just school_admin/super_admin.
+    2. The GET response returned the REAL, unmasked verify_et_api_key
+       in plaintext (every other credential view in this file already
+       masks its key as '********' — this one didn't). Now masked the
+       same way as chapa_api_key/brevo_api_key/at_api_key.
+    """
+    require_school_admin(request)
     try:
         # Get the school first
         school = get_school_for_user(request)
@@ -322,7 +373,7 @@ def verify_et_settings(request):
         
         if request.method == 'GET':
             return Response({
-                'verify_et_api_key': school.verify_et_api_key or '',
+                'verify_et_api_key': '********' if school.verify_et_api_key else '',
                 'verify_et_enabled': school.verify_et_enabled,
                 'cbe_account_number': school.cbe_account_number or '',
                 'cbe_account_suffix': school.cbe_account_suffix or '',
@@ -348,8 +399,17 @@ def verify_et_settings(request):
                 if not account_suffix.isdigit():
                     return Response({'error': 'Account suffix must contain only numbers'}, status=400)
             
-            # Direct assignment and save
-            school.verify_et_api_key = api_key
+            # ✅ SECURITY FIX FOLLOW-UP: GET now returns '********' instead of
+            # the real key (see fix above). That means if the admin saves
+            # this form WITHOUT retyping the key (e.g. only changing
+            # cbe_account_suffix), the frontend round-trips the masked
+            # placeholder right back here. Without this check, that would
+            # silently overwrite the real, working key with the literal
+            # string "********" and quietly break Verify.ET. Same pattern
+            # already used by chapa_api_key/brevo_api_key/at_api_key above —
+            # only overwrite when a real new value was actually submitted.
+            if api_key and api_key != '********':
+                school.verify_et_api_key = api_key
             school.verify_et_enabled = enabled
             school.cbe_account_number = account_number
             school.cbe_account_suffix = account_suffix
@@ -386,7 +446,11 @@ def verify_et_settings(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def test_verify_et_connection(request):
-    """Test Verify.ET API connection with current settings"""
+    """Test Verify.ET API connection with current settings.
+
+    ✅ SECURITY FIX: role-gated to school_admin/super_admin.
+    """
+    require_school_admin(request)
     import requests
     from django.utils import timezone
     import time
@@ -482,12 +546,73 @@ def test_verify_et_connection(request):
 
     # ========== CHAPA CONFIGURATION VIEWS ==========
 
-class SchoolChapaConfigView(APIView):
-    """View for schools to update their Chapa credentials"""
+class ChapaReauthView(APIView):
+    """
+    ✅ NEW: step-up password re-confirmation, required before viewing or
+    editing the school's real Chapa credentials — see SchoolChapaConfigView
+    below. Being logged in is not enough here: the caller must correctly
+    re-type their OWN account password to get a short-lived (5 minute)
+    token. This exists specifically so that someone else sitting down at
+    an admin's already-unlocked, already-logged-in computer cannot open
+    Chapa Settings and see or change the payment gateway key just because
+    the admin forgot to lock their screen.
+
+    POST /api/schools/chapa/reauth/  { "password": "..." }
+    -> { "reauth_token": "...", "expires_in": 300 }
+    """
     permission_classes = [IsAuthenticated]
-    
+    throttle_scope = 'login'
+
+    def get_throttles(self):
+        from rest_framework.throttling import ScopedRateThrottle
+        return [ScopedRateThrottle()]
+
+    def post(self, request):
+        require_school_admin(request)
+
+        password = request.data.get('password', '')
+        if not password:
+            return Response({'error': 'Password is required.'}, status=400)
+
+        # ✅ Uses Django's own password hasher via check_password — never
+        # compares plaintext, and this never touches/returns the user's
+        # actual password anywhere.
+        if not request.user.check_password(password):
+            return Response({'error': 'Incorrect password.'}, status=401)
+
+        token = generate_reauth_token(request.user)
+        from .security import REAUTH_MAX_AGE_SECONDS
+        return Response({'reauth_token': token, 'expires_in': REAUTH_MAX_AGE_SECONDS})
+
+
+class SchoolChapaConfigView(APIView):
+    """View for schools to update their Chapa credentials.
+
+    ✅ SECURITY FIX: previously reachable by ANY authenticated staff member
+    of the school (a teacher, a registrar...) — now requires school_admin/
+    super_admin (require_school_admin) AND a fresh password re-confirmation
+    (X-Reauth-Token header, see ChapaReauthView above). A logged-in admin
+    session alone is no longer enough to see or change this school's real
+    Chapa payment gateway credentials.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def _check_reauth(self, request):
+        token = request.headers.get('X-Reauth-Token', '')
+        if not verify_reauth_token(token, request.user):
+            return Response(
+                {'error': 'reauth_required', 'message': 'Please re-enter your password to continue.'},
+                status=401,
+            )
+        return None
+
     def get(self, request):
         """Get current Chapa configuration for the school"""
+        require_school_admin(request)
+        reauth_error = self._check_reauth(request)
+        if reauth_error:
+            return reauth_error
+
         try:
             school = get_school_for_user(request)
         except ObjectDoesNotExist as e:
@@ -505,6 +630,11 @@ class SchoolChapaConfigView(APIView):
     
     def post(self, request):
         """Save Chapa credentials"""
+        require_school_admin(request)
+        reauth_error = self._check_reauth(request)
+        if reauth_error:
+            return reauth_error
+
         try:
             school = get_school_for_user(request)
         except ObjectDoesNotExist as e:
@@ -530,10 +660,19 @@ class SchoolChapaConfigView(APIView):
 
 
 class SchoolChapaTestView(APIView):
-    """Test school's Chapa credentials"""
+    """Test school's Chapa credentials.
+
+    ✅ SECURITY FIX: role-gated to school_admin/super_admin, same as
+    SchoolChapaConfigView above. Deliberately does NOT require the
+    password re-auth token — this action only re-tests credentials that
+    are already saved (masked from the caller either way) and doesn't
+    reveal or change the key itself, so the extra step-up isn't needed
+    here.
+    """
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
+        require_school_admin(request)
         import requests
         from django.utils import timezone
         
@@ -598,11 +737,17 @@ class SchoolChapaTestView(APIView):
 # ========== EMAIL CONFIGURATION VIEWS (BREVO) ==========
 
 class SchoolEmailConfigView(APIView):
-    """View for schools to update their Brevo email credentials"""
+    """View for schools to update their Brevo email credentials.
+
+    ✅ SECURITY FIX: previously reachable (read AND write) by any
+    authenticated staff member of the school — now school_admin/
+    super_admin only (require_school_admin).
+    """
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
         """Get current email configuration for the school"""
+        require_school_admin(request)
         try:
             school = get_school_for_user(request)
         except ObjectDoesNotExist as e:
@@ -624,6 +769,7 @@ class SchoolEmailConfigView(APIView):
     
     def post(self, request):
         """Save email credentials"""
+        require_school_admin(request)
         try:
             school = get_school_for_user(request)
         except ObjectDoesNotExist as e:
@@ -652,10 +798,14 @@ class SchoolEmailConfigView(APIView):
 
 
 class SchoolEmailTestView(APIView):
-    """Test school's Brevo email credentials"""
+    """Test school's Brevo email credentials.
+
+    ✅ SECURITY FIX: role-gated to school_admin/super_admin.
+    """
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
+        require_school_admin(request)
         from django.utils import timezone
         
         try:
@@ -700,6 +850,13 @@ class BankAccountViewSet(viewsets.ModelViewSet):
     any school's accounts using X-School-ID header.
     Parents read their school's active accounts via the list action —
     that's how the app shows "pay into this account" options.
+
+    ✅ SECURITY FIX: create/update/destroy previously had NO role check —
+    any authenticated staff member of the school (a teacher, a
+    registrar...) could add a new bank account and mark it primary,
+    silently redirecting where parents are told to send bank transfers.
+    Only school_admin/super_admin may write now; the read path for
+    everyone else is unchanged (active accounts only, as before).
     """
     permission_classes = [IsAuthenticated]
 
@@ -719,7 +876,13 @@ class BankAccountViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         return BankAccountSerializer
 
+    def _require_admin_write(self):
+        from common.utils import get_effective_role
+        if get_effective_role(self.request.user) not in ('super_admin', 'school_admin'):
+            raise PermissionDenied("Only a school admin can manage bank accounts.")
+
     def perform_create(self, serializer):
+        self._require_admin_write()
         from common.utils import get_verified_school_id
         school_id = get_verified_school_id(self.request)
         from .models import School
@@ -730,9 +893,14 @@ class BankAccountViewSet(viewsets.ModelViewSet):
         serializer.save(school=school)
 
     def perform_update(self, serializer):
+        self._require_admin_write()
         if serializer.validated_data.get('is_primary'):
             school = serializer.instance.school
             SchoolBankAccount.objects.filter(school=school, is_primary=True).exclude(
                 pk=serializer.instance.pk
             ).update(is_primary=False)
         serializer.save()
+
+    def perform_destroy(self, instance):
+        self._require_admin_write()
+        instance.delete()

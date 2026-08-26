@@ -68,6 +68,18 @@ const SchoolSettings = () => {
     });
     const [savingLocation, setSavingLocation] = useState(false);
 
+    // ✅ NEW: Admin login IP restriction. The backend has enforced this
+    // (School.admin_ip_restriction_enabled / admin_allowed_ip_list) for a
+    // while — admin_login_step1 already checks the caller's IP against
+    // this list when enabled — but there was no UI to actually turn it on
+    // or manage the allowed list, so it's effectively always been off.
+    const [ipRestriction, setIpRestriction] = useState({
+        admin_ip_restriction_enabled: false,
+        admin_allowed_ip_list: [],
+    });
+    const [ipListText, setIpListText] = useState('');
+    const [savingIpRestriction, setSavingIpRestriction] = useState(false);
+
     // ✅ NEW: tabbed layout — see PR notes. Purely presentational; no
     // state/handlers above this point were changed. Each tab below
     // renders the exact same JSX/section that used to be stacked
@@ -101,6 +113,15 @@ const SchoolSettings = () => {
                     longitude: school.longitude ?? '',
                     location_public: !!school.location_public,
                 });
+                // ✅ NEW: admin login IP restriction
+                const allowedIps = Array.isArray(school.admin_allowed_ip_list)
+                    ? school.admin_allowed_ip_list
+                    : [];
+                setIpRestriction({
+                    admin_ip_restriction_enabled: !!school.admin_ip_restriction_enabled,
+                    admin_allowed_ip_list: allowedIps,
+                });
+                setIpListText(allowedIps.join('\n'));
             }
         } catch (error) {
             console.error('Error fetching school profile:', error);
@@ -306,6 +327,41 @@ const SchoolSettings = () => {
         }
     };
 
+    // ✅ NEW: save the admin login IP restriction toggle + allowed IP list.
+    // One IP (or CIDR range) per line in the textarea, e.g.:
+    //   197.156.72.10
+    //   197.156.0.0/16
+    const handleIpRestrictionSave = async () => {
+        if (!schoolId) return;
+
+        const parsedIps = ipListText
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0);
+
+        if (ipRestriction.admin_ip_restriction_enabled && parsedIps.length === 0) {
+            alert('Add at least one allowed IP address before turning this on — otherwise no admin (including you) will be able to log in.');
+            return;
+        }
+
+        setSavingIpRestriction(true);
+        try {
+            await api.patch(`/schools/${schoolId}/`, {
+                admin_ip_restriction_enabled: ipRestriction.admin_ip_restriction_enabled,
+                admin_allowed_ip_list: parsedIps,
+            });
+            setIpRestriction((prev) => ({ ...prev, admin_allowed_ip_list: parsedIps }));
+            alert('✅ Admin login IP restriction settings saved!');
+            await fetchSchoolProfile();
+        } catch (error) {
+            console.error('Error saving IP restriction settings:', error);
+            const detail = error.response?.data?.detail || 'Failed to save IP restriction settings';
+            alert(`❌ ${detail}`);
+        } finally {
+            setSavingIpRestriction(false);
+        }
+    };
+
     const fetchAllConfigs = async () => {
         setLoading(true);
         try {
@@ -432,6 +488,7 @@ const SchoolSettings = () => {
         { id: 'sms', label: 'SMS (Afro Message)', icon: '\uD83D\uDCF1' },
         { id: 'email', label: 'Email (Brevo)', icon: '\uD83D\uDCE7' },
         { id: 'bank', label: 'Bank Accounts', icon: '\uD83C\uDFE6' },
+        { id: 'security', label: 'Security', icon: '\uD83D\uDD12' },
     ];
 
     return (
@@ -995,6 +1052,68 @@ const SchoolSettings = () => {
             </div>
 
                 </>
+            )}
+
+            {/* ==================== SECURITY TAB ==================== */}
+            {activeTab === 'security' && (
+                <div className="bg-white shadow rounded-lg overflow-hidden p-6 mt-6 space-y-6">
+                    <div>
+                        <h2 className="text-lg font-semibold mb-1">Admin Login IP Restriction</h2>
+                        <p className="text-sm text-gray-500 mb-4">
+                            When turned on, admin/staff accounts for this school can only log in
+                            from the IP addresses (or ranges) you list below. Logins from any
+                            other network are blocked, even with the correct password.
+                        </p>
+
+                        <label className="flex items-center gap-3 mb-4 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                className="h-5 w-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                                checked={ipRestriction.admin_ip_restriction_enabled}
+                                onChange={(e) =>
+                                    setIpRestriction((prev) => ({
+                                        ...prev,
+                                        admin_ip_restriction_enabled: e.target.checked,
+                                    }))
+                                }
+                            />
+                            <span className="text-sm font-medium text-gray-800">
+                                Restrict admin logins to specific IP addresses
+                            </span>
+                        </label>
+
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Allowed IP addresses / ranges (one per line)
+                        </label>
+                        <textarea
+                            rows={5}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 font-mono text-sm"
+                            placeholder={'197.156.72.10\n197.156.0.0/16'}
+                            value={ipListText}
+                            onChange={(e) => setIpListText(e.target.value)}
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                            Ask whoever manages your office/school internet connection for its
+                            public IP address, or search "what is my IP" from that network.
+                        </p>
+
+                        {ipRestriction.admin_ip_restriction_enabled && (
+                            <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                                ⚠️ Double-check your own current IP is in the list above before
+                                saving — if it isn't, you (and every other admin) will be locked
+                                out of the admin login immediately.
+                            </div>
+                        )}
+
+                        <button
+                            onClick={handleIpRestrictionSave}
+                            disabled={savingIpRestriction}
+                            className="mt-4 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+                        >
+                            {savingIpRestriction ? 'Saving...' : 'Save IP Restriction Settings'}
+                        </button>
+                    </div>
+                </div>
             )}
 
             </div>

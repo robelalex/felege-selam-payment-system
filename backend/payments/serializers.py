@@ -119,6 +119,27 @@ class PaymentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payment
         fields = '__all__'
+        # ✅ SECURITY FIX (defense in depth): this ViewSet is already gated
+        # to CanManagePayments (school_admin/super_admin/accountant), and
+        # the frontend never actually writes through this generic
+        # create/update endpoint — payments are created via dedicated,
+        # carefully-checked flows (Chapa initiate+webhook, bank-slip
+        # verification, the bulk_* actions). But `fields = '__all__'` with
+        # no read_only_fields meant a plain PATCH here — from any future
+        # code path, or directly via curl by anyone who does hold
+        # CanManagePayments — could freely rewrite ANY field, including
+        # setting status='verified' or changing `amount` on an existing
+        # payment with no server-side check at all. Locking these down
+        # means that even if the permission gate above is ever loosened,
+        # this serializer can no longer be used to fabricate or alter a
+        # payment's outcome.
+        read_only_fields = [
+            'status', 'verified_by', 'verified_at', 'invoice_number',
+            'receipt_token', 'webhook_received', 'webhook_received_at',
+            'chapa_reference', 'is_from_slip', 'previous_tx_refs',
+            'platform_fee_amount', 'is_archived', 'archived_at',
+            'created_at', 'updated_at',
+        ]
 
     def get_deadline_type(self, obj):
         try:

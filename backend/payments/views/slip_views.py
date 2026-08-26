@@ -345,6 +345,23 @@ def verify_slip(request, slip_id):
         action = request.data.get('action')
 
         if action == 'verify':
+            # ✅ SECURITY / MONEY-SAFETY: same "one real transfer replayed
+            # across different students" risk as the automated Verify.ET
+            # path (see process_verify_et_response) can apply here too, if
+            # a staff member manually verifies a slip without noticing the
+            # reference already funded someone else's payment. This is a
+            # human decision (manual override), so we don't block it
+            # outright — a school legitimately splitting one bulk transfer
+            # across siblings is a real, valid case — but we surface a
+            # clear warning in the response so the reviewing staff member
+            # sees it and can make an informed call.
+            reference_reused_elsewhere = False
+            ref_for_check = (slip.transaction_reference or '').strip()
+            if ref_for_check:
+                reference_reused_elsewhere = Payment.objects.filter(
+                    transaction_reference=ref_for_check, status='verified'
+                ).exclude(student=slip.student, deadline=slip.deadline).exists()
+
             slip.status = 'verified'
             slip.verified_by = request.user
             slip.verified_at = timezone.now()
@@ -377,6 +394,17 @@ def verify_slip(request, slip_id):
                     slip=slip,
                     verified_at=timezone.now(),
                 )
+
+            if reference_reused_elsewhere:
+                return Response({
+                    'success': True,
+                    'status': slip.status,
+                    'warning': (
+                        f"This transaction reference ({ref_for_check}) was already used "
+                        f"to verify a payment for a different student/deadline. Please "
+                        f"double-check this wasn't verified in error."
+                    ),
+                })
 
         elif action == 'reject':
             reason = request.data.get('reason', 'Rejected by admin')
@@ -834,7 +862,28 @@ def process_verify_et_response(slip, data, clean_ref):
         slip.verify_et_response_raw = data
         slip.verify_et_checked_at = timezone.now()
 
-        if amount_matches:
+        # ✅ SECURITY / MONEY-SAFETY FIX: a single real bank transfer produces
+        # ONE reference number that Verify.ET will happily confirm as valid
+        # every time it's queried — nothing before this stopped that same
+        # reference (with the same declared amount) from being submitted
+        # for a DIFFERENT student/deadline and getting independently
+        # credited each time. The only existing check was scoped to
+        # "this student + this deadline", which only prevented double-
+        # crediting the SAME student twice — it did nothing to stop the
+        # reference being replayed across different students. Check across
+        # ALL verified payments, not just this student's, before crediting.
+        reference_reused_elsewhere = Payment.objects.filter(
+            transaction_reference=clean_ref, status='verified'
+        ).exclude(student=slip.student, deadline=slip.deadline).exists()
+
+        if amount_matches and reference_reused_elsewhere:
+            slip.verification_status = 'manual_review'
+            slip.verification_error = (
+                f'This transaction reference ({clean_ref}) has already been used '
+                f'to verify a payment for a different student/deadline. '
+                f'A staff member must review this manually before it can be verified.'
+            )
+        elif amount_matches:
             slip.verification_status = 'verified'
             slip.status = 'verified'
             slip.verified_at_system = timezone.now()
@@ -868,10 +917,17 @@ def process_verify_et_response(slip, data, clean_ref):
                     verified_at=timezone.now(),
                 )
 
+        if slip.verification_status == 'verified':
+            response_message = '✅ Payment VERIFIED by CBE!'
+        elif reference_reused_elsewhere:
+            response_message = '⚠️ This reference number was already used for another payment - needs manual review'
+        else:
+            response_message = '⚠️ Amount mismatch - needs review'
+
         return Response({
             'success': True,
             'verified': slip.verification_status == 'verified',
-            'message': '✅ Payment VERIFIED by CBE!' if slip.verification_status == 'verified' else '⚠️ Amount mismatch - needs review',
+            'message': response_message,
             'details': {
                 'payer_name': payer_name,
                 'amount': str(bank_amount),

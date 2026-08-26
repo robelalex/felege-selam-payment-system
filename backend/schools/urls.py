@@ -12,7 +12,8 @@ from .views import (
     verify_et_settings,           
     test_verify_et_connection,
     SchoolChapaConfigView,
-    SchoolChapaTestView
+    SchoolChapaTestView,
+    ChapaReauthView,
 )
 
 router = DefaultRouter()
@@ -40,6 +41,9 @@ urlpatterns = [
     # ✅ Chapa endpoints
     path('schools/chapa-config/', SchoolChapaConfigView.as_view(), name='school-chapa-config'),
     path('schools/chapa-test/', SchoolChapaTestView.as_view(), name='school-chapa-test'),
+    # ✅ NEW: password re-confirmation required before chapa-config above
+    # will respond — see ChapaReauthView / SchoolChapaConfigView.
+    path('schools/chapa/reauth/', ChapaReauthView.as_view(), name='school-chapa-reauth'),
 
     # ✅ NEW: Email config paths (MUST come before router.urls)
     path('schools/email-config/', SchoolEmailConfigView.as_view(), name='school-email-config'),

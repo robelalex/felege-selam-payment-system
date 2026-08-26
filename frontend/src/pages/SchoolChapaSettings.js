@@ -1,8 +1,81 @@
 import React, { useState, useEffect } from 'react';
-import { CreditCard, Key, CheckCircle, XCircle, Loader, Save, RefreshCw, AlertTriangle } from 'lucide-react';
+import { CreditCard, Key, CheckCircle, XCircle, Loader, Save, RefreshCw, AlertTriangle, Lock } from 'lucide-react';
 import api from '../services/api';
 
+// ✅ NEW: password re-confirmation gate for the Chapa credentials page.
+//
+// Being logged in as a school_admin is not enough to reach this page —
+// the admin must re-type their OWN account password every single time
+// they navigate here. This is deliberately NOT remembered across page
+// visits (no localStorage/sessionStorage, nothing persisted) — it lives
+// only in this component's memory, so it resets the moment you leave the
+// page. That's exactly the point: if an admin steps away from an
+// unlocked, already-logged-in computer, anyone who clicks into "Chapa
+// Settings" after them still has to type the admin's actual password
+// before seeing or changing anything.
+function ChapaPasswordGate({ onUnlocked }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [checking, setChecking] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!password) return;
+    setChecking(true);
+    setError('');
+    try {
+      const response = await api.post('/schools/chapa/reauth/', { password });
+      onUnlocked(response.data.reauth_token);
+    } catch (err) {
+      if (err.response?.status === 429) {
+        setError('Too many attempts. Please wait a while before trying again.');
+      } else {
+        setError(err.response?.data?.error || 'Incorrect password.');
+      }
+    } finally {
+      setChecking(false);
+      setPassword('');
+    }
+  };
+
+  return (
+    <div className="max-w-md mx-auto mt-16 p-6">
+      <div className="bg-white rounded-xl shadow-lg p-6 text-center">
+        <div className="mx-auto w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center mb-4">
+          <Lock className="h-6 w-6 text-purple-600" />
+        </div>
+        <h1 className="text-lg font-bold text-gray-900 mb-1">Re-enter your password</h1>
+        <p className="text-sm text-gray-500 mb-5">
+          For your school's security, please confirm your password to view or change Chapa payment credentials.
+        </p>
+        <form onSubmit={handleSubmit} className="text-left space-y-3">
+          <input
+            type="password"
+            autoFocus
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Your account password"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+          />
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <button
+            type="submit"
+            disabled={checking || !password}
+            className="w-full px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {checking ? <Loader className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+            Continue
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function SchoolChapaSettings() {
+  // reauthToken === null  -> password gate not yet passed, show the gate
+  // reauthToken === '...' -> gate passed for this page visit
+  const [reauthToken, setReauthToken] = useState(null);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -11,13 +84,18 @@ function SchoolChapaSettings() {
   const [message, setMessage] = useState('');
 
   useEffect(() => {
-    fetchConfig();
-  }, []);
+    if (reauthToken) {
+      fetchConfig(reauthToken);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reauthToken]);
 
-  const fetchConfig = async () => {
+  const fetchConfig = async (token) => {
     setLoading(true);
     try {
-      const response = await api.get('/schools/chapa-config/');
+      const response = await api.get('/schools/chapa-config/', {
+        headers: { 'X-Reauth-Token': token },
+      });
       setStatus(response.data);
       if (response.data.chapa_test_status === 'success') {
         setMessage('✅ Chapa is configured and working!');
@@ -28,7 +106,14 @@ function SchoolChapaSettings() {
       }
     } catch (err) {
       console.error('Error fetching config:', err);
-      setMessage('❌ Could not load Chapa configuration. Please try again.');
+      // ✅ The re-auth token is only valid for 5 minutes. If it expired
+      // between unlocking the page and this request, send them back to
+      // the password gate instead of showing a confusing generic error.
+      if (err.response?.data?.error === 'reauth_required') {
+        setReauthToken(null);
+      } else {
+        setMessage('❌ Could not load Chapa configuration. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -47,13 +132,25 @@ function SchoolChapaSettings() {
     
     setSaving(true);
     try {
-      await api.post('/schools/chapa-config/', { chapa_api_key: apiKey });
+      await api.post(
+        '/schools/chapa-config/',
+        { chapa_api_key: apiKey },
+        { headers: { 'X-Reauth-Token': reauthToken } }
+      );
       setMessage('⏳ Credentials saved. Click "Test Credentials" to verify.');
       setStatus({ ...status, chapa_enabled: false, chapa_test_status: 'pending' });
       alert('Credentials saved successfully! Please test them.');
     } catch (err) {
       console.error('Save error:', err);
-      alert('Failed to save credentials. Please try again.');
+      // ✅ Same 5-minute-expiry handling as fetchConfig above — don't let
+      // a stale token show a generic "failed to save" when what actually
+      // happened is the re-auth window simply ran out.
+      if (err.response?.data?.error === 'reauth_required') {
+        setReauthToken(null);
+        alert('Your session for this page expired for security. Please re-enter your password and try again.');
+      } else {
+        alert('Failed to save credentials. Please try again.');
+      }
     } finally {
       setSaving(false);
     }
@@ -82,6 +179,12 @@ function SchoolChapaSettings() {
       setTesting(false);
     }
   };
+
+  // ✅ Password gate comes before anything else on this page — nothing
+  // about Chapa configuration is fetched or rendered until this passes.
+  if (!reauthToken) {
+    return <ChapaPasswordGate onUnlocked={(token) => setReauthToken(token)} />;
+  }
 
   if (loading) {
     return (

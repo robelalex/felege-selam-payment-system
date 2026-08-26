@@ -179,7 +179,39 @@ def get_client_ip(request):
     """Get client IP address from request"""
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
     if x_forwarded_for:
-        ip = x_forwarded_for.split(',')[0]
+        ip = x_forwarded_for.split(',')[0].strip()
     else:
         ip = request.META.get('REMOTE_ADDR')
     return ip
+
+
+def is_ip_allowed(client_ip, allowed_entries):
+    """
+    True if `client_ip` matches any entry in `allowed_entries`. Each entry
+    may be a single IP ("197.156.72.10") or a CIDR range
+    ("197.156.0.0/16") — School Settings' IP-restriction UI accepts both.
+    Malformed entries (typos, blank lines) are skipped rather than raising,
+    so one bad line in the list can't take down every other valid entry.
+    """
+    import ipaddress
+
+    if not client_ip:
+        return False
+    try:
+        client = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return False
+
+    for entry in (allowed_entries or []):
+        entry = (entry or '').strip()
+        if not entry:
+            continue
+        try:
+            if '/' in entry:
+                if client in ipaddress.ip_network(entry, strict=False):
+                    return True
+            elif client == ipaddress.ip_address(entry):
+                return True
+        except ValueError:
+            continue  # skip malformed entries, don't let them block valid ones
+    return False

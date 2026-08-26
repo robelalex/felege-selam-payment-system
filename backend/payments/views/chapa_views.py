@@ -331,7 +331,52 @@ def chapa_webhook(request):
         payment.webhook_received_at = timezone.now()
         payment.chapa_reference     = data.get('ref_id', '')
 
+        # ✅ SECURITY / MONEY-SAFETY FIX: previously this trusted
+        # data.get('status') == 'success' straight from the webhook BODY.
+        # The HMAC signature check above proves the request came from
+        # someone who knows the school's webhook secret — it does NOT by
+        # itself prove the underlying transaction actually succeeded for
+        # the claimed amount (and chapa_webhook_secret silently falls back
+        # to chapa_api_key when a school hasn't set a dedicated webhook
+        # secret, which is a slightly more sensitive key to lean on this
+        # way). Before crediting any money, independently ask Chapa's own
+        # verify endpoint — using the school's secret key server-to-server,
+        # never trusting the webhook payload's claims — whether this
+        # tx_ref really did succeed, and confirm the amount matches what
+        # this Payment row actually expects. This mirrors the same
+        # amount-check already done correctly for bank-slip verification
+        # (see process_verify_et_response in slip_views.py).
         if data.get('status') == 'success':
+            from ..services.school_chapa_service import SchoolChapaService
+            verify_result = SchoolChapaService(school.id).verify_payment(tx_ref)
+
+            # SchoolChapaService.verify_payment() returns status/amount at
+            # the top level of its own result dict (not nested under
+            # data.data) — see payments/services/school_chapa_service.py.
+            verified_status = verify_result.get('status')
+            verified_amount = verify_result.get('amount')
+
+            amount_ok = False
+            if verified_amount is not None:
+                try:
+                    amount_ok = abs(float(verified_amount) - float(payment.amount)) <= 1.0
+                except (TypeError, ValueError):
+                    amount_ok = False
+
+            if not (verify_result.get('success') and verified_status == 'success' and amount_ok):
+                logger.error(
+                    f"❌ Webhook claimed success but independent Chapa verify "
+                    f"did not confirm it for tx_ref={tx_ref} "
+                    f"(verify_success={verify_result.get('success')}, "
+                    f"status={verified_status}, chapa_amount={verified_amount}, "
+                    f"expected_amount={payment.amount}). Payment NOT marked verified."
+                )
+                payment.save()
+                return JsonResponse(
+                    {'status': 'verification_mismatch', 'message': 'Could not independently confirm this payment with Chapa.'},
+                    status=409,
+                )
+
             payment.status      = 'verified'
             payment.verified_at = timezone.now()
 

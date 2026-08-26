@@ -285,9 +285,16 @@ def admin_login_step1(request):
             is_teacher = bool(staff_profile and staff_profile.role == 'teacher')
             if not is_teacher:
                 from common.utils import get_client_ip
+                from common.utils import is_ip_allowed
                 client_ip = get_client_ip(request)
                 allowed_ips = school.admin_allowed_ip_list
-                if not allowed_ips or client_ip not in allowed_ips:
+                # ✅ FIX: this used to be a bare `client_ip not in allowed_ips`
+                # — an exact string match only. The School Settings UI lets an
+                # admin enter a CIDR range (e.g. "197.156.0.0/16") for offices
+                # with more than one public IP, but that entry would NEVER
+                # match anything here, silently locking out the whole office.
+                # is_ip_allowed() understands both single IPs and CIDR ranges.
+                if not allowed_ips or not is_ip_allowed(client_ip, allowed_ips):
                     return Response({
                         'error': (
                             "This account can only log in from your school's "
