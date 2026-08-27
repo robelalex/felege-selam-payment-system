@@ -305,6 +305,12 @@ FIELD_ENCRYPTION_KEY = os.getenv('FIELD_ENCRYPTION_KEY', '')
 # isn't configured yet.
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
 
+# Re-authentication token lifetime (seconds). Default 5 minutes (300).
+# Set this in the environment to increase how long the X-Reauth-Token
+# remains valid. Making this very large weakens the purpose of step-up
+# authentication and should be considered carefully.
+REAUTH_MAX_AGE_SECONDS = int(os.getenv('REAUTH_MAX_AGE_SECONDS', 5 * 60))
+
 
 # ===== EMAIL CONFIGURATION =====
 

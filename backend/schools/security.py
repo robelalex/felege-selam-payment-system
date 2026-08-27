@@ -23,7 +23,12 @@ from rest_framework.exceptions import PermissionDenied
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from django.conf import settings
 
-REAUTH_MAX_AGE_SECONDS = 5 * 60  # must re-enter password again after 5 minutes
+# Default: 5 minutes. Make this configurable via the environment/Settings
+# by setting `REAUTH_MAX_AGE_SECONDS` in Django settings or via
+# environment variable (see core/settings.py). Increasing this makes the
+# reauth token live longer; setting it very large effectively makes it
+# permanent for practical use (not recommended for security reasons).
+REAUTH_MAX_AGE_SECONDS = getattr(settings, 'REAUTH_MAX_AGE_SECONDS', 5 * 60)
 
 
 def require_school_admin(request):
