@@ -25,7 +25,7 @@ from authentication import views as auth_views
 from authentication.views import SuspensionAwareTokenRefreshView
 from payments.views.platform_fee_views import (
     developer_fees_overview, developer_fee_rates, record_fee_settlement,
-    school_fee_settlements, my_school_fee_summary,
+    school_fee_settlements, my_school_fee_summary, my_school_chapa_balance,
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 from academics.views import AcademicYearViewSet, SubjectViewSet, HomeroomAssignmentViewSet
@@ -88,6 +88,7 @@ urlpatterns = [
     path('api/platform/developer-fees/settle/', record_fee_settlement, name='developer-fee-settle'),
     path('api/platform/developer-fees/<int:school_id>/settlements/', school_fee_settlements, name='developer-fee-settlements'),
     path('api/developer-fee-summary/', my_school_fee_summary, name='my-developer-fee-summary'),
+    path('api/my-school-chapa-balance/', my_school_chapa_balance, name='my-school-chapa-balance'),
 
     # Payment endpoints
     path('api/payments-filtered/', payments_filtered_by_year, name='payments-filtered'),

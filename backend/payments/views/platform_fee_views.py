@@ -12,7 +12,8 @@
 # school has actually paid - see Payment.platform_fee_amount and
 # PlatformFeeSettlement in payments/models.py for the full reasoning.
 from decimal import Decimal
-from django.db.models import Sum
+from django.db.models import Sum, Count
+from django.db.models.functions import TruncMonth
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
@@ -20,6 +21,7 @@ from schools.models import School
 from schools.approval_views import IsPlatformOwner
 from common.utils import get_verified_school_id, is_super_admin
 from ..models import Payment, PlatformFeeSettings, PlatformFeeSettlement
+from ..services.school_chapa_service import SchoolChapaService
 
 
 def _school_fee_summary(school):
@@ -157,6 +159,10 @@ def my_school_fee_summary(request):
     scoped to their OWN school via get_verified_school_id(), same as
     every other view in this codebase; the header cannot be used to
     view another school's balance.
+
+    ✅ NEW: also includes a month-by-month breakdown (monthly-fee count
+    vs registration-fee count vs total) so the school admin can see
+    exactly how the total was built up, not just one opaque number.
     """
     if is_super_admin(request.user):
         return Response({'error': 'Super admins should use the platform overview endpoint instead.'}, status=400)
@@ -167,4 +173,54 @@ def my_school_fee_summary(request):
         school = School.objects.get(id=school_id)
     except School.DoesNotExist:
         return Response({'error': 'School not found'}, status=404)
-    return Response(_school_fee_summary(school))
+
+    summary = _school_fee_summary(school)
+
+    breakdown_qs = (
+        Payment.objects.filter(
+            student__school=school, status='verified', is_archived=False,
+            platform_fee_amount__isnull=False,
+        )
+        .annotate(month=TruncMonth('verified_at'))
+        .values('month', 'deadline__deadline_type')
+        .annotate(count=Count('id'), total=Sum('platform_fee_amount'))
+        .order_by('-month')
+    )
+
+    monthly = {}
+    for row in breakdown_qs:
+        key = row['month'].strftime('%Y-%m') if row['month'] else 'unknown'
+        entry = monthly.setdefault(key, {
+            'month': key, 'monthly_count': 0, 'monthly_total': Decimal('0'),
+            'registration_count': 0, 'registration_total': Decimal('0'),
+        })
+        if row['deadline__deadline_type'] == 'registration':
+            entry['registration_count'] += row['count']
+            entry['registration_total'] += row['total'] or Decimal('0')
+        else:
+            entry['monthly_count'] += row['count']
+            entry['monthly_total'] += row['total'] or Decimal('0')
+
+    summary['breakdown'] = sorted(monthly.values(), key=lambda r: r['month'], reverse=True)
+    return Response(summary)
+
+
+@api_view(['GET'])
+def my_school_chapa_balance(request):
+    """
+    ✅ NEW (requested): the school's own current Chapa account balance,
+    read live from Chapa using the school's own credentials. Purely
+    informational — nothing here can move money. Scoped to the
+    requesting admin's own school the same safe way as every other
+    view; a school admin can never see another school's balance.
+    """
+    if is_super_admin(request.user):
+        return Response({'error': 'Super admins do not have a single Chapa balance — each school has their own.'}, status=400)
+    school_id = get_verified_school_id(request)
+    if not school_id:
+        return Response({'error': 'Could not determine your school.'}, status=400)
+    try:
+        service = SchoolChapaService(school_id)
+    except Exception as e:
+        return Response({'success': False, 'error': str(e)}, status=400)
+    return Response(service.get_balance())

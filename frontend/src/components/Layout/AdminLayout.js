@@ -27,7 +27,8 @@ import {
   Trophy,
   FileText,
   Users as UsersIcon,
-  DollarSign
+  DollarSign,
+  Wallet
 } from 'lucide-react';
 import api from '../../services/api';
 import { getMediaUrl } from '../../utils/imageUrl';
@@ -269,6 +270,7 @@ const getLogoUrl = () => {
     { path: '/admin/reminders', label: t('nav_reminders'), icon: Bell },
     { path: '/admin-dashboard/payment-history', label: t('nav_payment_history'), icon: Archive },
     { path: '/admin/chapa-settings', label: t('nav_chapa_payment'), icon: CreditCard, badge: <ChapaStatusBadge /> },
+    { path: '/admin/account-summary', label: 'Account & Fees', icon: Wallet },
     { path: '/school-settings', label: t('nav_school_settings'), icon: Settings },
   ];
 
@@ -305,6 +307,7 @@ const getLogoUrl = () => {
         { path: '/admin/registration-fees', label: t('nav_registration_fees'), icon: DollarSign },
         { path: '/admin-dashboard/payment-history', label: t('nav_payment_history'), icon: Archive },
         { path: '/admin/chapa-settings', label: t('nav_chapa_payment'), icon: CreditCard, badge: <ChapaStatusBadge /> },
+        { path: '/admin/account-summary', label: 'Account & Fees', icon: Wallet },
       ],
     },
     {

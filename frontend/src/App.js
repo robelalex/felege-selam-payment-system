@@ -52,6 +52,7 @@ import PaymentManagerDashboard from './pages/PaymentManagerDashboard';
 import ReportingDashboard from './pages/ReportingDashboard';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import AdminPaymentHistory from './pages/AdminPaymentHistory';
+import AdminAccountSummary from './pages/AdminAccountSummary';
 import SchoolSettings from './pages/SchoolSettings';
 import BankSlips from './pages/BankSlips';
 import VerifyETSettings from './pages/VerifyETSettings';
@@ -495,7 +496,22 @@ function App() {
               {/* Keep for backward compatibility */}
               <Route path="/parent/select-student" element={<SelectStudent />} />
               <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-              <Route path="/admin-dashboard/payment-history" element={<AdminPaymentHistory />} />
+              <Route
+                path="/admin-dashboard/payment-history"
+                element={
+                  <AdminLayout>
+                    <AdminPaymentHistory />
+                  </AdminLayout>
+                }
+              />
+              <Route
+                path="/admin/account-summary"
+                element={
+                  <AdminLayout>
+                    <AdminAccountSummary />
+                  </AdminLayout>
+                }
+              />
               <Route path="/school/verify-et-settings" element={<VerifyETSettings />} />
               <Route path="/receipt/:token" element={<ReceiptPage />} />
               

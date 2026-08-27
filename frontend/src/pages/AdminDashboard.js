@@ -37,7 +37,17 @@ const ALL_GRADES = Array.from({ length: 12 }, (_, i) => i + 1); // 1-12
 // here never blocks anything else. Transparent by design — the whole
 // point of this feature working safely is that the school can always
 // see exactly what they owe, since they pay it manually, directly.
-function DeveloperFeeCard() {
+// ✅ UPDATED: this used to be a silent card that only appeared when a
+// balance was owed — which is exactly why it looked "not available" on
+// the school admin dashboard whenever the balance happened to be zero
+// (including right after this feature was first deployed, before any
+// new payments had been verified). Replaced with a slim, ALWAYS-VISIBLE
+// banner that links to the new dedicated "Account & Fees" page (see
+// AdminAccountSummary.js) — which has the full breakdown, the school's
+// Chapa balance, and the "this is an announcement, not an automatic
+// deduction" explanation. This banner is just a discoverable pointer to
+// that page, not the full picture itself.
+function DeveloperFeeBanner() {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -56,7 +66,7 @@ function DeveloperFeeCard() {
         const res = await api.get('/developer-fee-summary/');
         if (!cancelled) setSummary(res.data);
       } catch (err) {
-        // silently hide the card on error — non-critical
+        // silently hide the banner on error — non-critical
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -65,15 +75,30 @@ function DeveloperFeeCard() {
     return () => { cancelled = true; };
   }, []);
 
-  if (loading || !summary || Number(summary.balance_owed) <= 0) return null;
+  if (loading || !summary) return null;
+
+  const owed = Number(summary.balance_owed || 0);
 
   return (
-    <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-center justify-between text-sm">
-      <span className="text-amber-800">
-        Platform usage fee outstanding: <strong>{summary.balance_owed} ETB</strong>
-        <span className="text-amber-600"> (based on payments processed through this system)</span>
+    <Link
+      to="/admin/account-summary"
+      className={`block rounded-lg px-4 py-3 flex items-center justify-between text-sm transition-colors ${
+        owed > 0
+          ? 'bg-amber-50 border border-amber-200 hover:bg-amber-100'
+          : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
+      }`}
+    >
+      <span className={owed > 0 ? 'text-amber-800' : 'text-gray-600'}>
+        {owed > 0 ? (
+          <>Developer usage fee outstanding: <strong>{owed.toLocaleString()} ETB</strong></>
+        ) : (
+          <>Developer usage fee: nothing currently outstanding</>
+        )}
       </span>
-    </div>
+      <span className={`flex items-center gap-1 font-medium ${owed > 0 ? 'text-amber-700' : 'text-gray-500'}`}>
+        View details <ArrowRight className="h-3.5 w-3.5" />
+      </span>
+    </Link>
   );
 }
 
@@ -434,7 +459,7 @@ function AdminDashboard() {
 
   return (
     <div className="space-y-6 md:space-y-8 pb-20 md:pb-0">
-      <DeveloperFeeCard />
+      <DeveloperFeeBanner />
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

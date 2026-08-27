@@ -294,6 +294,61 @@ class SchoolChapaService:
                 'error': str(e)
             }
     
+    def get_balance(self):
+        """
+        ✅ NEW (requested): the school's current Chapa account balance,
+        using Chapa's own Balance API (GET /v1/balances) with THIS
+        school's own secret key — so this only ever returns that
+        school's own money, never another school's or the platform's.
+
+        Read-only. Nothing here moves, holds, or touches any money —
+        it's the same kind of check you'd do logging into Chapa's own
+        dashboard yourself, just surfaced inside the admin's own
+        interface for convenience.
+        """
+        if not self.api_key:
+            return {
+                'success': False,
+                'error': f'Chapa not configured for school: {self.school.name}'
+            }
+
+        try:
+            response = requests.get(
+                f"{self.base_url}/balances",
+                headers=self._get_headers(),
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('status') == 'success':
+                    balances = result.get('data', [])
+                    # Prefer ETB if present, otherwise return whatever
+                    # currencies Chapa reports for this account.
+                    etb_balance = next((b for b in balances if b.get('currency', '').upper() == 'ETB'), None)
+                    return {
+                        'success': True,
+                        'etb_balance': etb_balance,
+                        'all_balances': balances,
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'error': result.get('message', 'Failed to get balance')
+                    }
+            else:
+                return {
+                    'success': False,
+                    'error': f'Chapa API error: {response.status_code}'
+                }
+
+        except Exception as e:
+            logger.error(f"Chapa get balance error for school {self.school.name}: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
     def test_credentials(self):
         """
         Test if Chapa credentials are valid by getting banks list

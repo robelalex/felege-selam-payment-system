@@ -174,8 +174,14 @@ function AdminPaymentHistory() {
       {/* Header with Back Button */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
+          {/* ✅ FIX: was hardcoded to navigate('/admin/payments') always,
+              regardless of where the admin actually came from — clicking
+              in from Reports, the Dashboard, or anywhere else still
+              dumped them onto the generic Payments list. navigate(-1)
+              returns to whatever page was actually open before, like
+              every other "Back" button in the app. */}
           <button
-            onClick={() => navigate('/admin/payments')}
+            onClick={() => navigate(-1)}
             className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition-colors flex items-center gap-2 tap-target"
           >
             <ArrowLeft className="h-4 w-4" />
