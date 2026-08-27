@@ -585,6 +585,35 @@ class ChapaReauthView(APIView):
         return Response({'reauth_token': token, 'expires_in': REAUTH_MAX_AGE_SECONDS})
 
 
+class SchoolChapaStatusView(APIView):
+    """
+    ✅ NEW: lightweight, secret-free "is Chapa configured?" check used by
+    (1) the sidebar warning badge (ChapaWarningContext.js) and dashboard
+    banner on every admin page, and (2) the PARENT dashboard, which uses
+    this exact same boolean to decide whether to show a working "Pay Now"
+    button at all. Deliberately NOT gated by require_school_admin like
+    SchoolChapaConfigView: a parent is never a school_admin, so gating
+    this to admins only would mean every parent's status check fails and
+    online payments silently look "unavailable" for every parent
+    regardless of whether Chapa is actually configured. It's also
+    deliberately NOT gated by the password re-auth token — this returns
+    no secret (no key, no masked key, no test-status detail), just a
+    boolean, so there's nothing here worth re-authenticating over.
+    Scoping is still safe: get_school_for_user() below always resolves
+    to the CALLER's own school from their own profile (admin or parent),
+    never a school they pick — so a parent or admin can only ever see
+    their own school's status, never another school's.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            school = get_school_for_user(request)
+        except ObjectDoesNotExist:
+            return Response({'chapa_enabled': False})
+        return Response({'chapa_enabled': bool(school.chapa_enabled and school.chapa_api_key)})
+
+
 class SchoolChapaConfigView(APIView):
     """View for schools to update their Chapa credentials.
 

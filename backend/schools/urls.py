@@ -13,6 +13,7 @@ from .views import (
     test_verify_et_connection,
     SchoolChapaConfigView,
     SchoolChapaTestView,
+    SchoolChapaStatusView,
     ChapaReauthView,
 )
 
@@ -41,6 +42,9 @@ urlpatterns = [
     # ✅ Chapa endpoints
     path('schools/chapa-config/', SchoolChapaConfigView.as_view(), name='school-chapa-config'),
     path('schools/chapa-test/', SchoolChapaTestView.as_view(), name='school-chapa-test'),
+    # ✅ NEW: secret-free status check for the sidebar badge — see
+    # SchoolChapaStatusView docstring. Does NOT require the reauth token.
+    path('schools/chapa-status/', SchoolChapaStatusView.as_view(), name='school-chapa-status'),
     # ✅ NEW: password re-confirmation required before chapa-config above
     # will respond — see ChapaReauthView / SchoolChapaConfigView.
     path('schools/chapa/reauth/', ChapaReauthView.as_view(), name='school-chapa-reauth'),

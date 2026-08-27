@@ -21,9 +21,17 @@ export const ChapaWarningProvider = ({ children }) => {
   useEffect(() => {
     const checkChapaStatus = async () => {
       try {
-        const response = await api.get('/schools/chapa-config/');
-        const configured = response.data.chapa_enabled && !!response.data.chapa_api_key;
-        setChapaConfigured(configured);
+        // ✅ FIX: this background badge check used to hit
+        // /schools/chapa-config/ — the same endpoint the real Chapa
+        // Settings page uses, which now requires a fresh password
+        // re-auth token. This check runs on every admin page load and
+        // never has that token (nor should it, just to draw a badge),
+        // so it always got a 401 and the badge permanently showed
+        // "Not Configured" even when Chapa was working fine. This uses
+        // a separate, secret-free status endpoint that isn't gated by
+        // re-auth.
+        const response = await api.get('/schools/chapa-status/');
+        setChapaConfigured(!!response.data.chapa_enabled);
       } catch (e) {
         setChapaConfigured(false);
       } finally {

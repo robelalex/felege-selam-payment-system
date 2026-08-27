@@ -107,7 +107,17 @@ function ParentDashboard() {
   const checkChapaStatus = async () => {
     setLoadingChapa(true);
     try {
-      const response = await api.get('/schools/chapa-config/');
+      // ✅ CRITICAL FIX: this used to call /schools/chapa-config/, which
+      // requires the caller to be a school_admin (require_school_admin).
+      // A parent is never a school_admin, so this call has been failing
+      // with a 403 for every parent, every time — and because the catch
+      // block below sets chapaConfigured to false, "Pay Now" has been
+      // showing as unavailable to EVERY parent regardless of whether the
+      // school's Chapa credentials are actually configured and working.
+      // /schools/chapa-status/ is the secret-free status endpoint that
+      // works for both admins and parents, scoped to the caller's own
+      // school either way.
+      const response = await api.get('/schools/chapa-status/');
       setChapaConfigured(response.data.chapa_enabled);
     } catch (err) {
       console.error('Error checking Chapa status:', err);

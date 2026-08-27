@@ -193,7 +193,13 @@ function AdminDashboard() {
 
   const checkChapaStatus = useCallback(async () => {
     try {
-      const response = await api.get('/schools/chapa-config/');
+      // ✅ FIX: was hitting /schools/chapa-config/, which now requires a
+      // fresh password re-auth token (see SchoolChapaSettings.js). This
+      // dashboard banner has no such token and shouldn't need one just
+      // to show a status pill, so it always failed and either showed
+      // stale state or nothing. /schools/chapa-status/ is a secret-free
+      // read that isn't gated by re-auth.
+      const response = await api.get('/schools/chapa-status/');
       setChapaStatus(response.data);
     } catch (err) {
       console.error('Error checking Chapa status:', err);
