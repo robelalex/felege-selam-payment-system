@@ -1,5 +1,5 @@
 # students/views.py - COMPLETE UPDATED with multi-school support + grades 1-12 + sections
-from django.http import HttpResponse
+from django.http import HttpResponse, Http404
 from .services.bulk_import import BulkImportService
 import json
 from rest_framework import viewsets, status, serializers
@@ -203,12 +203,43 @@ class StudentViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(school_id=school_id)
 
         # Filter by academic year
+        # ✅ BUG FIX: this year filter is only meaningful for the STUDENT
+        # LIST page ("show me this school's students for 2018 E.C."). It
+        # was being applied unconditionally, which meant every
+        # single-student-by-ID action (retrieve, pending_slips,
+        # child_record, payment_history, pending_payments,
+        # registration_status, parent uploads) ALSO got filtered by an
+        # academic_year string match that has nothing to do with "does
+        # this ID exist and does this caller have permission to see it."
+        # If a student's stored `academic_year` text doesn't match the
+        # AcademicYear row's name byte-for-byte (a trailing space, "2018"
+        # vs "2018 E.C.", etc — see the DEBUG logging above, which exists
+        # because this has bitten this exact field before), the student
+        # silently disappears from the queryset and a perfectly valid,
+        # permitted lookup 404s. Worse, pending_slips/child_record wrap
+        # get_object() in a bare except Exception, which turns that same
+        # 404 into a misleading 500. Concretely: this is why
+        # GET /api/students/64/ 404'd and
+        # GET /api/students/64/pending_slips/ 500'd in production while
+        # working locally — the two databases have slightly different
+        # academic_year text for that student, not different code.
+        # Detail-by-ID actions identify their target by pk already, so
+        # they skip this filter entirely; only list-style actions
+        # (default DRF `list`, bulk exports, etc.) need it.
+        DETAIL_ACTIONS_SKIP_YEAR_FILTER = {
+            'retrieve', 'pending_slips', 'child_record', 'payment_history',
+            'pending_payments', 'registration_status',
+            'parent_upload_photo', 'parent_upload_document',
+            'upload_document', 'delete_document', 'review_document',
+        }
+        skip_year_filter = getattr(self, 'action', None) in DETAIL_ACTIONS_SKIP_YEAR_FILTER
+
         year_id = self.request.query_params.get('academic_year_id')
         year_param = self.request.query_params.get('academic_year')
         year_alt = self.request.query_params.get('year')
         year_id_alt = self.request.query_params.get('year_id')
 
-        year_value = year_id or year_id_alt or year_alt or year_param
+        year_value = None if skip_year_filter else (year_id or year_id_alt or year_alt or year_param)
 
         # 🔎 DIAGNOSTIC: show exactly what academic_year strings actually
         # exist on this school's students BEFORE we filter by year, so a
@@ -734,7 +765,6 @@ class StudentViewSet(viewsets.ModelViewSet):
         try:
             student = self.get_object()
             print(f"📋 Getting pending slips for student: {student.student_id}")
-
             # ✅ FIXED: Filter by verification_status instead of legacy status
             # Async workflow sets verification_status='queued' immediately on upload
             pending_slips = PaymentSlip.objects.filter(
@@ -763,6 +793,10 @@ class StudentViewSet(viewsets.ModelViewSet):
             print(f"📋 Found {len(data)} pending slips for student {student.student_id}")
             return Response(data)
 
+        except Http404:
+            # ✅ FIX: a genuinely missing/not-yours student should stay a
+            # 404, not get relabeled as a 500 by the catch-all below.
+            raise
         except Exception as e:
             print(f"❌ Error in pending_slips: {str(e)}")
             import traceback
@@ -910,6 +944,10 @@ class StudentViewSet(viewsets.ModelViewSet):
                 'marks': {'terms': terms_sorted},
             })
 
+        except Http404:
+            # ✅ FIX: same reasoning as pending_slips above — a real 404
+            # (student not found / not yours) shouldn't be relabeled 500.
+            raise
         except Exception as e:
             print(f"❌ Error in child_record: {str(e)}")
             import traceback
