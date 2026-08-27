@@ -95,11 +95,31 @@ function AdminAccountSummary() {
               </div>
             </div>
           ) : (
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-bold text-gray-900">
-                {fmt(balance.etb_balance?.available_balance ?? balance.all_balances?.[0]?.available_balance)}
-              </span>
-              <span className="text-gray-500 font-medium">ETB available</span>
+            <div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-bold text-gray-900">
+                  {fmt(balance.etb_balance?.available_balance ?? balance.all_balances?.[0]?.available_balance)}
+                </span>
+                <span className="text-gray-500 font-medium">ETB available</span>
+              </div>
+              {/* ✅ NEW: show ledger balance alongside available balance.
+                  Chapa's Balance API returns BOTH numbers, and they can
+                  legitimately differ a lot — "ledger" includes funds not
+                  yet settled/withdrawable (and in test mode, Chapa's own
+                  dashboard often shows an inflated demo ledger figure
+                  that has nothing to do with real transactions). Showing
+                  only "available" (0.00 in test mode, since test money
+                  isn't real/withdrawable) with no context looked like a
+                  bug. Displaying both makes it clear which number is
+                  which, and why they can disagree. */}
+              {(balance.etb_balance?.ledger_balance ?? balance.all_balances?.[0]?.ledger_balance) !== undefined && (
+                <p className="text-sm text-gray-400 mt-1">
+                  Ledger balance (incl. unsettled funds): {fmt(balance.etb_balance?.ledger_balance ?? balance.all_balances?.[0]?.ledger_balance)} ETB
+                </p>
+              )}
+              <p className="text-xs text-gray-400 mt-2">
+                "Available" is real, withdrawable money. In Chapa test mode this is usually 0 — test transactions aren't real funds. Switch to a live API key to see real available balance from real payments.
+              </p>
             </div>
           )}
         </div>

@@ -323,6 +323,13 @@ class SchoolChapaService:
                 result = response.json()
                 if result.get('status') == 'success':
                     balances = result.get('data', [])
+                    # ✅ FIX: Chapa's docs say `data` is an array, but be
+                    # defensive in case a single-currency account ever
+                    # returns a bare object instead of a one-item array —
+                    # normalize to a list either way so the code below
+                    # never crashes on .get() calls.
+                    if isinstance(balances, dict):
+                        balances = [balances]
                     # Prefer ETB if present, otherwise return whatever
                     # currencies Chapa reports for this account.
                     etb_balance = next((b for b in balances if b.get('currency', '').upper() == 'ETB'), None)
