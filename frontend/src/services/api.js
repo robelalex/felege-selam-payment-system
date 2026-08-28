@@ -130,21 +130,37 @@ api.interceptors.request.use(
     }
 
     // ✅ Add school ID header
-    const savedSchool = localStorage.getItem('selectedSchool');
-    console.log('📤 INTERCEPTOR - savedSchool from localStorage:', savedSchool);
-    if (savedSchool) {
-      try {
-        const school = JSON.parse(savedSchool);
-        console.log('📤 INTERCEPTOR - Parsed school object:', school);
-        if (school && school.id) {
-          config.headers['X-School-ID'] = school.id;
-          console.log('📤 INTERCEPTOR - Added X-School-ID header:', school.id);
+    // ✅ BUG FIX: this used to unconditionally overwrite X-School-ID with
+    // whatever's in localStorage.selectedSchool (the ADMIN panel's
+    // currently-selected school) on EVERY request — including calls like
+    // the parent portal's Chapa payment initiation, which explicitly sets
+    // its own correct X-School-ID (the student's actual school) in that
+    // call's own config. Because this ran AFTER that, it silently
+    // clobbered the correct value with a stale admin-session school.
+    // Concretely: an admin who tested the system, then opened the parent
+    // portal in another tab on the same browser, got "Student does not
+    // belong to your school" — the payment call was sent with the
+    // admin's last-viewed school, not the student's real one. Now this
+    // only fills in the header when the caller hasn't already set one.
+    if (!config.headers['X-School-ID']) {
+      const savedSchool = localStorage.getItem('selectedSchool');
+      console.log('📤 INTERCEPTOR - savedSchool from localStorage:', savedSchool);
+      if (savedSchool) {
+        try {
+          const school = JSON.parse(savedSchool);
+          console.log('📤 INTERCEPTOR - Parsed school object:', school);
+          if (school && school.id) {
+            config.headers['X-School-ID'] = school.id;
+            console.log('📤 INTERCEPTOR - Added X-School-ID header:', school.id);
+          }
+        } catch (e) {
+          console.error('Error parsing saved school:', e);
         }
-      } catch (e) {
-        console.error('Error parsing saved school:', e);
+      } else {
+        console.log('📤 INTERCEPTOR - No saved school found!');
       }
     } else {
-      console.log('📤 INTERCEPTOR - No saved school found!');
+      console.log('📤 INTERCEPTOR - X-School-ID already explicitly set by caller, not overriding:', config.headers['X-School-ID']);
     }
 
     console.log('📤 INTERCEPTOR - Final config.params:', config.params);
