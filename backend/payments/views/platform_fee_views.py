@@ -192,6 +192,18 @@ def my_school_fee_summary(request):
 
     summary = _school_fee_summary(school)
 
+    # ✅ FIXED: the school-admin page was hardcoding "5 ETB / 2 ETB" in
+    # its own JSX instead of reading the real rate, so a super-admin
+    # rate change never showed up here. Send the CURRENT rates down
+    # alongside the summary — same values the super admin's own
+    # overview endpoint already exposes — so the frontend has no
+    # reason to hardcode anything.
+    settings_row = PlatformFeeSettings.get_current()
+    summary['current_rates'] = {
+        'monthly_payment_fee': settings_row.monthly_payment_fee,
+        'registration_payment_fee': settings_row.registration_payment_fee,
+    }
+
     breakdown_qs = (
         Payment.objects.filter(
             student__school=school, status='verified', is_archived=False,

@@ -130,8 +130,13 @@ function AdminAccountSummary() {
         <div className="px-6 py-4 border-b border-gray-100">
           <h2 className="text-base font-semibold text-gray-900">Developer Usage Fee</h2>
           <p className="text-xs text-gray-500 mt-1">
+            {/* ✅ FIXED: was hardcoded "5 ETB / 2 ETB" text — now reads the
+                live rate set by the super admin, so a rate change shows up
+                here automatically instead of silently going stale. */}
             A small amount is tracked for each payment processed through this system:
-            5 ETB per monthly payment, 2 ETB per registration payment.
+            {feeSummary?.current_rates
+              ? ` ${fmt(feeSummary.current_rates.monthly_payment_fee)} ETB per monthly payment, ${fmt(feeSummary.current_rates.registration_payment_fee)} ETB per registration payment.`
+              : ' rate set by the platform.'}
           </p>
         </div>
 
@@ -190,10 +195,16 @@ function AdminAccountSummary() {
                           <tr key={row.month}>
                             <td className="px-6 py-3 font-medium text-gray-800">{row.month}</td>
                             <td className="px-6 py-3 text-gray-600">
-                              {row.monthly_count} x 5 ETB = {fmt(row.monthly_total)} ETB
+                              {/* ✅ FIXED: was hardcoded "x 5 ETB" — that's wrong for any
+                                  month where the rate differs, since past months keep
+                                  whatever rate was active when each payment was verified
+                                  (see Payment.save()). Deriving the per-payment rate from
+                                  the row's own total/count is correct even across a rate
+                                  change, unlike printing the current rate for every row. */}
+                              {row.monthly_count} x {fmt(row.monthly_count ? row.monthly_total / row.monthly_count : (feeSummary.current_rates?.monthly_payment_fee || 0))} ETB = {fmt(row.monthly_total)} ETB
                             </td>
                             <td className="px-6 py-3 text-gray-600">
-                              {row.registration_count} x 2 ETB = {fmt(row.registration_total)} ETB
+                              {row.registration_count} x {fmt(row.registration_count ? row.registration_total / row.registration_count : (feeSummary.current_rates?.registration_payment_fee || 0))} ETB = {fmt(row.registration_total)} ETB
                             </td>
                             <td className="px-6 py-3 text-right font-semibold text-gray-900">{fmt(rowTotal)} ETB</td>
                           </tr>
