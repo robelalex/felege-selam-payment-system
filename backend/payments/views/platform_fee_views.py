@@ -11,7 +11,7 @@
 # calculates totals and lets the super admin log settlements once a
 # school has actually paid - see Payment.platform_fee_amount and
 # PlatformFeeSettlement in payments/models.py for the full reasoning.
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from django.db.models import Sum, Count
 from django.db.models.functions import TruncMonth
 from rest_framework.decorators import api_view, permission_classes
@@ -83,6 +83,22 @@ def developer_fee_rates(request):
     if request.method == 'PATCH':
         monthly = request.data.get('monthly_payment_fee')
         registration = request.data.get('registration_payment_fee')
+        # ✅ Server-side validation — the frontend already checks this,
+        # but this endpoint is reachable directly via the API, and a bad
+        # value here (negative, non-numeric, absurdly large) would
+        # silently corrupt every fee calculation and settlement balance
+        # from that point on. Reject rather than trust the client.
+        for label, value in (('monthly_payment_fee', monthly), ('registration_payment_fee', registration)):
+            if value is None:
+                continue
+            try:
+                parsed = Decimal(str(value))
+            except (InvalidOperation, ValueError, TypeError):
+                return Response({'error': f'{label} must be a number.'}, status=400)
+            if parsed < 0:
+                return Response({'error': f'{label} cannot be negative.'}, status=400)
+            if parsed > Decimal('9999.99'):
+                return Response({'error': f'{label} is unreasonably large — check the value.'}, status=400)
         if monthly is not None:
             settings_row.monthly_payment_fee = monthly
         if registration is not None:

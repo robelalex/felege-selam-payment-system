@@ -12,7 +12,7 @@
 // the school list in SuperAdminSchools.js, admin accounts in
 // SuperAdminUsers.js.
 import React, { useState, useEffect, useCallback } from 'react';
-import { CheckCircle, Building2, Loader, Clock, PauseCircle, XCircle, AlertTriangle, Wallet } from 'lucide-react';
+import { CheckCircle, Building2, Loader, Clock, PauseCircle, XCircle, AlertTriangle, Wallet, Pencil } from 'lucide-react';
 import api from '../../services/api';
 import SuperAdminLayout from '../../components/Layout/SuperAdminLayout';
 
@@ -45,6 +45,21 @@ function SuperAdminDashboard() {
   const [settleAmount, setSettleAmount] = useState('');
   const [settleNote, setSettleNote] = useState('');
   const [settling, setSettling] = useState(false);
+
+  // ✅ NEW: editing the developer fee RATES themselves (previously only
+  // readable here — PlatformFeeSettings.monthly_payment_fee /
+  // registration_payment_fee defaulted to 5/2 ETB in the model and there
+  // was no UI to ever change them, even though the backend endpoint
+  // (developer_fee_rates, PATCH-able) already supported it). Editing
+  // only ever affects payments verified AFTER the change — every
+  // already-verified payment keeps whatever rate was snapshotted onto it
+  // at the time (see Payment.save() on the backend), so raising this
+  // never rewrites what a school already owes for past months.
+  const [editingRates, setEditingRates] = useState(false);
+  const [editMonthlyFee, setEditMonthlyFee] = useState('');
+  const [editRegFee, setEditRegFee] = useState('');
+  const [savingRates, setSavingRates] = useState(false);
+  const [ratesError, setRatesError] = useState('');
 
   const fetchStats = useCallback(async () => {
     try {
@@ -88,6 +103,38 @@ function SuperAdminDashboard() {
       alert('❌ Failed to record settlement');
     } finally {
       setSettling(false);
+    }
+  };
+
+  const openRateEditor = () => {
+    if (!feeData) return;
+    setEditMonthlyFee(String(feeData.current_rates.monthly_payment_fee));
+    setEditRegFee(String(feeData.current_rates.registration_payment_fee));
+    setRatesError('');
+    setEditingRates(true);
+  };
+
+  const saveRates = async () => {
+    const monthly = parseFloat(editMonthlyFee);
+    const registration = parseFloat(editRegFee);
+    if (Number.isNaN(monthly) || monthly < 0 || Number.isNaN(registration) || registration < 0) {
+      setRatesError('Enter valid, non-negative numbers for both rates.');
+      return;
+    }
+    setSavingRates(true);
+    setRatesError('');
+    try {
+      await api.patch('/platform/developer-fees/rates/', {
+        monthly_payment_fee: monthly,
+        registration_payment_fee: registration,
+      });
+      setEditingRates(false);
+      await fetchFees(); // refresh the displayed rates + totals
+    } catch (err) {
+      console.error('Error updating developer fee rates:', err);
+      setRatesError(err.response?.data?.error || 'Failed to save the new rates. Please try again.');
+    } finally {
+      setSavingRates(false);
     }
   };
 
@@ -141,9 +188,17 @@ function SuperAdminDashboard() {
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Developer Usage Fee — Per School</h2>
               </div>
               {feeData && (
-                <span className="text-sm font-medium text-gray-500 dark:text-slate-400">
-                  Rates: {feeData.current_rates.monthly_payment_fee} ETB/monthly · {feeData.current_rates.registration_payment_fee} ETB/registration
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-medium text-gray-500 dark:text-slate-400">
+                    Rates: {feeData.current_rates.monthly_payment_fee} ETB/monthly · {feeData.current_rates.registration_payment_fee} ETB/registration
+                  </span>
+                  <button
+                    onClick={openRateEditor}
+                    className="flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2.5 py-1.5 rounded-md font-medium hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                  >
+                    <Pencil className="h-3 w-3" /> Edit rates
+                  </button>
+                </div>
               )}
             </div>
             {feeLoading ? (
@@ -207,6 +262,48 @@ function SuperAdminDashboard() {
                     className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-md font-medium hover:bg-emerald-700 disabled:opacity-50"
                   >
                     {settling ? 'Saving...' : 'Confirm'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {editingRates && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+              <div className="bg-white dark:bg-slate-900 rounded-xl shadow-lg p-6 w-full max-w-sm">
+                <h3 className="font-semibold text-gray-900 dark:text-white mb-1">Edit developer usage fee rates</h3>
+                <p className="text-xs text-gray-500 dark:text-slate-400 mb-4">
+                  Only affects payments verified from now on — every already-verified payment keeps the rate it was charged at the time, so this never rewrites what a school already owes for past months.
+                </p>
+                <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Monthly tuition payment fee (ETB)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editMonthlyFee}
+                  onChange={(e) => setEditMonthlyFee(e.target.value)}
+                  className="w-full border border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-md px-3 py-2 text-sm mb-3"
+                />
+                <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Registration payment fee (ETB)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editRegFee}
+                  onChange={(e) => setEditRegFee(e.target.value)}
+                  className="w-full border border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-md px-3 py-2 text-sm mb-1"
+                />
+                {ratesError && (
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-2">{ratesError}</p>
+                )}
+                <div className="flex justify-end gap-2 mt-4">
+                  <button onClick={() => setEditingRates(false)} className="px-4 py-2 text-sm text-gray-500 dark:text-slate-400">Cancel</button>
+                  <button
+                    onClick={saveRates}
+                    disabled={savingRates}
+                    className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-md font-medium hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {savingRates ? 'Saving...' : 'Save rates'}
                   </button>
                 </div>
               </div>
