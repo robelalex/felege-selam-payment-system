@@ -26,6 +26,8 @@ from authentication.views import SuspensionAwareTokenRefreshView
 from payments.views.platform_fee_views import (
     developer_fees_overview, developer_fee_rates, record_fee_settlement,
     school_fee_settlements, my_school_fee_summary, my_school_chapa_balance,
+    pending_fee_settlements, confirm_fee_settlement, reject_fee_settlement,
+    submit_fee_settlement, my_fee_settlements,
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 from academics.views import AcademicYearViewSet, SubjectViewSet, HomeroomAssignmentViewSet
@@ -89,6 +91,17 @@ urlpatterns = [
     path('api/platform/developer-fees/<int:school_id>/settlements/', school_fee_settlements, name='developer-fee-settlements'),
     path('api/developer-fee-summary/', my_school_fee_summary, name='my-developer-fee-summary'),
     path('api/my-school-chapa-balance/', my_school_chapa_balance, name='my-school-chapa-balance'),
+
+    # ✅ NEW: settlement receipt review workflow (requested) — school
+    # admin submits a settlement + receipt, super admin reviews the
+    # queue and confirms/rejects it. See platform_fee_views.py for the
+    # full reasoning on why pending settlements don't touch the balance
+    # until confirmed.
+    path('api/platform/developer-fees/settlements/pending/', pending_fee_settlements, name='developer-fee-settlements-pending'),
+    path('api/platform/developer-fees/settlements/<int:settlement_id>/confirm/', confirm_fee_settlement, name='developer-fee-settlement-confirm'),
+    path('api/platform/developer-fees/settlements/<int:settlement_id>/reject/', reject_fee_settlement, name='developer-fee-settlement-reject'),
+    path('api/my-school/developer-fee-settlements/submit/', submit_fee_settlement, name='my-developer-fee-settlement-submit'),
+    path('api/my-school/developer-fee-settlements/', my_fee_settlements, name='my-developer-fee-settlements'),
 
     # Payment endpoints
     path('api/payments-filtered/', payments_filtered_by_year, name='payments-filtered'),

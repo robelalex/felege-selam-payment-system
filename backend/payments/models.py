@@ -803,21 +803,67 @@ class PlatformFeeSettings(models.Model):
 
 class PlatformFeeSettlement(models.Model):
     """
-    A record of a school actually paying the developer their accrued
-    usage fees — entered manually by the super admin once the money has
-    genuinely arrived (bank transfer, cash, however the school chooses
-    to pay). This is bookkeeping only; creating a row here does not
-    move any money anywhere. A school's outstanding balance is always:
-        sum(their verified payments' platform_fee_amount) - sum(their settlements)
+    A record of a school paying the developer their accrued usage fees.
+
+    ✅ UPDATED (requested): this used to be super-admin-only bookkeeping
+    with no proof and no confirmation step — a row appeared already
+    "settled" the instant Robel typed it in, and the school admin had
+    no way to initiate it themselves or attach a receipt. Real flow
+    requested:
+      1. School admin sends money (bank transfer) and submits a
+         settlement here themselves, attaching a receipt/screenshot —
+         status starts 'pending'. This does NOT reduce their balance
+         yet (see _school_fee_summary in platform_fee_views.py, which
+         only sums status='confirmed' settlements).
+      2. Super admin reviews the receipt and clicks Confirm (money
+         verified as received) or Reject (with a reason — e.g. wrong
+         amount, blurry receipt).
+      3. Only on Confirm does it count toward total_settled and reduce
+         the school's outstanding balance. This is the real "the
+         developer accepted the money" moment the school was asking
+         to see reflected, instead of a number that already looked
+         settled before it actually was.
+    Super admin can still create an already-confirmed settlement
+    directly (e.g. for cash handed over in person, or historical
+    catch-up entries) — status defaults to 'confirmed' when created
+    without going through the school-admin submission endpoint.
     """
+    STATUS_CHOICES = [
+        ('pending', 'Pending Review'),
+        ('confirmed', 'Confirmed'),
+        ('rejected', 'Rejected'),
+    ]
+
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='fee_settlements')
     amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
     note = models.CharField(max_length=255, blank=True, help_text="e.g. 'Bank transfer, CBE, 12 Sep 2026'")
-    recorded_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
+
+    # ✅ NEW: proof of payment, uploaded by the school admin — same
+    # pattern as PaymentSlip.slip_image above. Optional so the super
+    # admin can still log old/manual entries without one.
+    receipt = models.ImageField(
+        upload_to='developer_fee_receipts/%Y/%m/', blank=True, null=True,
+        help_text="Screenshot or photo of the bank transfer / payment receipt, uploaded by the school admin."
+    )
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='confirmed')
+    rejection_reason = models.CharField(max_length=255, blank=True)
+
+    submitted_by = models.ForeignKey(
+        'auth.User', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='submitted_fee_settlements',
+        help_text="School admin who submitted this settlement claim, if submitted from the school side."
+    )
+    recorded_by = models.ForeignKey(
+        'auth.User', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='recorded_fee_settlements',
+        help_text="Super admin who confirmed or rejected this settlement."
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-created_at']
 
     def __str__(self):
-        return f"{self.school.name} paid {self.amount} ETB on {self.created_at.date()}"
+        return f"{self.school.name} — {self.amount} ETB ({self.status})"

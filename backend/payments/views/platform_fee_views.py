@@ -1,20 +1,32 @@
 # backend/payments/views/platform_fee_views.py
 #
 # NEW (requested): the "developer usage fee" feature. A small amount
-# (currently 5 ETB per monthly payment, 2 ETB per registration payment,
-# both adjustable) is owed to the platform developer for every verified
-# payment processed through the system - separate from Chapa and
-# separate from anything the school owes for the annual license.
+# (currently set by PlatformFeeSettings, adjustable by the super admin)
+# is owed to the platform developer for every verified payment
+# processed through the system - separate from Chapa and separate from
+# anything the school owes for the annual license.
 #
 # Deliberately NOT automatic money movement: nothing here ever touches
 # a parent's payment, Chapa, or any bank transfer. This module only
-# calculates totals and lets the super admin log settlements once a
-# school has actually paid - see Payment.platform_fee_amount and
+# calculates totals and now runs a receipt-based confirmation workflow
+# for settlements - see Payment.platform_fee_amount and
 # PlatformFeeSettlement in payments/models.py for the full reasoning.
+#
+# ✅ UPDATED (requested): school admins can now submit a settlement
+# themselves with a receipt attached (submit_fee_settlement), which
+# starts 'pending' and does NOT reduce their balance until the super
+# admin reviews the receipt and confirms it (confirm_fee_settlement) or
+# rejects it (reject_fee_settlement). This closes the "communication"
+# gap: before, a settlement only existed once the super admin had
+# already typed it in as done - the school had no way to say "I sent
+# it, please check" and no visibility into whether it had actually been
+# reviewed yet.
 from decimal import Decimal, InvalidOperation
 from django.db.models import Sum, Count
 from django.db.models.functions import TruncMonth
-from rest_framework.decorators import api_view, permission_classes
+from django.utils import timezone
+from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 
 from schools.models import School
@@ -28,9 +40,28 @@ def _school_fee_summary(school):
     accrued = Payment.objects.filter(
         student__school=school, status='verified', is_archived=False
     ).aggregate(total=Sum('platform_fee_amount'))['total'] or Decimal('0')
-    settled = PlatformFeeSettlement.objects.filter(school=school).aggregate(
+
+    # ✅ FIXED: only CONFIRMED settlements reduce the balance now. A
+    # 'pending' settlement (school says "I sent it", receipt attached,
+    # not yet reviewed) must NOT make the balance look already paid -
+    # that would be trusting an unverified claim with real money
+    # implications. 'rejected' ones never counted and still don't.
+    confirmed = PlatformFeeSettlement.objects.filter(school=school, status='confirmed')
+    settled = confirmed.aggregate(total=Sum('amount'))['total'] or Decimal('0')
+
+    pending = PlatformFeeSettlement.objects.filter(school=school, status='pending').aggregate(
         total=Sum('amount')
     )['total'] or Decimal('0')
+
+    # ✅ NEW: "since your last confirmed settlement" - the school asked
+    # for this specifically, so the page stops being an ever-growing,
+    # confusing all-time wall of numbers once they've actually settled
+    # up. last_settled_at is None until they've had at least one
+    # confirmed settlement, in which case the frontend just shows the
+    # full history (nothing to hide yet).
+    last_settlement = confirmed.order_by('-reviewed_at', '-created_at').first()
+    last_settled_at = (last_settlement.reviewed_at or last_settlement.created_at) if last_settlement else None
+
     return {
         'school_id': school.id,
         'school_name': school.name,
@@ -38,6 +69,8 @@ def _school_fee_summary(school):
         'total_accrued': accrued,
         'total_settled': settled,
         'balance_owed': accrued - settled,
+        'pending_settlement_amount': pending,
+        'last_settled_at': last_settled_at,
     }
 
 
@@ -57,6 +90,10 @@ def developer_fees_overview(request):
         'total_balance_owed': sum((row['balance_owed'] for row in data), Decimal('0')),
     }
     settings_row = PlatformFeeSettings.get_current()
+    # ✅ NEW: how many settlement receipts are sitting in the queue
+    # waiting for the super admin's attention, so the dashboard can
+    # surface this without a separate round trip.
+    pending_count = PlatformFeeSettlement.objects.filter(status='pending').count()
     return Response({
         'schools': data,
         'totals': totals,
@@ -64,6 +101,7 @@ def developer_fees_overview(request):
             'monthly_payment_fee': settings_row.monthly_payment_fee,
             'registration_payment_fee': settings_row.registration_payment_fee,
         },
+        'pending_settlements_count': pending_count,
     })
 
 
@@ -116,10 +154,13 @@ def developer_fee_rates(request):
 @permission_classes([IsPlatformOwner])
 def record_fee_settlement(request):
     """
-    NEW - super admin logs that a school has actually paid their
-    accrued developer fees (bank transfer, cash, however they chose to
-    pay). This is bookkeeping only: creating this row does not move any
-    money. Reduces that school's outstanding balance going forward.
+    Super admin logs a settlement DIRECTLY as already-confirmed - for
+    cash handed over in person, or a historical catch-up entry with no
+    receipt to review. Everyday "school sent a bank transfer" cases
+    should go through the school admin's submit_fee_settlement +
+    confirm_fee_settlement flow below instead, so there's a receipt on
+    file. This is bookkeeping only: creating this row does not move any
+    money itself.
     """
     school_id = request.data.get('school_id')
     amount = request.data.get('amount')
@@ -132,13 +173,29 @@ def record_fee_settlement(request):
         return Response({'error': 'School not found'}, status=404)
 
     settlement = PlatformFeeSettlement.objects.create(
-        school=school, amount=amount, note=note, recorded_by=request.user
+        school=school, amount=amount, note=note,
+        status='confirmed', recorded_by=request.user, reviewed_at=timezone.now(),
     )
     return Response({
         'success': True,
         'settlement_id': settlement.id,
         'new_summary': _school_fee_summary(school),
     })
+
+
+def _serialize_settlement(s):
+    return {
+        'id': s.id,
+        'amount': s.amount,
+        'note': s.note,
+        'status': s.status,
+        'rejection_reason': s.rejection_reason,
+        'receipt_url': s.receipt.url if s.receipt else None,
+        'submitted_by': (s.submitted_by.get_full_name() or s.submitted_by.username) if s.submitted_by else None,
+        'recorded_by': (s.recorded_by.get_full_name() or s.recorded_by.username) if s.recorded_by else None,
+        'created_at': s.created_at,
+        'reviewed_at': s.reviewed_at,
+    }
 
 
 @api_view(['GET'])
@@ -152,17 +209,163 @@ def school_fee_settlements(request, school_id):
     settlements = PlatformFeeSettlement.objects.filter(school=school)
     return Response({
         'summary': _school_fee_summary(school),
+        'settlements': [_serialize_settlement(s) for s in settlements],
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsPlatformOwner])
+def pending_fee_settlements(request):
+    """
+    ✅ NEW (requested) - the super admin's review queue: every
+    settlement a school has submitted with a receipt that hasn't been
+    confirmed or rejected yet. This is the "click accept once he sees
+    the money arrived" screen - one place to review every school's
+    claims, not scattered per-school.
+    """
+    settlements = PlatformFeeSettlement.objects.filter(status='pending').select_related('school').order_by('created_at')
+    return Response({
         'settlements': [
-            {
-                'id': s.id,
-                'amount': s.amount,
-                'note': s.note,
-                'recorded_by': s.recorded_by.get_full_name() or s.recorded_by.username if s.recorded_by else None,
-                'created_at': s.created_at,
-            }
+            {**_serialize_settlement(s), 'school_id': s.school_id, 'school_name': s.school.name, 'school_code': s.school.code}
             for s in settlements
         ],
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsPlatformOwner])
+def confirm_fee_settlement(request, settlement_id):
+    """
+    ✅ NEW (requested) - the super admin has checked their bank account,
+    the money genuinely arrived, and they click Confirm here. THIS is
+    the moment the settlement actually reduces the school's balance
+    (see _school_fee_summary, which only sums status='confirmed'). The
+    optional 'amount' in the body lets the super admin correct the
+    figure if the receipt shows a different amount than what the school
+    typed (e.g. bank fees deducted) — defaults to the submitted amount.
+    """
+    try:
+        settlement = PlatformFeeSettlement.objects.get(id=settlement_id)
+    except PlatformFeeSettlement.DoesNotExist:
+        return Response({'error': 'Settlement not found'}, status=404)
+    if settlement.status != 'pending':
+        return Response({'error': f'This settlement is already {settlement.status}.'}, status=400)
+
+    corrected_amount = request.data.get('amount')
+    if corrected_amount is not None:
+        try:
+            settlement.amount = Decimal(str(corrected_amount))
+        except (InvalidOperation, ValueError, TypeError):
+            return Response({'error': 'amount must be a number.'}, status=400)
+
+    settlement.status = 'confirmed'
+    settlement.recorded_by = request.user
+    settlement.reviewed_at = timezone.now()
+    settlement.save()
+
+    return Response({
+        'success': True,
+        'settlement': _serialize_settlement(settlement),
+        'new_summary': _school_fee_summary(settlement.school),
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsPlatformOwner])
+def reject_fee_settlement(request, settlement_id):
+    """
+    ✅ NEW (requested) - super admin rejects a submitted settlement
+    (wrong amount, unreadable receipt, money never actually arrived,
+    etc.), with a reason the school admin will see against their
+    submission. Does NOT touch the balance — a rejected settlement
+    never counted toward total_settled in the first place.
+    """
+    try:
+        settlement = PlatformFeeSettlement.objects.get(id=settlement_id)
+    except PlatformFeeSettlement.DoesNotExist:
+        return Response({'error': 'Settlement not found'}, status=404)
+    if settlement.status != 'pending':
+        return Response({'error': f'This settlement is already {settlement.status}.'}, status=400)
+
+    reason = request.data.get('reason', '').strip()
+    if not reason:
+        return Response({'error': 'A rejection reason is required so the school knows what to fix.'}, status=400)
+
+    settlement.status = 'rejected'
+    settlement.rejection_reason = reason
+    settlement.recorded_by = request.user
+    settlement.reviewed_at = timezone.now()
+    settlement.save()
+
+    return Response({'success': True, 'settlement': _serialize_settlement(settlement)})
+
+
+@api_view(['POST'])
+@parser_classes([MultiPartParser, FormParser])
+def submit_fee_settlement(request):
+    """
+    ✅ NEW (requested) - the school admin's own "I sent the money"
+    button. They attach a receipt (bank transfer screenshot, Telebirr
+    confirmation, etc.), an amount, and an optional note. This creates
+    a 'pending' PlatformFeeSettlement - it does NOT reduce their
+    balance yet (see _school_fee_summary). It just puts the claim in
+    front of the super admin for review via pending_fee_settlements /
+    confirm_fee_settlement above. Scoped to the admin's own school the
+    same safe way as every other school-admin endpoint here.
+    """
+    if is_super_admin(request.user):
+        return Response({'error': 'Super admins record settlements directly — see record_fee_settlement.'}, status=400)
+    school_id = get_verified_school_id(request)
+    if not school_id:
+        return Response({'error': 'Could not determine your school.'}, status=400)
+    try:
+        school = School.objects.get(id=school_id)
+    except School.DoesNotExist:
+        return Response({'error': 'School not found'}, status=404)
+
+    amount = request.data.get('amount')
+    note = request.data.get('note', '')
+    receipt = request.FILES.get('receipt')
+
+    if not amount:
+        return Response({'error': 'amount is required.'}, status=400)
+    try:
+        parsed_amount = Decimal(str(amount))
+    except (InvalidOperation, ValueError, TypeError):
+        return Response({'error': 'amount must be a number.'}, status=400)
+    if parsed_amount <= 0:
+        return Response({'error': 'amount must be greater than zero.'}, status=400)
+    if not receipt:
+        return Response({'error': 'Please attach a receipt or screenshot of the transfer.'}, status=400)
+
+    settlement = PlatformFeeSettlement.objects.create(
+        school=school, amount=parsed_amount, note=note, receipt=receipt,
+        status='pending', submitted_by=request.user,
+    )
+    return Response({
+        'success': True,
+        'settlement': _serialize_settlement(settlement),
+        'new_summary': _school_fee_summary(school),
+    }, status=201)
+
+
+@api_view(['GET'])
+def my_fee_settlements(request):
+    """
+    ✅ NEW (requested) - the school admin's own settlement history and
+    live status (pending / confirmed / rejected) for each one they've
+    submitted. This is the "communicate real-time" piece — instead of
+    the school wondering whether the developer ever saw their transfer,
+    they can check this list and see exactly where each submission
+    stands, and the rejection reason if one was rejected.
+    """
+    if is_super_admin(request.user):
+        return Response({'error': 'Super admins should use the platform overview instead.'}, status=400)
+    school_id = get_verified_school_id(request)
+    if not school_id:
+        return Response({'error': 'Could not determine your school.'}, status=400)
+    settlements = PlatformFeeSettlement.objects.filter(school_id=school_id)
+    return Response({'settlements': [_serialize_settlement(s) for s in settlements]})
 
 
 @api_view(['GET'])
@@ -179,6 +382,14 @@ def my_school_fee_summary(request):
     ✅ NEW: also includes a month-by-month breakdown (monthly-fee count
     vs registration-fee count vs total) so the school admin can see
     exactly how the total was built up, not just one opaque number.
+
+    ✅ UPDATED (requested): the breakdown is now scoped to payments
+    verified SINCE the school's last CONFIRMED settlement, instead of
+    showing every month since the beginning of time. Once a school
+    settles up and the developer confirms it, that's a clean line —
+    older months are already paid for and don't need to keep cluttering
+    the page. If they've never had a confirmed settlement, nothing is
+    hidden and the full history still shows.
     """
     if is_super_admin(request.user):
         return Response({'error': 'Super admins should use the platform overview endpoint instead.'}, status=400)
@@ -204,11 +415,15 @@ def my_school_fee_summary(request):
         'registration_payment_fee': settings_row.registration_payment_fee,
     }
 
+    breakdown_filters = dict(
+        student__school=school, status='verified', is_archived=False,
+        platform_fee_amount__isnull=False,
+    )
+    if summary['last_settled_at']:
+        breakdown_filters['verified_at__gt'] = summary['last_settled_at']
+
     breakdown_qs = (
-        Payment.objects.filter(
-            student__school=school, status='verified', is_archived=False,
-            platform_fee_amount__isnull=False,
-        )
+        Payment.objects.filter(**breakdown_filters)
         .annotate(month=TruncMonth('verified_at'))
         .values('month', 'deadline__deadline_type')
         .annotate(count=Count('id'), total=Sum('platform_fee_amount'))

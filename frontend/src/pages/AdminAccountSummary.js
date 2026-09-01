@@ -4,15 +4,37 @@
 // dashboard card - showing the school admin two things clearly:
 //   1. Their school's own current Chapa balance (read-only, live from
 //      Chapa's own Balance API using the school's own credentials)
-//   2. What the school has accrued in developer usage fees (5 ETB per
-//      monthly payment, 2 ETB per registration payment), what's
-//      already been settled, and the outstanding balance - with a
-//      month-by-month breakdown so the total is never a mystery
-//      number, and clear language that this is an ANNOUNCEMENT, not
-//      an automatic deduction: nothing here moves money on its own.
+//   2. What the school has accrued in developer usage fees (rate set
+//      live by the super admin), what's already been settled, and the
+//      outstanding balance - with a month-by-month breakdown so the
+//      total is never a mystery number, and clear language that this
+//      is an ANNOUNCEMENT, not an automatic deduction: nothing here
+//      moves money on its own.
+//
+// ✅ NEW (requested): a "Send a Payment" form so the school admin can
+// tell the developer they've sent a bank transfer, attach a receipt,
+// and track its status (pending / confirmed / rejected) themselves —
+// instead of the balance only ever changing when the super admin
+// quietly typed something in on their end with no visibility here.
 import React, { useState, useEffect, useCallback } from 'react';
-import { Wallet, TrendingUp, CheckCircle2, AlertCircle, RefreshCw, Info } from 'lucide-react';
+import { Wallet, TrendingUp, CheckCircle2, AlertCircle, RefreshCw, Info, Send, Clock, XCircle, Upload } from 'lucide-react';
 import api from '../services/api';
+
+const STATUS_BADGE = {
+  pending: { label: 'Pending review', icon: Clock, cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  confirmed: { label: 'Confirmed', icon: CheckCircle2, cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  rejected: { label: 'Rejected', icon: XCircle, cls: 'bg-red-50 text-red-700 border-red-200' },
+};
+
+function SettlementStatusBadge({ status }) {
+  const cfg = STATUS_BADGE[status] || STATUS_BADGE.pending;
+  const Icon = cfg.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full border ${cfg.cls}`}>
+      <Icon className="h-3 w-3" /> {cfg.label}
+    </span>
+  );
+}
 
 function AdminAccountSummary() {
   const [feeSummary, setFeeSummary] = useState(null);
@@ -21,6 +43,17 @@ function AdminAccountSummary() {
 
   const [balance, setBalance] = useState(null);
   const [balanceLoading, setBalanceLoading] = useState(true);
+
+  // ✅ NEW: "Send a Payment" form state + the school's own submission history
+  const [mySettlements, setMySettlements] = useState([]);
+  const [settlementsLoading, setSettlementsLoading] = useState(true);
+  const [formOpen, setFormOpen] = useState(false);
+  const [formAmount, setFormAmount] = useState('');
+  const [formNote, setFormNote] = useState('');
+  const [formReceipt, setFormReceipt] = useState(null);
+  const [formSubmitting, setFormSubmitting] = useState(false);
+  const [formError, setFormError] = useState(null);
+  const [formSuccess, setFormSuccess] = useState(null);
 
   const fetchFeeSummary = useCallback(async () => {
     setFeeLoading(true);
@@ -49,12 +82,61 @@ function AdminAccountSummary() {
     }
   }, []);
 
+  const fetchMySettlements = useCallback(async () => {
+    setSettlementsLoading(true);
+    try {
+      const res = await api.get('/my-school/developer-fee-settlements/');
+      setMySettlements(res.data.settlements || []);
+    } catch (err) {
+      console.error('Error fetching settlement history:', err);
+    } finally {
+      setSettlementsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchFeeSummary();
     fetchBalance();
-  }, [fetchFeeSummary, fetchBalance]);
+    fetchMySettlements();
+  }, [fetchFeeSummary, fetchBalance, fetchMySettlements]);
 
   const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const handleSubmitSettlement = async (e) => {
+    e.preventDefault();
+    setFormError(null);
+    setFormSuccess(null);
+    if (!formAmount || Number(formAmount) <= 0) {
+      setFormError('Enter the amount you sent.');
+      return;
+    }
+    if (!formReceipt) {
+      setFormError('Attach a screenshot or photo of the receipt.');
+      return;
+    }
+    setFormSubmitting(true);
+    try {
+      const data = new FormData();
+      data.append('amount', formAmount);
+      data.append('note', formNote);
+      data.append('receipt', formReceipt);
+      await api.post('/my-school/developer-fee-settlements/submit/', data, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setFormSuccess('Sent! The developer will review your receipt and confirm it shortly.');
+      setFormAmount('');
+      setFormNote('');
+      setFormReceipt(null);
+      setFormOpen(false);
+      fetchMySettlements();
+      fetchFeeSummary();
+    } catch (err) {
+      console.error('Error submitting settlement:', err);
+      setFormError(err.response?.data?.error || 'Could not submit — please try again.');
+    } finally {
+      setFormSubmitting(false);
+    }
+  };
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -166,9 +248,111 @@ function AdminAccountSummary() {
               <p className="text-xs text-blue-800">
                 This is an <strong>announcement only</strong> - nothing is ever deducted automatically from your
                 school's account. When convenient, please arrange to send the outstanding balance to the developer
-                directly (bank transfer), the same way as your annual license fee. Once received, it will be
-                recorded here as settled.
+                directly (bank transfer), the same way as your annual license fee. Once you've sent it, use
+                "Send a Payment" below to attach your receipt — the balance updates once it's reviewed and confirmed.
               </p>
+            </div>
+
+            {/* ✅ NEW: pending-review note — the balance above does NOT yet
+                reflect anything the school has submitted but the developer
+                hasn't confirmed. Without this line the school could send a
+                receipt and be confused why "Outstanding Balance" didn't
+                move immediately. */}
+            {Number(feeSummary.pending_settlement_amount) > 0 && (
+              <div className="px-6 py-3 bg-amber-50 border-t border-amber-100 flex items-center gap-2 text-xs text-amber-800">
+                <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+                {fmt(feeSummary.pending_settlement_amount)} ETB is awaiting the developer's review right now — it
+                will move from "Outstanding" once confirmed.
+              </div>
+            )}
+
+            {/* ==================== SEND A PAYMENT ==================== */}
+            <div className="border-t border-gray-100">
+              <div className="px-6 py-4 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
+                    <Send className="h-4 w-4 text-primary-600" /> Send a Payment
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-0.5">Sent a bank transfer to the developer? Log it here with your receipt.</p>
+                </div>
+                <button
+                  onClick={() => setFormOpen((v) => !v)}
+                  className="text-sm font-medium text-primary-600 hover:text-primary-700 px-3 py-1.5 rounded-lg border border-primary-200 hover:bg-primary-50"
+                >
+                  {formOpen ? 'Cancel' : 'I sent a payment'}
+                </button>
+              </div>
+
+              {formOpen && (
+                <form onSubmit={handleSubmitSettlement} className="px-6 pb-6 space-y-3">
+                  {formError && (
+                    <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{formError}</div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Amount sent (ETB)</label>
+                      <input
+                        type="number" min="0" step="0.01" value={formAmount}
+                        onChange={(e) => setFormAmount(e.target.value)}
+                        placeholder={fmt(feeSummary.balance_owed)}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Note (optional)</label>
+                      <input
+                        type="text" value={formNote} onChange={(e) => setFormNote(e.target.value)}
+                        placeholder="e.g. CBE transfer, 1 Sep 2026"
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Receipt / screenshot</label>
+                    <label className="flex items-center gap-2 border border-dashed border-gray-300 rounded-lg px-3 py-3 text-sm text-gray-500 cursor-pointer hover:bg-gray-50">
+                      <Upload className="h-4 w-4" />
+                      {formReceipt ? formReceipt.name : 'Click to choose a photo or screenshot'}
+                      <input
+                        type="file" accept="image/*" className="hidden"
+                        onChange={(e) => setFormReceipt(e.target.files?.[0] || null)}
+                      />
+                    </label>
+                  </div>
+                  <button
+                    type="submit" disabled={formSubmitting}
+                    className="w-full sm:w-auto px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    {formSubmitting ? 'Sending…' : 'Submit for review'}
+                  </button>
+                </form>
+              )}
+
+              {formSuccess && (
+                <div className="mx-6 mb-4 flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                  <CheckCircle2 className="h-4 w-4" /> {formSuccess}
+                </div>
+              )}
+
+              {/* ✅ NEW: submission history so the school always knows exactly
+                  where each thing they sent stands — this is the real-time
+                  visibility the developer/school communication was missing. */}
+              {!settlementsLoading && mySettlements.length > 0 && (
+                <div className="px-6 pb-6 space-y-2">
+                  <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Your submissions</h4>
+                  {mySettlements.map((s) => (
+                    <div key={s.id} className="flex items-center justify-between border border-gray-100 rounded-lg px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">{fmt(s.amount)} ETB {s.note && <span className="text-gray-400 font-normal">— {s.note}</span>}</p>
+                        <p className="text-xs text-gray-400">{new Date(s.created_at).toLocaleDateString()}</p>
+                        {s.status === 'rejected' && s.rejection_reason && (
+                          <p className="text-xs text-red-600 mt-1">Reason: {s.rejection_reason}</p>
+                        )}
+                      </div>
+                      <SettlementStatusBadge status={s.status} />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {feeSummary.breakdown && feeSummary.breakdown.length > 0 && (
