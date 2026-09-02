@@ -35,6 +35,12 @@ from payments.views.sms_wallet_views import (
     confirm_sms_topup, reject_sms_topup,
     enable_platform_managed_sms, disable_platform_managed_sms,
 )
+# ✅ NEW (requested): optional self-managed SMS balance tracker — see
+# payments/views/sms_self_tracker_views.py for the full reasoning.
+from payments.views.sms_self_tracker_views import (
+    my_sms_self_tracker, enable_self_sms_tracking,
+    disable_self_sms_tracking, update_self_sms_balance,
+)
 from rest_framework_simplejwt.views import TokenRefreshView
 from academics.views import AcademicYearViewSet, SubjectViewSet, HomeroomAssignmentViewSet
 from exams.views import (
@@ -124,6 +130,15 @@ urlpatterns = [
     path('api/platform/sms-wallets/topups/pending/', pending_sms_topups, name='sms-wallets-topups-pending'),
     path('api/platform/sms-wallets/topups/<int:topup_id>/confirm/', confirm_sms_topup, name='sms-wallet-topup-confirm'),
     path('api/platform/sms-wallets/topups/<int:topup_id>/reject/', reject_sms_topup, name='sms-wallet-topup-reject'),
+
+    # ✅ NEW (requested): optional self-managed SMS balance tracker —
+    # school-admin-only, no super-admin review step (it's the school's
+    # own Afro Message account/money, not a platform billing relationship).
+    # See payments/sms_self_tracker_models.py for the full reasoning.
+    path('api/my-school/sms-self-tracker/', my_sms_self_tracker, name='my-sms-self-tracker'),
+    path('api/my-school/sms-self-tracker/enable/', enable_self_sms_tracking, name='my-sms-self-tracker-enable'),
+    path('api/my-school/sms-self-tracker/disable/', disable_self_sms_tracking, name='my-sms-self-tracker-disable'),
+    path('api/my-school/sms-self-tracker/update/', update_self_sms_balance, name='my-sms-self-tracker-update'),
 
     # Payment endpoints
     path('api/payments-filtered/', payments_filtered_by_year, name='payments-filtered'),

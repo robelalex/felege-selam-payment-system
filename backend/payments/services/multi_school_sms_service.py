@@ -166,6 +166,36 @@ class MultiSchoolSMSService:
             success=success,
         )
 
+    def _update_self_tracker(self, success):
+        """
+        ✅ NEW (requested): purely optional bookkeeping for SELF-managed
+        schools (their own Afro Message key) who've opted in to seeing a
+        balance + low-balance alert in this app, same as platform-managed
+        schools get — see sms_self_tracker_models.py for full reasoning.
+
+        Deliberately a no-op for:
+          - platform-managed schools (self.billed_via_wallet True) — they
+            already have the real wallet, this tracker doesn't apply.
+          - self-managed schools who never opted in (no row, or
+            enabled=False) — nothing happens, nothing is created.
+          - failed sends — never counts down a failed message.
+
+        Wrapped in try/except on purpose: this is a convenience feature
+        only. If it ever fails for any reason, the SMS has ALREADY been
+        sent successfully — a bug here must never look like a failed
+        send to the caller, so we log and move on rather than raising.
+        """
+        if self.billed_via_wallet or not success:
+            return
+        try:
+            from payments.sms_self_tracker_models import SchoolSMSSelfTracker
+            tracker = SchoolSMSSelfTracker.objects.filter(school=self.school, enabled=True).first()
+            if tracker:
+                tracker.balance_etb = tracker.balance_etb - tracker.estimated_cost_per_sms
+                tracker.save(update_fields=['balance_etb', 'updated_at'])
+        except Exception:
+            logger.exception(f"Non-fatal: failed to update self-tracked SMS balance for {self.school.name}")
+
     def send_sms(self, phone_number, message, related_to=None):
         """Send SMS using Afro Message's REST API."""
         if not phone_number:
@@ -220,6 +250,7 @@ class MultiSchoolSMSService:
             if response.status_code == 200 and data.get("acknowledge") == "success":
                 self._update_quota_count()
                 self._debit_wallet_and_log(related_to, success=True)  # ✅ NEW — no-op for self-managed schools
+                self._update_self_tracker(success=True)  # ✅ NEW — no-op unless this self-managed school opted in
                 logger.info(f"✅ Afro Message send succeeded for {self.school.name}: {data.get('response')}")
                 result = {
                     'success': True,

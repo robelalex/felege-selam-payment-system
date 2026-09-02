@@ -94,6 +94,7 @@ function SuperAdminDashboard() {
   const [editingSmsRates, setEditingSmsRates] = useState(false);
   const [editSmsCost, setEditSmsCost] = useState('');
   const [editSmsMarkup, setEditSmsMarkup] = useState('');
+  const [editPlatformApiKey, setEditPlatformApiKey] = useState('');
   const [savingSmsRates, setSavingSmsRates] = useState(false);
 
   const fetchStats = useCallback(async () => {
@@ -260,17 +261,28 @@ function SuperAdminDashboard() {
     if (!smsPricing) return;
     setEditSmsCost(String(smsPricing.cost_per_sms));
     setEditSmsMarkup(String(Number(smsPricing.markup_percentage) * 100));
+    // The real key is never sent back by the API (security) — this box
+    // always starts empty. Leaving it empty on Save keeps your existing
+    // key untouched; only typing a new one replaces it.
+    setEditPlatformApiKey('');
     setEditingSmsRates(true);
   };
 
   const saveSmsRates = async () => {
     setSavingSmsRates(true);
     try {
-      const res = await api.patch('/platform/sms-pricing/', {
+      const payload = {
         cost_per_sms: editSmsCost,
         markup_percentage: Number(editSmsMarkup) / 100,
-      });
+      };
+      // Only include the key if you actually typed something — this way
+      // saving your rates never accidentally wipes out an already-saved key.
+      if (editPlatformApiKey.trim()) {
+        payload.platform_api_key = editPlatformApiKey.trim();
+      }
+      const res = await api.patch('/platform/sms-pricing/', payload);
       setSmsPricing(res.data);
+      setEditPlatformApiKey('');
       setEditingSmsRates(false);
     } catch (err) {
       console.error('Error saving SMS rates:', err);
@@ -839,6 +851,26 @@ function SuperAdminDashboard() {
                     </strong> per SMS.
                   </p>
                 )}
+
+                <hr className="border-gray-200 dark:border-slate-700 mb-4" />
+
+                <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
+                  Your own Afro Message API key
+                </label>
+                <p className="text-xs mb-2">
+                  {smsPricing?.platform_api_key_configured ? (
+                    <span className="text-green-600 dark:text-green-400">✓ A key is currently saved. Leave the box below empty to keep it — only fill it in if you want to replace it.</span>
+                  ) : (
+                    <span className="text-red-500">⚠ No key saved yet — this is why schools see "Platform-managed SMS has not been enabled". Paste your Afro Message API key below to fix that.</span>
+                  )}
+                </p>
+                <input
+                  type="password" value={editPlatformApiKey}
+                  onChange={(e) => setEditPlatformApiKey(e.target.value)}
+                  placeholder={smsPricing?.platform_api_key_configured ? 'Leave blank to keep current key' : 'Paste your Afro Message API key'}
+                  className="w-full border border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-md px-3 py-2 text-sm mb-4"
+                  autoComplete="off"
+                />
 
                 <div className="flex justify-end gap-2">
                   <button onClick={() => setEditingSmsRates(false)} className="px-3 py-2 text-sm text-gray-500 dark:text-slate-400">Cancel</button>

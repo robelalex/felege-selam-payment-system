@@ -877,3 +877,8 @@ class PlatformFeeSettlement(models.Model):
 from .sms_wallet_models import (  # noqa: E402,F401
     SMSPricingSettings, SchoolSMSWallet, SMSWalletTopUp, SMSUsageRecord,
 )
+
+# ✅ NEW (requested): optional self-reported balance tracker for
+# SELF-MANAGED schools — see sms_self_tracker_models.py for the full
+# reasoning. Same import pattern as above, fully separate/additive.
+from .sms_self_tracker_models import SchoolSMSSelfTracker  # noqa: E402,F401

@@ -72,6 +72,18 @@ function AdminAccountSummary() {
   const [enablingSms, setEnablingSms] = useState(false);
   const [enableSmsError, setEnableSmsError] = useState(null);
 
+  // ✅ NEW: optional self-managed SMS balance tracker (own Afro Message
+  // key schools) — separate from the platform wallet above, no billing
+  // link, purely a self-reported convenience view.
+  const [selfTracker, setSelfTracker] = useState(null);
+  const [selfTrackerLoading, setSelfTrackerLoading] = useState(true);
+  const [enablingSelfTracker, setEnablingSelfTracker] = useState(false);
+  const [selfTrackerError, setSelfTrackerError] = useState(null);
+  const [editingSelfBalance, setEditingSelfBalance] = useState(false);
+  const [selfBalanceInput, setSelfBalanceInput] = useState('');
+  const [selfThresholdInput, setSelfThresholdInput] = useState('');
+  const [savingSelfBalance, setSavingSelfBalance] = useState(false);
+
   const fetchFeeSummary = useCallback(async () => {
     setFeeLoading(true);
     setFeeError(null);
@@ -133,13 +145,27 @@ function AdminAccountSummary() {
     }
   }, []);
 
+  // ✅ NEW: self-managed SMS tracker fetch
+  const fetchSelfTracker = useCallback(async () => {
+    setSelfTrackerLoading(true);
+    try {
+      const res = await api.get('/my-school/sms-self-tracker/');
+      setSelfTracker(res.data);
+    } catch (err) {
+      console.error('Error fetching self-managed SMS tracker:', err);
+    } finally {
+      setSelfTrackerLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchFeeSummary();
     fetchBalance();
     fetchMySettlements();
     fetchSmsWallet();
     fetchMySmsTopups();
-  }, [fetchFeeSummary, fetchBalance, fetchMySettlements, fetchSmsWallet, fetchMySmsTopups]);
+    fetchSelfTracker();
+  }, [fetchFeeSummary, fetchBalance, fetchMySettlements, fetchSmsWallet, fetchMySmsTopups, fetchSelfTracker]);
 
   const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -237,6 +263,54 @@ function AdminAccountSummary() {
       setSmsWallet(res.data.summary);
     } catch (err) {
       console.error('Error disabling platform-managed SMS:', err);
+    }
+  };
+
+  // ✅ NEW: self-managed SMS tracker handlers
+  const handleEnableSelfTracker = async () => {
+    setEnablingSelfTracker(true);
+    setSelfTrackerError(null);
+    try {
+      const res = await api.post('/my-school/sms-self-tracker/enable/');
+      setSelfTracker(res.data.summary);
+    } catch (err) {
+      console.error('Error enabling self-managed SMS tracker:', err);
+      setSelfTrackerError(err.response?.data?.error || 'Could not enable — please try again.');
+    } finally {
+      setEnablingSelfTracker(false);
+    }
+  };
+
+  const handleDisableSelfTracker = async () => {
+    try {
+      const res = await api.post('/my-school/sms-self-tracker/disable/');
+      setSelfTracker(res.data.summary);
+    } catch (err) {
+      console.error('Error disabling self-managed SMS tracker:', err);
+    }
+  };
+
+  const openSelfBalanceEditor = () => {
+    if (!selfTracker) return;
+    setSelfBalanceInput(String(selfTracker.balance_etb));
+    setSelfThresholdInput(String(selfTracker.low_threshold_etb));
+    setEditingSelfBalance(true);
+  };
+
+  const handleSaveSelfBalance = async () => {
+    setSavingSelfBalance(true);
+    try {
+      const res = await api.post('/my-school/sms-self-tracker/update/', {
+        balance_etb: selfBalanceInput,
+        low_threshold_etb: selfThresholdInput,
+      });
+      setSelfTracker(res.data.summary);
+      setEditingSelfBalance(false);
+    } catch (err) {
+      console.error('Error updating self-managed SMS balance:', err);
+      alert(err.response?.data?.error || 'Could not save — please try again.');
+    } finally {
+      setSavingSelfBalance(false);
     }
   };
 
@@ -525,10 +599,96 @@ function AdminAccountSummary() {
             </div>
 
             {!smsWallet.is_platform_managed ? (
-              <p className="p-6 text-sm text-gray-500">
-                Your school uses its own Afro Message account for SMS, so there's no wallet here to manage —
-                you're billed directly by Afro Message, at whatever rate they've set for your account.
-              </p>
+              // ✅ NEW: your own Afro Message account still bills you directly, exactly
+              // as before — this section is purely an OPTIONAL, self-reported balance
+              // view, off by default, so a school that ignores it sees no change at all.
+              <div className="p-6">
+                <p className="text-sm text-gray-500 mb-3">
+                  Your school uses its own Afro Message account for SMS — you're billed directly
+                  by Afro Message, at whatever rate they've set for your account. This app can't see
+                  your real balance (Afro Message doesn't offer that), but you can optionally track
+                  it here yourself.
+                </p>
+
+                {!selfTrackerLoading && selfTracker && !selfTracker.enabled && (
+                  <div>
+                    <button
+                      onClick={handleEnableSelfTracker}
+                      disabled={enablingSelfTracker}
+                      className="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
+                    >
+                      {enablingSelfTracker ? 'Enabling…' : 'Track my balance here (optional)'}
+                    </button>
+                    {selfTrackerError && <p className="text-sm text-red-600 mt-2">{selfTrackerError}</p>}
+                  </div>
+                )}
+
+                {!selfTrackerLoading && selfTracker && selfTracker.enabled && (
+                  <>
+                    <div className="flex justify-end mb-1">
+                      <button onClick={handleDisableSelfTracker} className="text-xs text-gray-400 hover:text-gray-600 underline">
+                        Stop tracking
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-gray-100 border border-gray-100 rounded-xl">
+                      <div className="px-4 py-3">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide">Self-Reported Balance</p>
+                        <p className={`text-2xl font-semibold mt-1 ${selfTracker.is_low ? 'text-amber-600' : 'text-gray-900'}`}>
+                          {fmt(selfTracker.balance_etb)} <span className="text-sm font-normal text-gray-400">ETB</span>
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">≈ {selfTracker.estimated_messages_remaining} messages left (estimate)</p>
+                      </div>
+                      <div className="px-4 py-3">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide">Status</p>
+                        <p className={`text-sm font-semibold mt-1 ${selfTracker.is_low ? 'text-amber-600' : 'text-emerald-600'}`}>
+                          {selfTracker.is_low ? 'Running low' : 'Healthy'}
+                        </p>
+                        <button onClick={openSelfBalanceEditor} className="text-xs font-medium text-primary-600 hover:text-primary-700 mt-1">
+                          Update my balance
+                        </button>
+                      </div>
+                    </div>
+
+                    {selfTracker.is_low && (
+                      <div className="mt-3 px-4 py-3 bg-amber-50 border border-amber-100 rounded-lg flex items-center gap-2 text-xs text-amber-800">
+                        <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                        Your self-reported balance is at or below {fmt(selfTracker.low_threshold_etb)} ETB — top up on Afro Message directly, then update your balance here.
+                      </div>
+                    )}
+
+                    {editingSelfBalance && (
+                      <div className="mt-3 border border-gray-200 rounded-lg p-4 space-y-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">New balance (ETB) — after topping up on Afro Message</label>
+                          <input
+                            type="number" step="0.01" value={selfBalanceInput}
+                            onChange={(e) => setSelfBalanceInput(e.target.value)}
+                            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Alert me when balance drops to (ETB)</label>
+                          <input
+                            type="number" step="0.01" value={selfThresholdInput}
+                            onChange={(e) => setSelfThresholdInput(e.target.value)}
+                            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => setEditingSelfBalance(false)} className="px-3 py-2 text-sm text-gray-500">Cancel</button>
+                          <button
+                            onClick={handleSaveSelfBalance}
+                            disabled={savingSelfBalance}
+                            className="px-4 py-2 text-sm bg-primary-600 text-white rounded-md font-medium hover:bg-primary-700 disabled:opacity-50"
+                          >
+                            {savingSelfBalance ? 'Saving…' : 'Save'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             ) : !smsWallet.sms_enabled ? (
               <div className="p-6">
                 <p className="text-sm text-gray-600 mb-3">
