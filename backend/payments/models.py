@@ -867,3 +867,13 @@ class PlatformFeeSettlement(models.Model):
 
     def __str__(self):
         return f"{self.school.name} — {self.amount} ETB ({self.status})"
+
+
+# ✅ NEW (requested): the SMS wallet / reseller feature — see
+# sms_wallet_models.py for the full reasoning. Imported here (same
+# pattern as schools/bank_account_models.py) so Django's migration
+# autodetector picks these models up as part of the `payments` app
+# without a large diff to this already-big file.
+from .sms_wallet_models import (  # noqa: E402,F401
+    SMSPricingSettings, SchoolSMSWallet, SMSWalletTopUp, SMSUsageRecord,
+)

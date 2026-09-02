@@ -29,6 +29,12 @@ from payments.views.platform_fee_views import (
     pending_fee_settlements, confirm_fee_settlement, reject_fee_settlement,
     submit_fee_settlement, my_fee_settlements,
 )
+from payments.views.sms_wallet_views import (
+    my_sms_wallet, submit_sms_topup, my_sms_topups,
+    sms_pricing, sms_wallets_overview, pending_sms_topups,
+    confirm_sms_topup, reject_sms_topup,
+    enable_platform_managed_sms, disable_platform_managed_sms,
+)
 from rest_framework_simplejwt.views import TokenRefreshView
 from academics.views import AcademicYearViewSet, SubjectViewSet, HomeroomAssignmentViewSet
 from exams.views import (
@@ -102,6 +108,22 @@ urlpatterns = [
     path('api/platform/developer-fees/settlements/<int:settlement_id>/reject/', reject_fee_settlement, name='developer-fee-settlement-reject'),
     path('api/my-school/developer-fee-settlements/submit/', submit_fee_settlement, name='my-developer-fee-settlement-submit'),
     path('api/my-school/developer-fee-settlements/', my_fee_settlements, name='my-developer-fee-settlements'),
+
+    # ✅ NEW: SMS wallet / reseller feature (requested) — same
+    # receipt-then-confirm shape as the developer fee settlements above,
+    # but for topping up a school's SMS credit rather than paying down a
+    # debt. See payments/sms_wallet_models.py and
+    # payments/views/sms_wallet_views.py for the full reasoning.
+    path('api/my-school/sms-wallet/', my_sms_wallet, name='my-sms-wallet'),
+    path('api/my-school/sms-wallet/enable/', enable_platform_managed_sms, name='my-sms-wallet-enable'),
+    path('api/my-school/sms-wallet/disable/', disable_platform_managed_sms, name='my-sms-wallet-disable'),
+    path('api/my-school/sms-wallet/topups/submit/', submit_sms_topup, name='my-sms-wallet-topup-submit'),
+    path('api/my-school/sms-wallet/topups/', my_sms_topups, name='my-sms-wallet-topups'),
+    path('api/platform/sms-pricing/', sms_pricing, name='sms-pricing'),
+    path('api/platform/sms-wallets/', sms_wallets_overview, name='sms-wallets-overview'),
+    path('api/platform/sms-wallets/topups/pending/', pending_sms_topups, name='sms-wallets-topups-pending'),
+    path('api/platform/sms-wallets/topups/<int:topup_id>/confirm/', confirm_sms_topup, name='sms-wallet-topup-confirm'),
+    path('api/platform/sms-wallets/topups/<int:topup_id>/reject/', reject_sms_topup, name='sms-wallet-topup-reject'),
 
     # Payment endpoints
     path('api/payments-filtered/', payments_filtered_by_year, name='payments-filtered'),

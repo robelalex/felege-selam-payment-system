@@ -12,7 +12,7 @@
 // the school list in SuperAdminSchools.js, admin accounts in
 // SuperAdminUsers.js.
 import React, { useState, useEffect, useCallback } from 'react';
-import { CheckCircle, Building2, Loader, Clock, PauseCircle, XCircle, AlertTriangle, Wallet, Pencil, Receipt, Check, X } from 'lucide-react';
+import { CheckCircle, Building2, Loader, Clock, PauseCircle, XCircle, AlertTriangle, Wallet, Pencil, Receipt, Check, X, MessageSquare } from 'lucide-react';
 import api from '../../services/api';
 import SuperAdminLayout from '../../components/Layout/SuperAdminLayout';
 
@@ -75,6 +75,27 @@ function SuperAdminDashboard() {
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectBox, setShowRejectBox] = useState(false);
 
+  // ✅ NEW (requested): SMS wallet review queue — identical shape to the
+  // developer-fee settlement review above, but for topping up a
+  // school's SMS credit rather than paying down accrued fees. Kept as
+  // separate state (rather than merging with reviewTarget above) since
+  // the two review modals show different fields (SMS shows price/SMS
+  // context) and it's clearer to keep them as two distinct, simple
+  // flows than one overloaded modal.
+  const [smsPricing, setSmsPricing] = useState(null);
+  const [pendingSmsTopups, setPendingSmsTopups] = useState([]);
+  const [pendingSmsLoading, setPendingSmsLoading] = useState(true);
+  const [smsReviewTarget, setSmsReviewTarget] = useState(null);
+  const [smsReviewAmount, setSmsReviewAmount] = useState('');
+  const [smsReviewing, setSmsReviewing] = useState(false);
+  const [smsRejecting, setSmsRejecting] = useState(false);
+  const [smsRejectReason, setSmsRejectReason] = useState('');
+  const [smsShowRejectBox, setSmsShowRejectBox] = useState(false);
+  const [editingSmsRates, setEditingSmsRates] = useState(false);
+  const [editSmsCost, setEditSmsCost] = useState('');
+  const [editSmsMarkup, setEditSmsMarkup] = useState('');
+  const [savingSmsRates, setSavingSmsRates] = useState(false);
+
   const fetchStats = useCallback(async () => {
     try {
       const res = await api.get('/admin/platform-stats/');
@@ -108,7 +129,48 @@ function SuperAdminDashboard() {
     }
   }, []);
 
-  useEffect(() => { fetchStats(); fetchFees(); fetchPendingSettlements(); }, [fetchStats, fetchFees, fetchPendingSettlements]);
+  // ✅ NEW: SMS wallet fetches
+  const fetchSmsPricing = useCallback(async () => {
+    try {
+      const res = await api.get('/platform/sms-pricing/');
+      setSmsPricing(res.data);
+    } catch (err) {
+      console.error('Error fetching SMS pricing:', err);
+    }
+  }, []);
+
+  const fetchPendingSmsTopups = useCallback(async () => {
+    try {
+      const res = await api.get('/platform/sms-wallets/topups/pending/');
+      setPendingSmsTopups(res.data.topups || []);
+    } catch (err) {
+      console.error('Error fetching pending SMS top-ups:', err);
+    } finally {
+      setPendingSmsLoading(false);
+    }
+  }, []);
+
+  // ✅ NEW: the per-school SMS wallet overview — so the super admin can
+  // see every platform-managed school's balance and low-balance status
+  // proactively, instead of only finding out when a school happens to
+  // submit a top-up. Mirrors the developer-fee "Per School" table.
+  const [smsWallets, setSmsWallets] = useState([]);
+  const [smsWalletsLoading, setSmsWalletsLoading] = useState(true);
+  const fetchSmsWallets = useCallback(async () => {
+    try {
+      const res = await api.get('/platform/sms-wallets/');
+      setSmsWallets(res.data.schools || []);
+    } catch (err) {
+      console.error('Error fetching SMS wallets overview:', err);
+    } finally {
+      setSmsWalletsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStats(); fetchFees(); fetchPendingSettlements();
+    fetchSmsPricing(); fetchPendingSmsTopups(); fetchSmsWallets();
+  }, [fetchStats, fetchFees, fetchPendingSettlements, fetchSmsPricing, fetchPendingSmsTopups, fetchSmsWallets]);
 
   const openReview = (s) => {
     setReviewTarget(s);
@@ -148,6 +210,73 @@ function SuperAdminDashboard() {
       alert(err.response?.data?.error || '❌ Failed to reject settlement');
     } finally {
       setRejecting(false);
+    }
+  };
+
+  // ✅ NEW: SMS top-up review handlers — same shape as the developer-fee
+  // settlement review functions above.
+  const openSmsReview = (t) => {
+    setSmsReviewTarget(t);
+    setSmsReviewAmount(String(t.amount));
+    setSmsShowRejectBox(false);
+    setSmsRejectReason('');
+  };
+
+  const confirmSmsReviewed = async () => {
+    if (!smsReviewTarget) return;
+    setSmsReviewing(true);
+    try {
+      await api.post(`/platform/sms-wallets/topups/${smsReviewTarget.id}/confirm/`, {
+        amount: smsReviewAmount,
+      });
+      setSmsReviewTarget(null);
+      await fetchPendingSmsTopups();
+    } catch (err) {
+      console.error('Error confirming SMS top-up:', err);
+      alert(err.response?.data?.error || '❌ Failed to confirm top-up');
+    } finally {
+      setSmsReviewing(false);
+    }
+  };
+
+  const rejectSmsReviewed = async () => {
+    if (!smsReviewTarget || !smsRejectReason.trim()) return;
+    setSmsRejecting(true);
+    try {
+      await api.post(`/platform/sms-wallets/topups/${smsReviewTarget.id}/reject/`, {
+        reason: smsRejectReason.trim(),
+      });
+      setSmsReviewTarget(null);
+      await fetchPendingSmsTopups();
+    } catch (err) {
+      console.error('Error rejecting SMS top-up:', err);
+      alert(err.response?.data?.error || '❌ Failed to reject top-up');
+    } finally {
+      setSmsRejecting(false);
+    }
+  };
+
+  const openSmsRateEditor = () => {
+    if (!smsPricing) return;
+    setEditSmsCost(String(smsPricing.cost_per_sms));
+    setEditSmsMarkup(String(Number(smsPricing.markup_percentage) * 100));
+    setEditingSmsRates(true);
+  };
+
+  const saveSmsRates = async () => {
+    setSavingSmsRates(true);
+    try {
+      const res = await api.patch('/platform/sms-pricing/', {
+        cost_per_sms: editSmsCost,
+        markup_percentage: Number(editSmsMarkup) / 100,
+      });
+      setSmsPricing(res.data);
+      setEditingSmsRates(false);
+    } catch (err) {
+      console.error('Error saving SMS rates:', err);
+      alert(err.response?.data?.error || '❌ Failed to save SMS rates');
+    } finally {
+      setSavingSmsRates(false);
     }
   };
 
@@ -283,6 +412,93 @@ function SuperAdminDashboard() {
                     >
                       Review receipt
                     </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ✅ NEW (requested): SMS wallet top-ups waiting for review —
+              same shape as the settlement queue above, for schools
+              topping up their SMS credit instead of paying down fees. */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 overflow-hidden transition-colors">
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-4 w-4 text-amber-500" />
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">SMS Top-Ups Awaiting Review</h2>
+                {pendingSmsTopups.length > 0 && (
+                  <span className="text-xs font-semibold bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 px-2 py-0.5 rounded-full">
+                    {pendingSmsTopups.length}
+                  </span>
+                )}
+              </div>
+              {smsPricing && (
+                <button
+                  onClick={openSmsRateEditor}
+                  className="flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200 border border-gray-200 dark:border-slate-700 rounded-md px-2 py-1"
+                >
+                  <Pencil className="h-3 w-3" /> SMS rates: {smsPricing.price_per_sms} ETB/msg
+                </button>
+              )}
+            </div>
+            {pendingSmsLoading ? (
+              <div className="p-6 flex justify-center"><Loader className="h-6 w-6 animate-spin text-gray-400" /></div>
+            ) : pendingSmsTopups.length === 0 ? (
+              <p className="p-6 text-sm text-gray-500 dark:text-slate-400">Nothing waiting on you right now.</p>
+            ) : (
+              <div className="divide-y divide-gray-100 dark:divide-slate-800">
+                {pendingSmsTopups.map((t) => (
+                  <div key={t.id} className="px-6 py-3 flex items-center justify-between text-sm">
+                    <div>
+                      <span className="font-medium text-gray-800 dark:text-slate-200">
+                        {t.school_name} <span className="text-gray-400 dark:text-slate-500 font-normal">({t.school_code})</span>
+                      </span>
+                      <p className="text-gray-400 dark:text-slate-500 text-xs mt-0.5">
+                        Claims to have sent <strong className="text-gray-700 dark:text-slate-300">{t.amount} ETB</strong>
+                        {t.note ? ` — ${t.note}` : ''} · {new Date(t.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => openSmsReview(t)}
+                      className="text-xs bg-amber-50 text-amber-700 px-3 py-1.5 rounded-md font-medium hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-300"
+                    >
+                      Review receipt
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ✅ NEW: SMS Wallets — Per School — proactive visibility into
+              every platform-managed school's balance, so a low balance
+              is visible here BEFORE a school ever submits a top-up. */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 overflow-hidden transition-colors">
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-emerald-500" />
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">SMS Wallets — Per School</h2>
+            </div>
+            {smsWalletsLoading ? (
+              <div className="p-6 flex justify-center"><Loader className="h-6 w-6 animate-spin text-gray-400" /></div>
+            ) : smsWallets.length === 0 ? (
+              <p className="p-6 text-sm text-gray-500 dark:text-slate-400">No platform-managed schools yet — every school currently uses its own Afro Message account.</p>
+            ) : (
+              <div className="divide-y divide-gray-100 dark:divide-slate-800">
+                {smsWallets.map((w) => (
+                  <div key={w.school_id} className="px-6 py-3 flex items-center justify-between text-sm">
+                    <div>
+                      <span className="font-medium text-gray-800 dark:text-slate-200">{w.school_name}</span>
+                      {!w.sms_enabled && (
+                        <span className="ml-2 text-xs text-gray-400 dark:text-slate-500">(not enabled yet)</span>
+                      )}
+                    </div>
+                    {w.sms_enabled ? (
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${w.is_low ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'}`}>
+                        {w.balance_etb} ETB {w.is_low ? '— running low' : ''}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-400 dark:text-slate-500">—</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -498,6 +714,141 @@ function SuperAdminDashboard() {
                       </button>
                     )}
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ✅ NEW: SMS top-up receipt review modal — same pattern as the settlement review above */}
+          {smsReviewTarget && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+              <div className="bg-white dark:bg-slate-900 rounded-xl shadow-lg p-6 w-full max-w-md">
+                <h3 className="font-semibold text-gray-900 dark:text-white mb-1">
+                  {smsReviewTarget.school_name}'s SMS top-up receipt
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-slate-400 mb-3">
+                  Check your bank account before confirming — this is the moment their SMS wallet balance actually increases.
+                </p>
+
+                {smsReviewTarget.receipt_url ? (
+                  <a href={smsReviewTarget.receipt_url} target="_blank" rel="noopener noreferrer" className="block mb-3">
+                    <img
+                      src={smsReviewTarget.receipt_url}
+                      alt="Payment receipt"
+                      className="w-full max-h-64 object-contain rounded-lg border border-gray-200 dark:border-slate-700"
+                    />
+                  </a>
+                ) : (
+                  <p className="text-xs text-gray-400 mb-3">No receipt image attached.</p>
+                )}
+
+                {smsReviewTarget.note && (
+                  <p className="text-xs text-gray-500 dark:text-slate-400 mb-3">Note from school: "{smsReviewTarget.note}"</p>
+                )}
+
+                <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
+                  Amount to confirm (ETB) — adjust if the receipt shows a different amount
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={smsReviewAmount}
+                  onChange={(e) => setSmsReviewAmount(e.target.value)}
+                  className="w-full border border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-md px-3 py-2 text-sm mb-4"
+                />
+
+                {smsShowRejectBox && (
+                  <div className="mb-4">
+                    <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Reason for rejecting</label>
+                    <input
+                      type="text"
+                      value={smsRejectReason}
+                      onChange={(e) => setSmsRejectReason(e.target.value)}
+                      placeholder="e.g. Amount doesn't match, receipt unreadable"
+                      className="w-full border border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-md px-3 py-2 text-sm"
+                    />
+                  </div>
+                )}
+
+                <div className="flex justify-between items-center gap-2">
+                  <button onClick={() => setSmsReviewTarget(null)} className="px-3 py-2 text-sm text-gray-500 dark:text-slate-400">Cancel</button>
+                  <div className="flex gap-2">
+                    {!smsShowRejectBox ? (
+                      <button
+                        onClick={() => setSmsShowRejectBox(true)}
+                        className="flex items-center gap-1 px-3 py-2 text-sm bg-red-50 text-red-700 rounded-md font-medium hover:bg-red-100 dark:bg-red-500/10 dark:text-red-300"
+                      >
+                        <X className="h-3.5 w-3.5" /> Reject
+                      </button>
+                    ) : (
+                      <button
+                        onClick={rejectSmsReviewed}
+                        disabled={smsRejecting || !smsRejectReason.trim()}
+                        className="px-3 py-2 text-sm bg-red-600 text-white rounded-md font-medium hover:bg-red-700 disabled:opacity-50"
+                      >
+                        {smsRejecting ? 'Rejecting...' : 'Confirm rejection'}
+                      </button>
+                    )}
+                    {!smsShowRejectBox && (
+                      <button
+                        onClick={confirmSmsReviewed}
+                        disabled={smsReviewing}
+                        className="flex items-center gap-1 px-3 py-2 text-sm bg-emerald-600 text-white rounded-md font-medium hover:bg-emerald-700 disabled:opacity-50"
+                      >
+                        <Check className="h-3.5 w-3.5" /> {smsReviewing ? 'Confirming...' : 'Confirm received'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ✅ NEW: SMS pricing / rate editor modal — mirrors the developer fee rate editor */}
+          {editingSmsRates && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+              <div className="bg-white dark:bg-slate-900 rounded-xl shadow-lg p-6 w-full max-w-md">
+                <h3 className="font-semibold text-gray-900 dark:text-white mb-1">Edit SMS Rates</h3>
+                <p className="text-xs text-gray-500 dark:text-slate-400 mb-4">
+                  This only affects platform-managed schools (those without their own Afro Message key) — self-managed
+                  schools pay Afro Message directly and are unaffected by this rate.
+                </p>
+
+                <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
+                  Your real cost per SMS (ETB) — what Afro Message charges you
+                </label>
+                <input
+                  type="number" step="0.0001" value={editSmsCost}
+                  onChange={(e) => setEditSmsCost(e.target.value)}
+                  className="w-full border border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-md px-3 py-2 text-sm mb-3"
+                />
+
+                <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
+                  Your markup (%) — e.g. 50 means schools pay 1.5x your cost
+                </label>
+                <input
+                  type="number" step="1" value={editSmsMarkup}
+                  onChange={(e) => setEditSmsMarkup(e.target.value)}
+                  className="w-full border border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-md px-3 py-2 text-sm mb-4"
+                />
+
+                {editSmsCost && editSmsMarkup && (
+                  <p className="text-xs text-gray-500 dark:text-slate-400 mb-4">
+                    Schools will be charged <strong className="text-gray-800 dark:text-slate-200">
+                      {(Number(editSmsCost) * (1 + Number(editSmsMarkup) / 100)).toFixed(2)} ETB
+                    </strong> per SMS.
+                  </p>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setEditingSmsRates(false)} className="px-3 py-2 text-sm text-gray-500 dark:text-slate-400">Cancel</button>
+                  <button
+                    onClick={saveSmsRates}
+                    disabled={savingSmsRates}
+                    className="px-4 py-2 text-sm bg-primary-600 text-white rounded-md font-medium hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    {savingSmsRates ? 'Saving...' : 'Save rates'}
+                  </button>
                 </div>
               </div>
             </div>

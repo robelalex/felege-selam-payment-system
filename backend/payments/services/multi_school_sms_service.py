@@ -1,6 +1,7 @@
 # payments/services/multi_school_sms_service.py
 import re
 import requests
+from decimal import Decimal
 from django.utils import timezone
 from datetime import date
 import logging
@@ -10,21 +11,70 @@ from schools.models import School
 logger = logging.getLogger(__name__)
 
 
+class InsufficientSMSBalanceError(Exception):
+    """
+    ✅ NEW (requested): raised instead of silently failing (or silently
+    letting the developer eat the cost) when a platform-managed school's
+    SMS wallet can't cover the next message. Every existing caller
+    already wraps sends in a try/except Exception, so this surfaces as
+    a normal, catchable error with a message the UI can show directly —
+    no call site needs to change to handle this correctly.
+    """
+    pass
+
+
 class MultiSchoolSMSService:
     """
     SMS service that loads credentials for each school individually.
     Uses Afro Message REST API (https://api.afromessage.com/api/send).
+
+    ✅ UPDATED (requested): this now supports TWO modes, decided
+    automatically per school, with zero changes needed at any of this
+    class's ~9 call sites across the codebase:
+
+      1. SELF-MANAGED (unchanged): the school has its own
+         `at_api_key` configured in School Settings. Behaves exactly as
+         before — sends go straight to Afro Message on the school's own
+         account, no wallet involved, the platform earns nothing and
+         bears no cost here.
+
+      2. PLATFORM-MANAGED (new): the school has NO `at_api_key` of its
+         own. Sends go through the DEVELOPER'S OWN shared Afro Message
+         account (SMSPricingSettings.platform_api_key), and each
+         successful send debits the school's SchoolSMSWallet at the
+         current marked-up price (SMSPricingSettings.price_per_sms) —
+         this is the "developer resells SMS at a markup" business model
+         requested. If the wallet can't cover the next message, the
+         send is refused BEFORE contacting Afro Message at all (see
+         InsufficientSMSBalanceError below), so the platform never
+         fronts SMS cost a school hasn't paid for.
+
+    A school with neither its own key nor a platform key configured
+    gets the same "SMS not configured" error as before — no regression
+    for anyone who hasn't opted into either path yet.
     """
 
     BASE_URL = "https://api.afromessage.com/api/send"
 
     def __init__(self, school_id):
         self.school = School.objects.get(id=school_id)
+        self.billed_via_wallet = False
+        self._effective_api_key = self.school.at_api_key
 
-        if not self.school.at_api_key:
+        if not self._effective_api_key:
+            # No school-owned key — fall back to the platform's own
+            # shared account, billed through the school's SMS wallet.
+            from payments.sms_wallet_models import SMSPricingSettings
+            pricing = SMSPricingSettings.get_current()
+            if pricing.platform_api_key:
+                self._effective_api_key = pricing.platform_api_key
+                self.billed_via_wallet = True
+
+        if not self._effective_api_key:
             raise Exception(
                 f"SMS not configured for school: {self.school.name}. "
-                f"Please add Afro Message API Key in School Settings."
+                f"Please add Afro Message API Key in School Settings, "
+                f"or ask the platform to enable platform-managed SMS."
             )
 
     # ---------- quota helpers (unchanged from your original) ----------
@@ -72,18 +122,63 @@ class MultiSchoolSMSService:
 
     # ---------- core send ----------
 
+    def _check_wallet_balance(self):
+        """
+        ✅ NEW: for platform-managed schools only. Refuses to even
+        attempt the send if the wallet can't cover it — the platform
+        should never front SMS cost a school hasn't paid into their
+        wallet for. Self-managed schools skip this entirely (their own
+        Afro Message account, their own balance to manage).
+        """
+        if not self.billed_via_wallet:
+            return
+        from payments.sms_wallet_models import SMSPricingSettings, SchoolSMSWallet
+        pricing = SMSPricingSettings.get_current()
+        wallet = SchoolSMSWallet.get_or_create_for_school(self.school)
+        if wallet.balance_etb < pricing.price_per_sms:
+            raise InsufficientSMSBalanceError(
+                f"SMS wallet balance ({wallet.balance_etb} ETB) is too low to send this message "
+                f"(costs {pricing.price_per_sms} ETB). Please top up the SMS wallet."
+            )
+
+    def _debit_wallet_and_log(self, related_to, success):
+        """
+        ✅ NEW: called once, right after Afro Message confirms (or we
+        know) the send outcome. Debits the wallet ONLY on a successful
+        send — a failed send never should have cost the school
+        anything — and always leaves an audit-trail row so both the
+        school and the super admin can see exactly what was sent and
+        what it cost, not just a balance number that silently changed.
+        """
+        if not self.billed_via_wallet:
+            return
+        from payments.sms_wallet_models import SMSPricingSettings, SchoolSMSWallet, SMSUsageRecord
+        pricing = SMSPricingSettings.get_current()
+        if success:
+            wallet = SchoolSMSWallet.get_or_create_for_school(self.school)
+            wallet.balance_etb = wallet.balance_etb - pricing.price_per_sms
+            wallet.save(update_fields=['balance_etb', 'updated_at'])
+        SMSUsageRecord.objects.create(
+            school=self.school,
+            related_to=related_to or '',
+            price_charged=pricing.price_per_sms if success else Decimal('0'),
+            cost_to_platform=pricing.cost_per_sms if success else Decimal('0'),
+            success=success,
+        )
+
     def send_sms(self, phone_number, message, related_to=None):
         """Send SMS using Afro Message's REST API."""
         if not phone_number:
             raise Exception("No phone number provided")
 
         self._check_quota()
+        self._check_wallet_balance()  # ✅ NEW — no-op for self-managed schools
 
         formatted_number = self.format_phone_number(phone_number)
         logger.info(f"📤 Sending SMS for school {self.school.name} to: {formatted_number}")
 
         headers = {
-            "Authorization": f"Bearer {self.school.at_api_key}",
+            "Authorization": f"Bearer {self._effective_api_key}",
         }
 
         base_params = {
@@ -124,13 +219,25 @@ class MultiSchoolSMSService:
 
             if response.status_code == 200 and data.get("acknowledge") == "success":
                 self._update_quota_count()
+                self._debit_wallet_and_log(related_to, success=True)  # ✅ NEW — no-op for self-managed schools
                 logger.info(f"✅ Afro Message send succeeded for {self.school.name}: {data.get('response')}")
-                return {
+                result = {
                     'success': True,
                     'message': 'SMS sent successfully',
                     'school': self.school.name,
                     'provider_response': data.get('response'),
                 }
+                # ✅ NEW: extra keys only meaningful for platform-managed
+                # schools — every existing caller reads specific keys it
+                # already expects (e.g. result['success']), so adding
+                # keys here is safe and doesn't change existing behavior.
+                if self.billed_via_wallet:
+                    from payments.sms_wallet_models import SMSPricingSettings, SchoolSMSWallet
+                    wallet = SchoolSMSWallet.get_or_create_for_school(self.school)
+                    result['billed_via_wallet'] = True
+                    result['wallet_balance_after'] = wallet.balance_etb
+                    result['low_balance_warning'] = wallet.is_low()
+                return result
 
             # Keep the error and only retry the next param variant if this
             # looks like a sender-field problem, not an auth/balance problem.
@@ -144,6 +251,7 @@ class MultiSchoolSMSService:
 
         # If we got here, all variants failed
         logger.error(f"❌ Afro Message send failed for {self.school.name}: {last_error}")
+        self._debit_wallet_and_log(related_to, success=False)  # ✅ NEW — logs the attempt, never charges for a failed send
 
         if "auth" in str(last_error).lower() or "unauthorized" in str(last_error).lower() or "401" in str(last_error):
             self.school.sms_enabled = False

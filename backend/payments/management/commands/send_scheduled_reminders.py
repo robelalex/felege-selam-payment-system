@@ -41,17 +41,22 @@ class Command(BaseCommand):
         total_sms_failed = 0
         total_students_checked = 0
 
-        # ✅ Only schools that are actually allowed to be using the
-        # platform at all (mirrors SchoolMiddleware's "active school"
-        # definition), AND have SMS turned on with a real API key —
-        # MultiSchoolSMSService(school_id) itself would raise if
-        # at_api_key were missing, but we want to skip those schools
-        # quietly here rather than spam the log with exceptions.
+        # ✅ FIXED (was a real bug this feature exposed): this used to
+        # hard-exclude any school without ITS OWN at_api_key, which
+        # meant a platform-managed school (using the developer's shared
+        # SMS wallet) would NEVER get its scheduled reminders sent at
+        # all — the #1 billable use case for the whole wallet feature
+        # was silently unreachable. MultiSchoolSMSService(school.id)
+        # now resolves the right credentials itself (own key, or the
+        # platform's shared key + wallet billing) and raises a clear
+        # exception if genuinely nothing is configured — which the
+        # try/except right below this already catches and skips
+        # quietly. So the at_api_key exclude is no longer needed here.
         schools = School.objects.filter(
             subscription_status='approved',
             subscription_active=True,
             sms_enabled=True,
-        ).exclude(at_api_key__isnull=True).exclude(at_api_key='')
+        )
 
         self.stdout.write(f"[{today}] Checking {schools.count()} SMS-enabled school(s)...")
 

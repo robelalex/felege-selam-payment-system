@@ -17,7 +17,7 @@
 // instead of the balance only ever changing when the super admin
 // quietly typed something in on their end with no visibility here.
 import React, { useState, useEffect, useCallback } from 'react';
-import { Wallet, TrendingUp, CheckCircle2, AlertCircle, RefreshCw, Info, Send, Clock, XCircle, Upload } from 'lucide-react';
+import { Wallet, TrendingUp, CheckCircle2, AlertCircle, RefreshCw, Info, Send, Clock, XCircle, Upload, MessageSquare } from 'lucide-react';
 import api from '../services/api';
 
 const STATUS_BADGE = {
@@ -54,6 +54,23 @@ function AdminAccountSummary() {
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState(null);
   const [formSuccess, setFormSuccess] = useState(null);
+
+  // ✅ NEW: SMS wallet state — mirrors the developer-fee settlement
+  // state above almost exactly, since it's the same "submit with a
+  // receipt, wait for review" shape, just topping up a balance instead
+  // of paying one down.
+  const [smsWallet, setSmsWallet] = useState(null);
+  const [smsWalletLoading, setSmsWalletLoading] = useState(true);
+  const [mySmsTopups, setMySmsTopups] = useState([]);
+  const [smsFormOpen, setSmsFormOpen] = useState(false);
+  const [smsFormAmount, setSmsFormAmount] = useState('');
+  const [smsFormNote, setSmsFormNote] = useState('');
+  const [smsFormReceipt, setSmsFormReceipt] = useState(null);
+  const [smsFormSubmitting, setSmsFormSubmitting] = useState(false);
+  const [smsFormError, setSmsFormError] = useState(null);
+  const [smsFormSuccess, setSmsFormSuccess] = useState(null);
+  const [enablingSms, setEnablingSms] = useState(false);
+  const [enableSmsError, setEnableSmsError] = useState(null);
 
   const fetchFeeSummary = useCallback(async () => {
     setFeeLoading(true);
@@ -94,11 +111,35 @@ function AdminAccountSummary() {
     }
   }, []);
 
+  // ✅ NEW: SMS wallet fetches
+  const fetchSmsWallet = useCallback(async () => {
+    setSmsWalletLoading(true);
+    try {
+      const res = await api.get('/my-school/sms-wallet/');
+      setSmsWallet(res.data);
+    } catch (err) {
+      console.error('Error fetching SMS wallet:', err);
+    } finally {
+      setSmsWalletLoading(false);
+    }
+  }, []);
+
+  const fetchMySmsTopups = useCallback(async () => {
+    try {
+      const res = await api.get('/my-school/sms-wallet/topups/');
+      setMySmsTopups(res.data.topups || []);
+    } catch (err) {
+      console.error('Error fetching SMS top-up history:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchFeeSummary();
     fetchBalance();
     fetchMySettlements();
-  }, [fetchFeeSummary, fetchBalance, fetchMySettlements]);
+    fetchSmsWallet();
+    fetchMySmsTopups();
+  }, [fetchFeeSummary, fetchBalance, fetchMySettlements, fetchSmsWallet, fetchMySmsTopups]);
 
   const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -135,6 +176,67 @@ function AdminAccountSummary() {
       setFormError(err.response?.data?.error || 'Could not submit — please try again.');
     } finally {
       setFormSubmitting(false);
+    }
+  };
+
+  // ✅ NEW: SMS wallet top-up submit handler
+  const handleSubmitSmsTopup = async (e) => {
+    e.preventDefault();
+    setSmsFormError(null);
+    setSmsFormSuccess(null);
+    if (!smsFormAmount || Number(smsFormAmount) <= 0) {
+      setSmsFormError('Enter the amount you sent.');
+      return;
+    }
+    if (!smsFormReceipt) {
+      setSmsFormError('Attach a screenshot or photo of the receipt.');
+      return;
+    }
+    setSmsFormSubmitting(true);
+    try {
+      const data = new FormData();
+      data.append('amount', smsFormAmount);
+      data.append('note', smsFormNote);
+      data.append('receipt', smsFormReceipt);
+      await api.post('/my-school/sms-wallet/topups/submit/', data, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setSmsFormSuccess('Sent! The developer will review your receipt and credit your SMS wallet shortly.');
+      setSmsFormAmount('');
+      setSmsFormNote('');
+      setSmsFormReceipt(null);
+      setSmsFormOpen(false);
+      fetchMySmsTopups();
+      fetchSmsWallet();
+    } catch (err) {
+      console.error('Error submitting SMS top-up:', err);
+      setSmsFormError(err.response?.data?.error || 'Could not submit — please try again.');
+    } finally {
+      setSmsFormSubmitting(false);
+    }
+  };
+
+  // ✅ NEW: explicit opt-in / opt-out for platform-managed SMS
+  const handleEnablePlatformSms = async () => {
+    setEnablingSms(true);
+    setEnableSmsError(null);
+    try {
+      const res = await api.post('/my-school/sms-wallet/enable/');
+      setSmsWallet(res.data.summary);
+    } catch (err) {
+      console.error('Error enabling platform-managed SMS:', err);
+      setEnableSmsError(err.response?.data?.error || 'Could not enable — please try again.');
+    } finally {
+      setEnablingSms(false);
+    }
+  };
+
+  const handleDisablePlatformSms = async () => {
+    try {
+      const res = await api.post('/my-school/sms-wallet/disable/');
+      setSmsWallet(res.data.summary);
+    } catch (err) {
+      console.error('Error disabling platform-managed SMS:', err);
     }
   };
 
@@ -406,6 +508,168 @@ function AdminAccountSummary() {
               </div>
             )}
           </>
+        )}
+
+        {/* ==================== SMS WALLET ====================
+            ✅ NEW (requested): only meaningful for "platform-managed"
+            schools (no Afro Message key of their own configured) — the
+            developer's shared account + a prepaid, marked-up wallet.
+            Self-managed schools (their own key) see a short note
+            instead, since the wallet concept doesn't apply to them. */}
+        {!smsWalletLoading && smsWallet && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mt-6">
+            <div className="px-6 py-4 border-b border-gray-100">
+              <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+                <MessageSquare className="h-4 w-4 text-primary-600" /> SMS Wallet
+              </h2>
+            </div>
+
+            {!smsWallet.is_platform_managed ? (
+              <p className="p-6 text-sm text-gray-500">
+                Your school uses its own Afro Message account for SMS, so there's no wallet here to manage —
+                you're billed directly by Afro Message, at whatever rate they've set for your account.
+              </p>
+            ) : !smsWallet.sms_enabled ? (
+              <div className="p-6">
+                <p className="text-sm text-gray-600 mb-3">
+                  You don't have your own Afro Message account configured. You can let the developer handle SMS
+                  for you instead — sends go through their account, billed from a prepaid wallet at{' '}
+                  <strong className="text-gray-800">{fmt(smsWallet.price_per_sms)} ETB per message</strong>.
+                  Nothing is billed to you until you enable this.
+                </p>
+                <button
+                  onClick={handleEnablePlatformSms}
+                  disabled={enablingSms}
+                  className="px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
+                >
+                  {enablingSms ? 'Enabling…' : 'Enable Developer-Managed SMS'}
+                </button>
+                {enableSmsError && <p className="text-sm text-red-600 mt-2">{enableSmsError}</p>}
+              </div>
+            ) : (
+              <>
+                <div className="px-6 pt-4 pb-1 flex justify-end">
+                  <button onClick={handleDisablePlatformSms} className="text-xs text-gray-400 hover:text-gray-600 underline">
+                    Pause developer-managed SMS
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
+                  <div className="px-6 py-4">
+                    <p className="text-xs text-gray-400 uppercase tracking-wide">Current Balance</p>
+                    <p className={`text-2xl font-semibold mt-1 ${smsWallet.is_low ? 'text-amber-600' : 'text-gray-900'}`}>
+                      {fmt(smsWallet.balance_etb)} <span className="text-sm font-normal text-gray-400">ETB</span>
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">≈ {smsWallet.estimated_messages_remaining} messages left</p>
+                  </div>
+                  <div className="px-6 py-4">
+                    <p className="text-xs text-gray-400 uppercase tracking-wide">Price per SMS</p>
+                    <p className="text-2xl font-semibold text-gray-900 mt-1">{fmt(smsWallet.price_per_sms)} <span className="text-sm font-normal text-gray-400">ETB</span></p>
+                    <p className="text-xs text-gray-400 mt-1">{smsWallet.messages_sent_this_month} sent this month</p>
+                  </div>
+                  <div className="px-6 py-4">
+                    <p className="text-xs text-gray-400 uppercase tracking-wide">Status</p>
+                    <p className={`text-sm font-semibold mt-1 ${smsWallet.is_low ? 'text-amber-600' : 'text-emerald-600'}`}>
+                      {smsWallet.is_low ? 'Running low' : 'Healthy'}
+                    </p>
+                    {Number(smsWallet.pending_topup_amount) > 0 && (
+                      <p className="text-xs text-amber-600 mt-1">{fmt(smsWallet.pending_topup_amount)} ETB awaiting review</p>
+                    )}
+                  </div>
+                </div>
+
+                {smsWallet.is_low && (
+                  <div className="px-6 py-3 bg-amber-50 border-t border-amber-100 flex items-center gap-2 text-xs text-amber-800">
+                    <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                    Your balance is running low (at or below {fmt(smsWallet.low_balance_threshold_etb)} ETB) — reminders may stop sending once it runs out. Top up below.
+                  </div>
+                )}
+
+                <div className="border-t border-gray-100">
+                  <div className="px-6 py-4 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
+                        <Send className="h-4 w-4 text-primary-600" /> Top Up SMS Wallet
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-0.5">Sent a transfer for SMS credit? Log it here with your receipt.</p>
+                    </div>
+                    <button
+                      onClick={() => setSmsFormOpen((v) => !v)}
+                      className="text-sm font-medium text-primary-600 hover:text-primary-700 px-3 py-1.5 rounded-lg border border-primary-200 hover:bg-primary-50"
+                    >
+                      {smsFormOpen ? 'Cancel' : 'I sent a payment'}
+                    </button>
+                  </div>
+
+                  {smsFormOpen && (
+                    <form onSubmit={handleSubmitSmsTopup} className="px-6 pb-6 space-y-3">
+                      {smsFormError && (
+                        <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{smsFormError}</div>
+                      )}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Amount sent (ETB)</label>
+                          <input
+                            type="number" min="0" step="0.01" value={smsFormAmount}
+                            onChange={(e) => setSmsFormAmount(e.target.value)}
+                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Note (optional)</label>
+                          <input
+                            type="text" value={smsFormNote} onChange={(e) => setSmsFormNote(e.target.value)}
+                            placeholder="e.g. CBE transfer, 1 Sep 2026"
+                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Receipt / screenshot</label>
+                        <label className="flex items-center gap-2 border border-dashed border-gray-300 rounded-lg px-3 py-3 text-sm text-gray-500 cursor-pointer hover:bg-gray-50">
+                          <Upload className="h-4 w-4" />
+                          {smsFormReceipt ? smsFormReceipt.name : 'Click to choose a photo or screenshot'}
+                          <input
+                            type="file" accept="image/*" className="hidden"
+                            onChange={(e) => setSmsFormReceipt(e.target.files?.[0] || null)}
+                          />
+                        </label>
+                      </div>
+                      <button
+                        type="submit" disabled={smsFormSubmitting}
+                        className="w-full sm:w-auto px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
+                      >
+                        {smsFormSubmitting ? 'Sending…' : 'Submit for review'}
+                      </button>
+                    </form>
+                  )}
+
+                  {smsFormSuccess && (
+                    <div className="mx-6 mb-4 flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                      <CheckCircle2 className="h-4 w-4" /> {smsFormSuccess}
+                    </div>
+                  )}
+
+                  {mySmsTopups.length > 0 && (
+                    <div className="px-6 pb-6 space-y-2">
+                      <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Your top-ups</h4>
+                      {mySmsTopups.map((t) => (
+                        <div key={t.id} className="flex items-center justify-between border border-gray-100 rounded-lg px-3 py-2">
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">{fmt(t.amount)} ETB {t.note && <span className="text-gray-400 font-normal">— {t.note}</span>}</p>
+                            <p className="text-xs text-gray-400">{new Date(t.created_at).toLocaleDateString()}</p>
+                            {t.status === 'rejected' && t.rejection_reason && (
+                              <p className="text-xs text-red-600 mt-1">Reason: {t.rejection_reason}</p>
+                            )}
+                          </div>
+                          <SettlementStatusBadge status={t.status} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
     </div>
