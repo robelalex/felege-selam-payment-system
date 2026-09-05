@@ -11,8 +11,6 @@ import { pickCurrentSchool } from '../../utils/currentSchool';
 import { useYear } from '../../context/YearContext';
 import { useAuth } from '../../context/AuthContext';
 
-const MEDAL_COLORS = ['text-yellow-500', 'text-gray-400', 'text-amber-700'];
-
 function SchoolResultsAwards() {
   const { selectedYear } = useYear();
   const { getAuthHeader } = useAuth();
@@ -244,14 +242,22 @@ function SchoolResultsAwards() {
             </div>
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              {results.map((r, i) => (
+              {results.map((r, i) => {
+                // ✅ FIXED: this used to key off `i` (row position) —
+                // MEDAL_COLORS[i] and `i < 3` — so a tie at rank 1 would
+                // show gold/silver/bronze for three DIFFERENT rows even
+                // though two of them are the same rank. Now keyed off
+                // the actual r.school_rank value, same fix as the medal
+                // logic on the teacher's Class Results page.
+                const medalColor = r.school_rank === 1 ? 'text-yellow-500' : r.school_rank === 2 ? 'text-gray-400' : r.school_rank === 3 ? 'text-amber-700' : null;
+                return (
                 <div
                   key={r.id}
                   className={`flex items-center gap-4 px-6 py-4 ${i !== results.length - 1 ? 'border-b border-gray-100' : ''}`}
                 >
                   <div className="w-10 flex justify-center">
-                    {i < 3 ? (
-                      <Medal className={`h-7 w-7 ${MEDAL_COLORS[i]}`} />
+                    {medalColor ? (
+                      <Medal className={`h-7 w-7 ${medalColor}`} />
                     ) : (
                       <span className="text-gray-400 font-semibold">{r.school_rank}</span>
                     )}
@@ -267,7 +273,8 @@ function SchoolResultsAwards() {
                     {r.letter_grade && <p className="text-xs text-gray-500">{r.letter_grade}</p>}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </>

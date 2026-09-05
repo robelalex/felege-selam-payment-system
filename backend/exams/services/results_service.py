@@ -119,9 +119,13 @@ def rank_by_value(items, get_value):
     model. Given a list of arbitrary items and a function to pull a
     numeric value out of each one, returns (ranked_items, total) where
     ranked_items is [(item, rank), ...] sorted descending by value, with
-    standard competition ranking for ties (two people tied for 1st both
-    get rank 1, the next person gets rank 3, not 2). Items whose value is
-    None are dropped entirely — you can't rank someone with no score.
+    DENSE ranking for ties: two students tied for 2nd both get rank 2,
+    and the next student gets rank 3 — not 4. (This used to be
+    "competition ranking" — 2, 2, 4 — which is standard in some
+    contexts, but not what Ethiopian class-rank report cards expect;
+    fixed after seeing it produce exactly that wrong-looking 2, 2, 4
+    sequence on a real homeroom.) Items whose value is None are dropped
+    entirely — you can't rank someone with no score.
 
     This is the same logic that was previously private to this file
     (only used for StudentTermResult); pulled out to a standalone
@@ -137,9 +141,9 @@ def rank_by_value(items, get_value):
     ranked_items = []
     prev_value = None
     current_rank = 0
-    for i, (item, value) in enumerate(scored, start=1):
+    for item, value in scored:
         if value != prev_value:
-            current_rank = i
+            current_rank += 1  # ✅ dense: only advances on an actual value change, never jumps to a position index
             prev_value = value
         ranked_items.append((item, current_rank))
 

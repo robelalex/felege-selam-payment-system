@@ -1180,8 +1180,17 @@ class StudentTermResultViewSet(viewsets.ReadOnlyModelViewSet):
             school_id=school_id, term_id=term_id, school_rank__isnull=False,
         )
         qs = qs.filter(grade__lte=max_grade) if band == 'elementary' else qs.filter(grade__gt=max_grade)
-        qs = qs.order_by('school_rank')[:limit]
-        return Response(StudentTermResultSerializer(qs, many=True).data)
+        ranked = list(qs.order_by('school_rank'))
+        # ✅ FIXED: this used to be a plain qs[:limit] — a raw row-count
+        # slice. With dense ranking (two students can share rank 1), that
+        # could cut a tied student off an awards list arbitrarily — e.g.
+        # 4 students tied for 1st, "Show top 3" would show only 3 of the
+        # 4 equally-deserving winners. Now includes EVERYONE tied at the
+        # rank that falls at the cutoff, so ties are never split.
+        if len(ranked) > limit:
+            cutoff_rank = ranked[limit - 1].school_rank
+            ranked = [r for r in ranked if r.school_rank <= cutoff_rank]
+        return Response(StudentTermResultSerializer(ranked, many=True).data)
 
     @action(detail=False, methods=['post'])
     def recalculate(self, request):
@@ -1243,7 +1252,7 @@ class StudentTermResultViewSet(viewsets.ReadOnlyModelViewSet):
 
         from students.models import Student
         students = Student.objects.filter(
-            school_id=school_id, grade=assignment.grade, section=assignment.section, status='active',
+            school_id=school_id, grade=assignment.grade, section=assignment.section.name, status='active',
         )
         for student in students:
             results_service.recompute_student_term_result(student, term, computed_by=staff)
@@ -1251,7 +1260,7 @@ class StudentTermResultViewSet(viewsets.ReadOnlyModelViewSet):
         # Homeroom rank only — deliberately does NOT call
         # recompute_school_ranks(), unlike the admin action above.
         results_service.recompute_homeroom_ranks(
-            term.school, term.academic_year, term, assignment.grade, assignment.section,
+            term.school, term.academic_year, term, assignment.grade, assignment.section.name,
         )
         return Response({'recomputed_students': students.count()})
 
@@ -1496,8 +1505,13 @@ class StudentSemesterResultViewSet(viewsets.ReadOnlyModelViewSet):
             school_id=school_id, semester_id=semester_id, school_rank__isnull=False,
         )
         qs = qs.filter(grade__lte=max_grade) if band == 'elementary' else qs.filter(grade__gt=max_grade)
-        qs = qs.order_by('school_rank')[:limit]
-        return Response(StudentSemesterResultSerializer(qs, many=True).data)
+        ranked = list(qs.order_by('school_rank'))
+        # ✅ FIXED: same reasoning as StudentTermResultViewSet.school_top —
+        # a raw row-count slice could split a tie across the cutoff.
+        if len(ranked) > limit:
+            cutoff_rank = ranked[limit - 1].school_rank
+            ranked = [r for r in ranked if r.school_rank <= cutoff_rank]
+        return Response(StudentSemesterResultSerializer(ranked, many=True).data)
 
     @action(detail=False, methods=['post'])
     def recalculate(self, request):
@@ -1552,12 +1566,12 @@ class StudentSemesterResultViewSet(viewsets.ReadOnlyModelViewSet):
 
         from students.models import Student
         students = Student.objects.filter(
-            school_id=school_id, grade=assignment.grade, section=assignment.section, status='active',
+            school_id=school_id, grade=assignment.grade, section=assignment.section.name, status='active',
         )
         for student in students:
             results_service.recompute_student_semester_result(student, semester, computed_by=staff)
 
         results_service.recompute_homeroom_semester_ranks(
-            semester.school, semester.academic_year, semester, assignment.grade, assignment.section,
+            semester.school, semester.academic_year, semester, assignment.grade, assignment.section.name,
         )
         return Response({'recomputed_students': students.count()})
