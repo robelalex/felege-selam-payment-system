@@ -5,7 +5,7 @@
 // Read-only screen — same GET /api/results/school_top/ endpoint that's
 // been sitting unused since we built the backend for it.
 import React, { useState, useEffect, useCallback } from 'react';
-import { Trophy, Loader, AlertTriangle, Medal } from 'lucide-react';
+import { Trophy, Loader, AlertTriangle, Medal, RefreshCw } from 'lucide-react';
 import api from '../../services/api';
 import { pickCurrentSchool } from '../../utils/currentSchool';
 import { useYear } from '../../context/YearContext';
@@ -31,6 +31,7 @@ function SchoolResultsAwards() {
   const [results, setResults] = useState([]);
   const [loadingTerms, setLoadingTerms] = useState(true);
   const [loadingResults, setLoadingResults] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -97,6 +98,32 @@ function SchoolResultsAwards() {
   useEffect(() => {
     loadResults();
   }, [loadResults]);
+
+  // ✅ NEW (requested): school-wide recompute — same admin-only endpoint
+  // AdminReportCards.js already uses, added here too since this is the
+  // page that actually shows the school-wide comparison (elementary vs
+  // high school bands) that this recalculation feeds. Unlike the
+  // teacher's homeroom button, this recomputes and re-ranks EVERY
+  // student in the school for the selected term/semester, not just one
+  // class — that's the whole point of this page.
+  const handleRecalculate = async () => {
+    if (periodType === 'term' && !selectedTermId) return;
+    if (periodType === 'semester' && !selectedSemesterId) return;
+    setRecalculating(true);
+    setError('');
+    try {
+      if (periodType === 'term') {
+        await api.post('/results/recalculate/', { term_id: selectedTermId }, { headers: getAuthHeader() });
+      } else {
+        await api.post('/semester-results/recalculate/', { semester_id: selectedSemesterId }, { headers: getAuthHeader() });
+      }
+      await loadResults();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to recalculate ranks');
+    } finally {
+      setRecalculating(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -189,6 +216,20 @@ function SchoolResultsAwards() {
                 {[3, 5, 10].map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
             </div>
+
+            {/* ✅ NEW (requested): school-wide recompute, admin only —
+                recomputes and re-ranks EVERY student in the school for
+                this term/semester, unlike the teacher's homeroom-only
+                button on their own Class Results page. */}
+            <button
+              onClick={handleRecalculate}
+              disabled={recalculating || (periodType === 'term' ? !selectedTermId : !selectedSemesterId)}
+              title="Recompute averages and re-rank the whole school for this period"
+              className="ml-auto flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+            >
+              {recalculating ? <Loader className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {recalculating ? 'Recalculating…' : 'Recalculate School-Wide'}
+            </button>
           </div>
 
           {error && (

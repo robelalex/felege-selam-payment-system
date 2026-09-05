@@ -26,7 +26,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader, RefreshCw, Trophy, Download } from 'lucide-react';
-import { getClassResultsByTerms, getClassResultsBySemesters, getClassResultsBySemester, getClassResults, getSchoolInfo, downloadClassResultsExport, extractError } from '../../services/teacherApi';
+import { getClassResultsByTerms, getClassResultsBySemesters, getClassResultsBySemester, getClassResults, getSchoolInfo, downloadClassResultsExport, recalculateHomeroom, extractError } from '../../services/teacherApi';
 
 function TeacherClassResults() {
   const [params] = useSearchParams();
@@ -67,6 +67,7 @@ function TeacherClassResults() {
   // Average + Rank) as .xlsx — same data as the on-screen overview
   // table, server-generated so it can never disagree with what's shown.
   const [downloading, setDownloading] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
 
   // Fetch the school's term_structure once, so we know whether to show
   // the Quarter/Semester toggle at all.
@@ -120,6 +121,26 @@ function TeacherClassResults() {
   }, [grade, section, academicYearId, periodType, selectedTermId, selectedSemesterId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // ✅ NEW (requested): recompute averages and re-rank ONLY this
+  // teacher's own homeroom — the backend derives grade/section from
+  // their own HomeroomAssignment, never from anything sent here, so
+  // this can never touch another class. Only available once a single
+  // term or semester is actually selected (drill-down view) — there's
+  // no single period to recalculate from the overview table.
+  const handleRecalculate = async () => {
+    if (!selectedTermId && !selectedSemesterId) return;
+    setRecalculating(true);
+    setError('');
+    try {
+      await recalculateHomeroom({ termId: selectedTermId || null, semesterId: selectedSemesterId || null });
+      await load();
+    } catch (err) {
+      setError(extractError(err, 'Failed to recalculate ranks'));
+    } finally {
+      setRecalculating(false);
+    }
+  };
 
   const handleDownload = async () => {
     setDownloading(true);
@@ -281,6 +302,23 @@ function TeacherClassResults() {
             >
               {downloading ? <Loader className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               {downloading ? 'Preparing…' : 'Download Excel'}
+            </button>
+          )}
+
+          {/* ✅ NEW (requested): only makes sense once a single term or
+              semester is selected — that's the actual period being
+              recalculated. Recomputes and re-ranks THIS homeroom only,
+              never the whole school (that's the admin's job, in
+              Results & Awards). */}
+          {(selectedTermId || selectedSemesterId) && (
+            <button
+              onClick={handleRecalculate}
+              disabled={recalculating}
+              title="Recompute averages and re-rank this class only"
+              className="ml-auto flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+            >
+              {recalculating ? <Loader className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {recalculating ? 'Recalculating…' : 'Recalculate My Homeroom'}
             </button>
           )}
         </div>

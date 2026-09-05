@@ -161,6 +161,16 @@ export const getSubjectAttendanceSummaryRecords = ({ subjectId, grade, section, 
 export const getClassResults = ({ termId, grade, section = '' }) =>
   teacherApi.get('/results/class_results/', { params: { term_id: termId, grade, section } });
 
+// ✅ NEW (requested): homeroom teacher's own recalculate button — only
+// ever affects the teacher's own assigned homeroom (grade/section
+// resolved server-side from their HomeroomAssignment, never taken from
+// this call), never the whole school. term_id OR semester_id, matching
+// whichever periodType the teacher currently has selected.
+export const recalculateHomeroom = ({ termId, semesterId }) =>
+  termId
+    ? teacherApi.post('/results/recalculate-homeroom/', { term_id: termId })
+    : teacherApi.post('/semester-results/recalculate-homeroom/', { semester_id: semesterId });
+
 // Term 1 | Term 2 | ... | Average-of-terms view for the homeroom's
 // "Check Result and Award" screen (Phase 6 cumulative logic, reused).
 export const getClassResultsByTerms = ({ grade, section = '', academicYearId }) =>

@@ -1204,6 +1204,57 @@ class StudentTermResultViewSet(viewsets.ReadOnlyModelViewSet):
         )
         return Response({'recomputed_students': count})
 
+    # ✅ NEW (requested): a homeroom teacher's own version of the action
+    # above — recomputes averages and re-ranks ONLY their own homeroom
+    # (grade + section they're actually assigned to), never the rest of
+    # the school. A homeroom teacher only ever competes their own class
+    # against itself, not school-wide — that comparison is the admin's
+    # "Results & Awards" view, handled by recalculate_school below.
+    @action(detail=False, methods=['post'], url_path='recalculate-homeroom')
+    def recalculate_homeroom(self, request):
+        """Body: { term_id }. Homeroom teacher only — recompute + re-rank their own class."""
+        staff = _get_staff_profile(request)
+        if not staff or staff.role != 'teacher':
+            return Response({'error': 'Homeroom teachers only'}, status=403)
+
+        school_id = get_verified_school_id(request)
+        term_id = request.data.get('term_id')
+        if not (school_id and term_id):
+            return Response({'error': 'term_id is required'}, status=400)
+
+        term = Term.objects.filter(id=term_id, school_id=school_id).first()
+        if not term:
+            return Response({'error': 'Term not found'}, status=404)
+
+        # ✅ Grade/section is looked up from the teacher's OWN
+        # HomeroomAssignment — deliberately never taken from client
+        # input — so a teacher can only ever recalculate the class
+        # they're actually the homeroom teacher for, not any class they
+        # choose to name in the request body.
+        from academics.models import HomeroomAssignment
+        assignment = HomeroomAssignment.objects.filter(
+            school_id=school_id, academic_year=term.academic_year, teacher=staff,
+        ).select_related('section').first()
+        if not assignment:
+            return Response(
+                {'error': "You're not assigned as a homeroom teacher for this academic year."},
+                status=403,
+            )
+
+        from students.models import Student
+        students = Student.objects.filter(
+            school_id=school_id, grade=assignment.grade, section=assignment.section, status='active',
+        )
+        for student in students:
+            results_service.recompute_student_term_result(student, term, computed_by=staff)
+
+        # Homeroom rank only — deliberately does NOT call
+        # recompute_school_ranks(), unlike the admin action above.
+        results_service.recompute_homeroom_ranks(
+            term.school, term.academic_year, term, assignment.grade, assignment.section,
+        )
+        return Response({'recomputed_students': students.count()})
+
 
 class StudentSemesterResultViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -1468,3 +1519,45 @@ class StudentSemesterResultViewSet(viewsets.ReadOnlyModelViewSet):
             school=semester.school, academic_year=semester.academic_year, semester=semester, computed_by=staff,
         )
         return Response({'recomputed_students': count})
+
+    # ✅ NEW (requested): homeroom teacher's own semester-scoped version,
+    # same reasoning as StudentTermResultViewSet.recalculate_homeroom —
+    # own class only, grade/section from their own HomeroomAssignment,
+    # never school-wide.
+    @action(detail=False, methods=['post'], url_path='recalculate-homeroom')
+    def recalculate_homeroom(self, request):
+        """Body: { semester_id }. Homeroom teacher only — recompute + re-rank their own class."""
+        staff = _get_staff_profile(request)
+        if not staff or staff.role != 'teacher':
+            return Response({'error': 'Homeroom teachers only'}, status=403)
+
+        school_id = get_verified_school_id(request)
+        semester_id = request.data.get('semester_id')
+        if not (school_id and semester_id):
+            return Response({'error': 'semester_id is required'}, status=400)
+
+        semester = Semester.objects.filter(id=semester_id, school_id=school_id).first()
+        if not semester:
+            return Response({'error': 'Semester not found'}, status=404)
+
+        from academics.models import HomeroomAssignment
+        assignment = HomeroomAssignment.objects.filter(
+            school_id=school_id, academic_year=semester.academic_year, teacher=staff,
+        ).select_related('section').first()
+        if not assignment:
+            return Response(
+                {'error': "You're not assigned as a homeroom teacher for this academic year."},
+                status=403,
+            )
+
+        from students.models import Student
+        students = Student.objects.filter(
+            school_id=school_id, grade=assignment.grade, section=assignment.section, status='active',
+        )
+        for student in students:
+            results_service.recompute_student_semester_result(student, semester, computed_by=staff)
+
+        results_service.recompute_homeroom_semester_ranks(
+            semester.school, semester.academic_year, semester, assignment.grade, assignment.section,
+        )
+        return Response({'recomputed_students': students.count()})
