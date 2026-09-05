@@ -102,7 +102,12 @@ function BankSlips() {
   const handleVerify = async (slipId) => {
     setActionLoading(true);
     try {
-      await api.post(`/slips/${slipId}/verify/`, { action: 'verify' });
+      const res = await api.post(`/slips/${slipId}/verify/`, { action: 'verify' });
+      // ✅ NEW: same fix as AdminSlips.js — surface the mismatch/reused-
+      // reference warnings instead of silently dropping them.
+      if (res.data?.warnings?.length > 0) {
+        alert('⚠️ Verified, but please review:\n\n' + res.data.warnings.join('\n\n'));
+      }
       fetchSlips();
       setShowModal(false);
     } catch (err) {

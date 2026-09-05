@@ -22,6 +22,130 @@ logger = logging.getLogger(__name__)
 
 # ============ MULTI-SCHOOL SMS ENDPOINTS ============
 
+def _run_bulk_reminder_batch(school, deadline, students, custom_message):
+    """
+    ✅ NEW (requested, scaling audit item 5): the actual per-student
+    payment-link + SMS loop, extracted unchanged out of
+    MultiSchoolSendBulkRemindersView.post() so it can be called two
+    ways: directly (small batches, instant results, exactly as before)
+    or from inside an async_task (large batches — see
+    send_bulk_payment_link_reminders_async in tasks.py). No logic
+    changed here, just moved so it has one home instead of being
+    duplicated between the sync and async code paths.
+    """
+    results = []
+    successful_count = 0
+    sms_service = MultiSchoolSMSService(school.id)
+
+    for student in students:
+        try:
+            # Check if already paid
+            from ..models import Payment
+            if Payment.objects.filter(student=student, deadline=deadline, status='verified').exists():
+                results.append({
+                    'student_id': student.student_id,
+                    'name': student.full_name,
+                    'success': False,
+                    'message': 'Already paid'
+                })
+                continue
+
+            # ✅ Fee exceptions (Jimma request #1) + money-safety, same
+            # reasoning as the single-reminder view above — skip
+            # students already fully covered, and always compute the
+            # charged amount server-side.
+            from ..services.fee_override_service import get_effective_deadline_amount
+            effective_amount = get_effective_deadline_amount(student, deadline)
+            if effective_amount <= 0:
+                results.append({
+                    'student_id': student.student_id,
+                    'name': student.full_name,
+                    'success': False,
+                    'message': 'Covered by fee waiver — nothing due'
+                })
+                continue
+
+            # Generate secure payment link
+            payment_obj, created = PaymentModel.objects.get_or_create(
+                student=student,
+                deadline=deadline,
+                defaults={
+                    'amount': effective_amount,
+                    'payment_method': 'chapa',
+                    'paid_by': student.full_name,
+                    'paid_by_phone': student.parent_phone,
+                    'status': 'pending'
+                }
+            )
+            if not created and payment_obj.status == 'pending' and payment_obj.amount != effective_amount:
+                payment_obj.amount = effective_amount
+                payment_obj.save(update_fields=['amount'])
+            token, record = generate_payment_token(payment_obj, student.parent_phone, channel="sms")
+            payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
+
+            # Build message
+            if custom_message:
+                message = f"{custom_message}\n\nPay here: {payment_link}"
+            else:
+                message = f"""የትምህርት ክፍያ ማስታወሻ - {deadline.academic_year} {deadline.display_label}
+
+ለ: {student.full_name}
+ክፍያ: {effective_amount} ብር
+የማስከፈያ ቀን: {deadline.due_date}
+
+እባክዎ በመስመር ላይ ይክፈሉ: {payment_link}
+
+ለማንኛውም ጥያቄ ወደ ትምህርት ቤቱ ይደውሉ: {school.phone}"""
+
+            # Send SMS
+            result = sms_service.send_sms(
+                student.parent_phone,
+                message,
+                related_to=f"bulk_reminder_{deadline.id}"
+            )
+
+            if result.get('success'):
+                successful_count += 1
+
+                # Log to SMSHistory
+                SMSHistory.objects.create(
+                    recipient=student.parent_phone,
+                    message=message[:500],
+                    status='sent',
+                    message_id=result.get('message_id', ''),
+                    related_to=f"bulk_{deadline.id}_student_{student.id}"
+                )
+
+                # Create PaymentReminder record
+                from ..models import PaymentReminder
+                PaymentReminder.objects.create(
+                    student=student,
+                    deadline=deadline,
+                    sent_to=student.parent_phone,
+                    message=message[:500],
+                    status='sent'
+                )
+
+            results.append({
+                'student_id': student.student_id,
+                'name': student.full_name,
+                'phone': student.parent_phone,
+                'success': result.get('success', False),
+                'message': result.get('message', 'Sent' if result.get('success') else 'Failed')
+            })
+
+        except Exception as e:
+            logger.error(f"Failed for student {student.student_id}: {e}")
+            results.append({
+                'student_id': student.student_id,
+                'name': student.full_name,
+                'success': False,
+                'error': str(e)
+            })
+
+    return results, successful_count
+
+
 class MultiSchoolSMSBalanceView(APIView):
     """Get SMS balance for the current school"""
     permission_classes = [IsAuthenticated]
@@ -251,117 +375,41 @@ class MultiSchoolSendBulkRemindersView(APIView):
             school=school,
             status='active'
         ).exclude(parent_phone__isnull=True).exclude(parent_phone='')
-        
-        results = []
-        successful_count = 0
-        
-        sms_service = MultiSchoolSMSService(school.id)
-        
-        for student in students:
-            try:
-                # Check if already paid
-                from ..models import Payment
-                if Payment.objects.filter(student=student, deadline=deadline, status='verified').exists():
-                    results.append({
-                        'student_id': student.student_id,
-                        'name': student.full_name,
-                        'success': False,
-                        'message': 'Already paid'
-                    })
-                    continue
-                
-                # ✅ Fee exceptions (Jimma request #1) + money-safety, same
-                # reasoning as the single-reminder view above — skip
-                # students already fully covered, and always compute the
-                # charged amount server-side.
-                from ..services.fee_override_service import get_effective_deadline_amount
-                effective_amount = get_effective_deadline_amount(student, deadline)
-                if effective_amount <= 0:
-                    results.append({
-                        'student_id': student.student_id,
-                        'name': student.full_name,
-                        'success': False,
-                        'message': 'Covered by fee waiver — nothing due'
-                    })
-                    continue
 
-                # Generate secure payment link
-                payment_obj, created = PaymentModel.objects.get_or_create(
-                    student=student,
-                    deadline=deadline,
-                    defaults={
-                        'amount': effective_amount,
-                        'payment_method': 'chapa',
-                        'paid_by': student.full_name,
-                        'paid_by_phone': student.parent_phone,
-                        'status': 'pending'
-                    }
-                )
-                if not created and payment_obj.status == 'pending' and payment_obj.amount != effective_amount:
-                    payment_obj.amount = effective_amount
-                    payment_obj.save(update_fields=['amount'])
-                token, record = generate_payment_token(payment_obj, student.parent_phone, channel="sms")
-                payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
-                
-                # Build message
-                if custom_message:
-                    message = f"{custom_message}\n\nPay here: {payment_link}"
-                else:
-                    message = f"""የትምህርት ክፍያ ማስታወሻ - {deadline.academic_year} {deadline.display_label}
+        # ✅ NEW (requested, scaling audit item 5): this is the endpoint
+        # your frontend actually calls for bulk reminders (confirmed by
+        # tracing AdminReminders.js / SMSDashboard.js). A small selection
+        # still gets instant results, exactly as before. A LARGE batch
+        # (e.g. "send to all 2,000 unpaid students") now queues instead
+        # of looping through 2,000 payment-link generations + SMS sends
+        # inside this one HTTP request — see render.yaml's --workers 1:
+        # that loop was blocking the ONLY available worker for everyone,
+        # school-wide, for however long it took.
+        BULK_THRESHOLD = 50
+        if students.count() > BULK_THRESHOLD:
+            from django_q.tasks import async_task
+            task_id = async_task(
+                'payments.tasks.send_bulk_payment_link_reminders_async',
+                school.id, deadline_id, list(student_ids), custom_message,
+            )
+            return Response({
+                'queued': True,
+                'task_id': task_id,
+                'total_processed': students.count(),
+                'successful': 0,
+                'failed': 0,
+                'deadline': {
+                    'id': deadline.id,
+                    'month': deadline.display_label,
+                    'amount': float(deadline.amount)
+                },
+                'message': (
+                    f"{students.count()} reminders queued and sending in the background — "
+                    f"this is a large batch, so results won't appear instantly here."
+                ),
+            }, status=202)
 
-ለ: {student.full_name}
-ክፍያ: {effective_amount} ብር
-የማስከፈያ ቀን: {deadline.due_date}
-
-እባክዎ በመስመር ላይ ይክፈሉ: {payment_link}
-
-ለማንኛውም ጥያቄ ወደ ትምህርት ቤቱ ይደውሉ: {school.phone}"""
-                
-                # Send SMS
-                result = sms_service.send_sms(
-                    student.parent_phone,
-                    message,
-                    related_to=f"bulk_reminder_{deadline.id}"
-                )
-                
-                if result.get('success'):
-                    successful_count += 1
-                    
-                    # Log to SMSHistory
-                    SMSHistory.objects.create(
-                        recipient=student.parent_phone,
-                        message=message[:500],
-                        status='sent',
-                        message_id=result.get('message_id', ''),
-                        related_to=f"bulk_{deadline.id}_student_{student.id}"
-                    )
-                    
-                    # Create PaymentReminder record
-                    from ..models import PaymentReminder
-                    PaymentReminder.objects.create(
-                        student=student,
-                        deadline=deadline,
-                        sent_to=student.parent_phone,
-                        message=message[:500],
-                        status='sent'
-                    )
-                
-                results.append({
-                    'student_id': student.student_id,
-                    'name': student.full_name,
-                    'phone': student.parent_phone,
-                    'success': result.get('success', False),
-                    'message': result.get('message', 'Sent' if result.get('success') else 'Failed')
-                })
-                
-            except Exception as e:
-                logger.error(f"Failed for student {student.student_id}: {e}")
-                results.append({
-                    'student_id': student.student_id,
-                    'name': student.full_name,
-                    'success': False,
-                    'error': str(e)
-                })
+        results, successful_count = _run_bulk_reminder_batch(school, deadline, students, custom_message)
         
         return Response({
             'total_processed': len(results),

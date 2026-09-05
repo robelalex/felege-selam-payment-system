@@ -58,6 +58,7 @@ function SuperAdminDashboard() {
   const [editingRates, setEditingRates] = useState(false);
   const [editMonthlyFee, setEditMonthlyFee] = useState('');
   const [editRegFee, setEditRegFee] = useState('');
+  const [editSubscriptionFee, setEditSubscriptionFee] = useState('');
   const [savingRates, setSavingRates] = useState(false);
   const [ratesError, setRatesError] = useState('');
 
@@ -317,6 +318,7 @@ function SuperAdminDashboard() {
     if (!feeData) return;
     setEditMonthlyFee(String(feeData.current_rates.monthly_payment_fee));
     setEditRegFee(String(feeData.current_rates.registration_payment_fee));
+    setEditSubscriptionFee(String(feeData.current_rates.platform_subscription_fee_per_student));
     setRatesError('');
     setEditingRates(true);
   };
@@ -324,8 +326,13 @@ function SuperAdminDashboard() {
   const saveRates = async () => {
     const monthly = parseFloat(editMonthlyFee);
     const registration = parseFloat(editRegFee);
-    if (Number.isNaN(monthly) || monthly < 0 || Number.isNaN(registration) || registration < 0) {
-      setRatesError('Enter valid, non-negative numbers for both rates.');
+    const subscription = parseFloat(editSubscriptionFee);
+    if (
+      Number.isNaN(monthly) || monthly < 0 ||
+      Number.isNaN(registration) || registration < 0 ||
+      Number.isNaN(subscription) || subscription < 0
+    ) {
+      setRatesError('Enter valid, non-negative numbers for all three rates.');
       return;
     }
     setSavingRates(true);
@@ -334,6 +341,7 @@ function SuperAdminDashboard() {
       await api.patch('/platform/developer-fees/rates/', {
         monthly_payment_fee: monthly,
         registration_payment_fee: registration,
+        platform_subscription_fee_per_student: subscription,
       });
       setEditingRates(false);
       await fetchFees(); // refresh the displayed rates + totals
@@ -527,7 +535,7 @@ function SuperAdminDashboard() {
               {feeData && (
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-medium text-gray-500 dark:text-slate-400">
-                    Rates: {feeData.current_rates.monthly_payment_fee} ETB/monthly · {feeData.current_rates.registration_payment_fee} ETB/registration
+                    Rates: {feeData.current_rates.monthly_payment_fee} ETB/monthly · {feeData.current_rates.registration_payment_fee} ETB/registration · {feeData.current_rates.platform_subscription_fee_per_student} ETB/student/month
                   </span>
                   <button
                     onClick={openRateEditor}
@@ -628,8 +636,18 @@ function SuperAdminDashboard() {
                   min="0"
                   value={editRegFee}
                   onChange={(e) => setEditRegFee(e.target.value)}
+                  className="w-full border border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-md px-3 py-2 text-sm mb-3"
+                />
+                <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Platform subscription fee (ETB per active student, per month)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editSubscriptionFee}
+                  onChange={(e) => setEditSubscriptionFee(e.target.value)}
                   className="w-full border border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-md px-3 py-2 text-sm mb-1"
                 />
+                <p className="text-xs text-gray-400 dark:text-slate-500 mb-1">Covers hosting/infrastructure (Render, Neon, Cloudinary, Vercel) and ongoing access. Charged once per school, per calendar month, at whatever the active student count is when the month is first billed.</p>
                 {ratesError && (
                   <p className="text-xs text-red-600 dark:text-red-400 mt-2">{ratesError}</p>
                 )}

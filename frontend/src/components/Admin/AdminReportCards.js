@@ -35,6 +35,7 @@ function AdminReportCards() {
   const [results, setResults] = useState([]);
   const [loadingResults, setLoadingResults] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
   const [releasingId, setReleasingId] = useState(null);
   const [error, setError] = useState('');
   const [genSummary, setGenSummary] = useState(null); // { generatedCount, failed: [] }
@@ -122,6 +123,39 @@ function AdminReportCards() {
       setError(err.response?.data?.error || 'Failed to generate report cards');
     } finally {
       setGenerating(false);
+    }
+  };
+
+  // ✅ NEW (requested): ranks and averages are computed correctly (see
+  // exams/services/results_service.py rank_by_value — proper standard
+  // competition ranking, ties handled correctly), but they only ever
+  // get RECOMPUTED automatically when a homeroom teacher accepts marks.
+  // If marks were edited/corrected afterward with no new accept action,
+  // the displayed rank/average can go stale and look "off." The backend
+  // already has an admin-only recalculate endpoint for exactly this —
+  // it just had no button anywhere to trigger it. This wires it up.
+  const handleRecalculateRanks = async () => {
+    if (reportType === 'term' && !termId) {
+      setError('Select a term first');
+      return;
+    }
+    if (reportType === 'semester' && !semesterId) {
+      setError('Select a semester first');
+      return;
+    }
+    setRecalculating(true);
+    setError('');
+    try {
+      if (reportType === 'term') {
+        await api.post('/results/recalculate/', { term_id: termId }, { headers: getAuthHeader() });
+      } else {
+        await api.post('/semester-results/recalculate/', { semester_id: semesterId }, { headers: getAuthHeader() });
+      }
+      await loadResults();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to recalculate ranks');
+    } finally {
+      setRecalculating(false);
     }
   };
 
@@ -231,6 +265,21 @@ function AdminReportCards() {
             >
               {generating ? <Loader className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Generate for Class
+            </button>
+
+            {/* ✅ NEW: forces a fresh recompute of averages/ranks for the
+                whole school in this term/semester, using the already-
+                correct ranking logic. Use this if a rank/average looks
+                off after marks were edited outside the normal
+                homeroom-accept flow. */}
+            <button
+              onClick={handleRecalculateRanks}
+              disabled={recalculating || (reportType === 'term' && !termId) || (reportType === 'semester' && !semesterId)}
+              title="Force a fresh recompute of averages and ranks for the whole school, this term/semester"
+              className="btn-secondary flex items-center gap-2"
+            >
+              {recalculating ? <Loader className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Recalculate Ranks
             </button>
           </div>
 

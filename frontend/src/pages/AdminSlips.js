@@ -193,8 +193,15 @@ function AdminSlips() {
   const handleVerify = async (slipId, action) => {
     setProcessing(slipId);
     try {
-      await api.post(`/slips/${slipId}/verify/`, { action });
-      alert(action === 'verify' ? '✅ Verified!' : '❌ Rejected');
+      const res = await api.post(`/slips/${slipId}/verify/`, { action });
+      // ✅ NEW: the backend now returns 'warnings' (reused reference,
+      // amount mismatch) on a manual verify — this used to be silently
+      // discarded. Show them clearly instead of just saying "Verified!"
+      if (action === 'verify' && res.data?.warnings?.length > 0) {
+        alert('⚠️ Verified, but please review:\n\n' + res.data.warnings.join('\n\n'));
+      } else {
+        alert(action === 'verify' ? '✅ Verified!' : '❌ Rejected');
+      }
       await fetchPendingSlips();
     } catch (err) {
       alert('Failed: ' + (err.response?.data?.error || err.message));

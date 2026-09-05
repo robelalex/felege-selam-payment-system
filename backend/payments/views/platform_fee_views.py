@@ -34,12 +34,24 @@ from schools.approval_views import IsPlatformOwner
 from common.utils import get_verified_school_id, is_super_admin
 from ..models import Payment, PlatformFeeSettings, PlatformFeeSettlement
 from ..services.school_chapa_service import SchoolChapaService
+# ✅ NEW (requested): platform subscription fee (per active student,
+# per month) — see subscription_billing_service.py for the full
+# reasoning. Combined into the SAME balance/settlement flow below so
+# the school only ever sees and pays ONE number, not two bills.
+from ..services.subscription_billing_service import get_subscription_summary
 
 
 def _school_fee_summary(school):
     accrued = Payment.objects.filter(
         student__school=school, status='verified', is_archived=False
     ).aggregate(total=Sum('platform_fee_amount'))['total'] or Decimal('0')
+
+    # ✅ NEW (requested): the platform subscription fee (per active
+    # student, per month) — combined into the SAME accrued balance as
+    # the per-payment developer usage fee above, so the school sees and
+    # settles ONE number, never two separate bills for the same thing.
+    subscription_charges, subscription_total = get_subscription_summary(school)
+    accrued += subscription_total
 
     # ✅ FIXED: only CONFIRMED settlements reduce the balance now. A
     # 'pending' settlement (school says "I sent it", receipt attached,
@@ -71,6 +83,11 @@ def _school_fee_summary(school):
         'balance_owed': accrued - settled,
         'pending_settlement_amount': pending,
         'last_settled_at': last_settled_at,
+        # ✅ NEW: broken out separately purely so the school can SEE the
+        # math ("600 students x 25 ETB = 15,000 ETB this month") — it's
+        # still all one combined balance/settlement above, this is just
+        # for transparency, not a second bill.
+        'subscription_total_accrued': subscription_total,
     }
 
 
@@ -100,6 +117,7 @@ def developer_fees_overview(request):
         'current_rates': {
             'monthly_payment_fee': settings_row.monthly_payment_fee,
             'registration_payment_fee': settings_row.registration_payment_fee,
+            'platform_subscription_fee_per_student': settings_row.platform_subscription_fee_per_student,
         },
         'pending_settlements_count': pending_count,
     })
@@ -121,12 +139,20 @@ def developer_fee_rates(request):
     if request.method == 'PATCH':
         monthly = request.data.get('monthly_payment_fee')
         registration = request.data.get('registration_payment_fee')
+        # ✅ NEW (requested): the platform subscription fee (per active
+        # student, per month) — editable here alongside the other two
+        # rates, same validation, same singleton pattern.
+        subscription = request.data.get('platform_subscription_fee_per_student')
         # ✅ Server-side validation — the frontend already checks this,
         # but this endpoint is reachable directly via the API, and a bad
         # value here (negative, non-numeric, absurdly large) would
         # silently corrupt every fee calculation and settlement balance
         # from that point on. Reject rather than trust the client.
-        for label, value in (('monthly_payment_fee', monthly), ('registration_payment_fee', registration)):
+        for label, value in (
+            ('monthly_payment_fee', monthly),
+            ('registration_payment_fee', registration),
+            ('platform_subscription_fee_per_student', subscription),
+        ):
             if value is None:
                 continue
             try:
@@ -141,11 +167,14 @@ def developer_fee_rates(request):
             settings_row.monthly_payment_fee = monthly
         if registration is not None:
             settings_row.registration_payment_fee = registration
+        if subscription is not None:
+            settings_row.platform_subscription_fee_per_student = subscription
         settings_row.updated_by = request.user
         settings_row.save()
     return Response({
         'monthly_payment_fee': settings_row.monthly_payment_fee,
         'registration_payment_fee': settings_row.registration_payment_fee,
+        'platform_subscription_fee_per_student': settings_row.platform_subscription_fee_per_student,
         'updated_at': settings_row.updated_at,
     })
 
@@ -413,7 +442,23 @@ def my_school_fee_summary(request):
     summary['current_rates'] = {
         'monthly_payment_fee': settings_row.monthly_payment_fee,
         'registration_payment_fee': settings_row.registration_payment_fee,
+        'platform_subscription_fee_per_student': settings_row.platform_subscription_fee_per_student,
     }
+
+    # ✅ NEW (requested): the school admin's own month-by-month platform
+    # subscription breakdown — "600 students x 25 ETB = 15,000 ETB for
+    # September 2026" — so the math is fully visible even though it's
+    # settled as part of the ONE combined balance above, not separately.
+    subscription_charges, _ = get_subscription_summary(school)
+    summary['subscription_breakdown'] = [
+        {
+            'month': c.month.strftime('%Y-%m'),
+            'student_count': c.student_count,
+            'rate_per_student': c.rate_per_student,
+            'amount': c.amount,
+        }
+        for c in subscription_charges
+    ]
 
     breakdown_filters = dict(
         student__school=school, status='verified', is_archived=False,

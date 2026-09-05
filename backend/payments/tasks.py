@@ -751,3 +751,76 @@ def _send_verification_notification(slip: PaymentSlip):
     except Exception as e:
         # NEVER let notification errors break the verification task
         print(f"[Q-NOTIFY] 💥 Critical notification error for slip #{slip.id}: {e}")
+
+
+# ✅ NEW (requested, scaling audit item 5): bulk manual reminders used to
+# run synchronously inside send_reminders() in reminder_views.py — for a
+# school clicking "send to 2,000 students," that blocked the single
+# Gunicorn worker (see render.yaml — currently --workers 1) for however
+# long 2,000 SMS/email sends took, timing out the request and freezing
+# every OTHER school's API calls at the same time. Same async_task
+# pattern already proven above for slip verification, just applied here.
+#
+# Deliberately logs results with print() rather than trying to notify
+# the requesting admin in real time — Django-Q doesn't push results back
+# to the browser. If you want the admin to see final counts, the next
+# step would be a small "notifications" or "task status" model they can
+# poll — out of scope for this specific fix, flagging it for later.
+def send_bulk_reminders_async(student_ids, month, custom_message, academic_year, school_id, requested_by_id=None):
+    from django.contrib.auth import get_user_model
+    from .services.reminder_service import ReminderService
+
+    User = get_user_model()
+    requested_by = None
+    if requested_by_id:
+        requested_by = User.objects.filter(id=requested_by_id).first()
+
+    print(f"[Q-REMINDERS] Starting bulk reminder send: {len(student_ids)} students, "
+          f"school_id={school_id}, requested_by={requested_by}")
+
+    try:
+        service = ReminderService()
+        results = service.send_reminders(
+            student_ids, month, custom_message,
+            academic_year=academic_year, school_id=school_id,
+        )
+        successful = len([r for r in results if r['success']])
+        failed = len([r for r in results if not r['success']])
+        print(f"[Q-REMINDERS] ✅ Done: {successful} sent, {failed} failed, "
+              f"{len(results)} total (school_id={school_id})")
+    except Exception as e:
+        # Same principle as slip notifications above: a bug here must
+        # never silently vanish, but it also must never crash the whole
+        # Django-Q worker process for other schools' queued tasks.
+        print(f"[Q-REMINDERS] 💥 Bulk reminder send failed for school_id={school_id}: {e}")
+
+
+# ✅ NEW (requested, scaling audit item 5): the async counterpart to
+# MultiSchoolSendBulkRemindersView.post() — the endpoint your frontend
+# actually calls for bulk payment-link SMS reminders. Re-fetches
+# everything by ID (school, deadline, students) exactly as the view
+# does, then calls the SAME _run_bulk_reminder_batch() the view uses
+# for small batches, so behavior is identical either way — just off
+# the request/response cycle for large batches.
+def send_bulk_payment_link_reminders_async(school_id, deadline_id, student_ids, custom_message):
+    from schools.models import School
+    from students.models import Student
+    from .models import PaymentDeadline
+    from .views.sms_views_v2 import _run_bulk_reminder_batch
+
+    print(f"[Q-REMINDERS] Starting bulk payment-link reminder send: "
+          f"{len(student_ids)} students, school_id={school_id}, deadline_id={deadline_id}")
+
+    try:
+        school = School.objects.get(id=school_id)
+        deadline = PaymentDeadline.objects.get(id=deadline_id, school=school)
+        students = Student.objects.filter(
+            student_id__in=student_ids, school=school, status='active'
+        ).exclude(parent_phone__isnull=True).exclude(parent_phone='')
+
+        results, successful_count = _run_bulk_reminder_batch(school, deadline, students, custom_message)
+        print(f"[Q-REMINDERS] ✅ Done: {successful_count} sent, {len(results) - successful_count} failed, "
+              f"{len(results)} total (school_id={school_id}, deadline_id={deadline_id})")
+    except Exception as e:
+        print(f"[Q-REMINDERS] 💥 Bulk payment-link reminder send failed for "
+              f"school_id={school_id}, deadline_id={deadline_id}: {e}")

@@ -7,6 +7,10 @@ import api from '../services/api';
 function ParentLogin() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
+  // ✅ NEW (requested): phone as an alternative to email — email delivery
+  // isn't reliable in some areas (Jimma). Email stays the default.
+  const [phone, setPhone] = useState('');
+  const [loginMethod, setLoginMethod] = useState('email');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [step, setStep] = useState('email');
@@ -27,9 +31,9 @@ function ParentLogin() {
     setError('');
 
     try {
-      const response = await api.post('/parent/send-otp/', {
-        email: email
-      });
+      const response = await api.post('/parent/send-otp/',
+        loginMethod === 'phone' ? { phone } : { email }
+      );
 
       if (response.data.success) {
         setUserId(response.data.user_id);
@@ -41,7 +45,7 @@ function ParentLogin() {
       }
     } catch (err) {
       console.error('Send OTP error:', err);
-      setError(err.response?.data?.error || 'Email not found. Please check your email address.');
+      setError(err.response?.data?.error || (loginMethod === 'phone' ? 'Phone number not found. Please check the number.' : 'Email not found. Please check your email address.'));
     } finally {
       setLoading(false);
     }
@@ -83,7 +87,8 @@ function ParentLogin() {
 
         // Store parent session
         localStorage.setItem('parentSession', JSON.stringify({
-          email: email,
+          email: loginMethod === 'phone' ? '' : email,
+          phone: loginMethod === 'phone' ? phone : '',
           user_id: userId,
           verified: true,
           verifiedAt: new Date().toISOString()
@@ -108,9 +113,9 @@ function ParentLogin() {
     setError('');
     
     try {
-      const response = await api.post('/parent/send-otp/', {
-        email: email
-      });
+      const response = await api.post('/parent/send-otp/',
+        loginMethod === 'phone' ? { phone } : { email }
+      );
       
       if (response.data.success) {
         setResendTimer(60);
@@ -141,7 +146,7 @@ function ParentLogin() {
             </div>
             <h1 className="text-3xl font-bold text-gray-900">Verify Your Identity</h1>
             <p className="text-gray-600 mt-2">
-              Enter the 6-digit code sent to <strong>{email}</strong>
+              Enter the 6-digit code sent to <strong>{loginMethod === 'phone' ? phone : email}</strong>
             </p>
           </div>
 
@@ -233,25 +238,65 @@ function ParentLogin() {
 
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <form onSubmit={handleSendOTP} className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="input-field pl-10"
-                  placeholder="parent@example.com"
-                  required
-                />
-              </div>
-              <p className="text-sm text-gray-500 mt-2">
-                We'll send a 6-digit verification code to this email
-              </p>
+            {/* ✅ NEW: choose email or phone as the login method */}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setLoginMethod('email')}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium border ${loginMethod === 'email' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300'}`}
+              >
+                Email
+              </button>
+              <button
+                type="button"
+                onClick={() => setLoginMethod('phone')}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium border ${loginMethod === 'phone' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300'}`}
+              >
+                Phone
+              </button>
             </div>
+
+            {loginMethod === 'phone' ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Phone Number
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="input-field pl-10"
+                    placeholder="09XXXXXXXX"
+                    required
+                  />
+                </div>
+                <p className="text-sm text-gray-500 mt-2">
+                  We'll send a 6-digit verification code by SMS to this number — use the same number the school has on file for you.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Email Address
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="input-field pl-10"
+                    placeholder="parent@example.com"
+                    required
+                  />
+                </div>
+                <p className="text-sm text-gray-500 mt-2">
+                  We'll send a 6-digit verification code to this email
+                </p>
+              </div>
+            )}
 
             {error && (
               <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded">

@@ -162,13 +162,14 @@ def get_school_name_for_otp(school_id):
 @throttle_classes([LoginRateThrottle])  # ✅ SECURITY FIX: now actually wired up
 @csrf_exempt
 def admin_login_step1(request):
-    """Step 1: Admin login with email and password -> Send REAL OTP"""
+    """Step 1: Admin login with (email OR phone) + password -> Send REAL OTP"""
     email = request.data.get('email')
+    phone = request.data.get('phone')
     password = request.data.get('password')
-    
-    if not email or not password:
-        return Response({'error': 'Email and password required'}, status=400)
-    
+
+    if not password or (not email and not phone):
+        return Response({'error': 'Password and either email or phone are required'}, status=400)
+
     try:
         # This endpoint is only ever used for school-admin/staff/teacher
         # logins — parents use a completely separate OTP flow
@@ -177,15 +178,27 @@ def admin_login_step1(request):
         # (e.g. a school admin whose child also attends the school), so
         # excluding parent accounts here resolves that ambiguity correctly
         # instead of treating it as a data-integrity error.
-        user = User.objects.exclude(profile__role='parent').get(email=email)
+        base_qs = User.objects.exclude(profile__role='parent')
+        if phone:
+            # ✅ NEW (requested): phone as a real alternative LOGIN
+            # IDENTIFIER, not just an OTP delivery choice — matches
+            # against whichever of UserProfile.phone / StaffMember.phone
+            # actually has it on file, since either can be the source of
+            # truth depending on how the account's phone was set.
+            from django.db.models import Q
+            user = base_qs.filter(
+                Q(profile__phone=phone) | Q(staff_profile__phone=phone)
+            ).distinct().get()
+        else:
+            user = base_qs.get(email=email)
     except User.DoesNotExist:
         return Response({'error': 'Invalid credentials'}, status=401)
     except User.MultipleObjectsReturned:
         # This means two genuinely non-parent (staff/admin) accounts share
-        # this email — a real data-integrity issue that needs manual
+        # this email/phone — a real data-integrity issue that needs manual
         # cleanup, unlike the parent+admin case filtered out above.
         return Response(
-            {'error': 'Multiple accounts are registered with this email. Please contact support.'},
+            {'error': 'Multiple accounts are registered with this email or phone. Please contact support.'},
             status=409,
         )
     
@@ -312,7 +325,50 @@ def admin_login_step1(request):
     profile.otp_created_at = timezone.now()
     reset_otp_attempts(profile)  # ✅ SECURITY FIX: fresh code, fresh attempt count/lock
     profile.save()
-    
+
+    # ✅ NEW (requested): the identifier used to log in now decides the
+    # OTP channel automatically — logged in with phone -> code goes by
+    # SMS, logged in with email -> code goes by email. No separate
+    # "how do you want your code" choice anymore; the form field you
+    # actually filled in already answers that. NOT offered to super
+    # admins — they have no school_id, so there's no school SMS wallet
+    # to send through (see MultiSchoolSMSService, which is always
+    # school-scoped) — the login form already hides phone/SMS for them.
+    if phone and not user.is_superuser:
+        if not profile.school_id:
+            return Response({'error': 'SMS delivery is not available for this account. Please use email.'}, status=400)
+
+        try:
+            from payments.services.multi_school_sms_service import MultiSchoolSMSService
+            sms_service = MultiSchoolSMSService(profile.school_id)
+            school_name = get_school_name_for_otp(profile.school_id)
+            sms_result = sms_service.send_sms(
+                phone,
+                f"{school_name or 'SchoolPay Ethiopia'} login code: {otp_code}. Do not share this code with anyone.",
+                related_to='admin_login_otp',
+            )
+        except Exception as e:
+            sms_result = {'success': False, 'message': str(e)}
+
+        if not sms_result.get('success'):
+            # ✅ Deliberately doesn't fall back to email silently — the
+            # person explicitly logged in with their phone and needs to
+            # know it failed (e.g. school's SMS balance is low) so they
+            # can switch to the email tab themselves rather than wait
+            # for a code that never arrives.
+            return Response({
+                'success': False,
+                'error': f"Could not send the code by SMS ({sms_result.get('message', 'unknown error')}). Please try the Email tab instead.",
+            }, status=500)
+
+        return Response({
+            'success': True,
+            'message': 'Verification code sent to your phone.',
+            'user_id': user.id,
+            'requires_otp': True,
+            'otp_method': 'sms',
+        })
+
     # ✅ Tries the school's own Brevo account first, falls back to
     # platform Resend if not configured (Jimma request #3, cost fix)
     school_name = get_school_name_for_otp(profile.school_id)
@@ -328,7 +384,8 @@ def admin_login_step1(request):
         'success': True,
         'message': 'Verification code sent to your email.',
         'user_id': user.id,
-        'requires_otp': True
+        'requires_otp': True,
+        'otp_method': 'email',
     })
 
 
@@ -466,13 +523,86 @@ def admin_login_step2(request):
 @authentication_classes([])
 @csrf_exempt
 def parent_login_step1(request):
-    """Step 1: Parent sends email, receives REAL OTP"""
+    """Step 1: Parent sends email OR phone, receives REAL OTP via the matching channel."""
     email = request.data.get('email')
-    
-    if not email:
-        return Response({'error': 'Email required'}, status=400)
-    
+    # ✅ NEW (requested): phone as an alternative to email — email
+    # delivery isn't reliable in some areas (Jimma), so a parent can now
+    # log in with their phone number instead and get the code by SMS.
+    # Email path below is completely unchanged for anyone who still uses it.
+    phone = request.data.get('phone')
+
+    if not email and not phone:
+        return Response({'error': 'Email or phone number required'}, status=400)
+
     from students.models import Student
+
+    if phone:
+        students = Student.objects.filter(parent_phone=phone)
+        if not students.exists():
+            return Response({'error': 'No student found with this phone number'}, status=404)
+
+        otp_code = generate_secure_otp()
+        student_school_id = students.first().school_id
+
+        # ✅ Username keyed on the phone digits, mirroring the existing
+        # email-based scheme below exactly, so both paths behave
+        # identically to everything downstream (JWT issuance, profile
+        # lookups, etc.) — only the identifier differs.
+        digits = ''.join(ch for ch in phone if ch.isdigit())
+        username = f"parent_phone_{digits}"
+        user, created = User.objects.get_or_create(
+            username=username,
+            defaults={'email': '', 'is_active': True}
+        )
+        if created:
+            UserProfile.objects.create(
+                user=user, role='parent', is_email_verified=True,
+                school_id=student_school_id, phone=phone,
+            )
+        else:
+            profile = user.profile
+            update_fields = []
+            if profile.school_id != student_school_id:
+                profile.school_id = student_school_id
+                update_fields.append('school_id')
+            if profile.phone != phone:
+                profile.phone = phone
+                update_fields.append('phone')
+            if update_fields:
+                profile.save(update_fields=update_fields)
+
+        profile = user.profile
+        profile.otp_code = otp_code
+        profile.otp_created_at = timezone.now()
+        reset_otp_attempts(profile)
+        profile.save()
+
+        try:
+            from payments.services.multi_school_sms_service import MultiSchoolSMSService
+            sms_service = MultiSchoolSMSService(student_school_id)
+            school_name = get_school_name_for_otp(student_school_id)
+            sms_result = sms_service.send_sms(
+                phone,
+                f"{school_name or 'SchoolPay Ethiopia'} login code: {otp_code}. Do not share this code with anyone.",
+                related_to='parent_login_otp',
+            )
+        except Exception as e:
+            sms_result = {'success': False, 'message': str(e)}
+
+        if not sms_result.get('success'):
+            return Response({
+                'success': False,
+                'error': f"Could not send the code by SMS ({sms_result.get('message', 'unknown error')}). Please try email instead.",
+            }, status=500)
+
+        return Response({
+            'success': True,
+            'message': 'Verification code sent to your phone.',
+            'user_id': user.id,
+            'otp_method': 'sms',
+        })
+
+    # ===== Original email path — completely unchanged below =====
     students = Student.objects.filter(parent_email=email)
     
     if not students.exists():
@@ -537,7 +667,8 @@ def parent_login_step1(request):
     return Response({
         'success': True,
         'message': 'Verification code sent to your email.',
-        'user_id': user.id
+        'user_id': user.id,
+        'otp_method': 'email',
     })
 
 

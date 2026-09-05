@@ -9,6 +9,7 @@ import { useLanguage } from '../context/LanguageContext';
 function AdminLogin() {
   const { t } = useLanguage();
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -17,6 +18,10 @@ function AdminLogin() {
   const [userId, setUserId] = useState(null);
   const [otpCode, setOtpCode] = useState('');
   const [resendTimer, setResendTimer] = useState(0);
+  // ✅ NEW (requested): let the person choose how to receive their login
+  // code — email stays the default so nothing changes unless they
+  // explicitly pick SMS (useful where email delivery is unreliable, e.g. Jimma).
+  const [otpMethod, setOtpMethod] = useState('email');
   const navigate = useNavigate();
 
   React.useEffect(() => {
@@ -26,7 +31,7 @@ function AdminLogin() {
     }
   }, [resendTimer]);
 
-  // Step 1: Login with email and password
+  // Step 1: Login with email/phone and password
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -34,8 +39,8 @@ function AdminLogin() {
 
     try {
       const response = await api.post('/login/', {
-        email: email,
-        password: password
+        ...(otpMethod === 'sms' ? { phone } : { email }),
+        password: password,
       });
 
       if (response.data.success && response.data.requires_otp) {
@@ -131,8 +136,8 @@ function AdminLogin() {
 
     try {
       const response = await api.post('/login/', {
-        email: email,
-        password: password
+        ...(otpMethod === 'sms' ? { phone } : { email }),
+        password: password,
       });
 
       if (response.data.success) {
@@ -159,7 +164,7 @@ function AdminLogin() {
     return (
       <AuthSplitLayout
         panelTitle="You're almost in."
-        panelSubtitle="We just sent a 6-digit verification code to keep your school's admin account secure."
+        panelSubtitle={`We just sent a 6-digit verification code by ${otpMethod === 'sms' ? `SMS to ${phone}` : 'email'} to keep your school's admin account secure.`}
       >
         <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center p-3 bg-primary-100 rounded-full mb-4">
@@ -254,22 +259,72 @@ function AdminLogin() {
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
         <form onSubmit={handleLogin} className="space-y-5">
+          {/* ✅ FIXED: this used to just pick which channel an OTP was
+              sent to, while still showing (and requiring) the email
+              field underneath regardless — confusing, since choosing
+              SMS didn't actually ask for a phone number anywhere. Now it
+              properly swaps the identifier field itself: Email tab logs
+              in with email (as always), Phone tab logs in with the
+              phone number on file instead, and the OTP always follows
+              whichever one you actually used to log in. */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              {t('login_email')}
-            </label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="input-field pl-10"
-                placeholder="admin@school.com"
-                required
-              />
+            <label className="block text-sm font-medium text-gray-700 mb-2">Sign in with</label>
+            <div className="flex gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setOtpMethod('email')}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium border ${otpMethod === 'email' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300'}`}
+              >
+                Email
+              </button>
+              <button
+                type="button"
+                onClick={() => setOtpMethod('sms')}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium border ${otpMethod === 'sms' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300'}`}
+              >
+                Phone (SMS)
+              </button>
             </div>
           </div>
+
+          {otpMethod === 'sms' ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Phone Number
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="input-field pl-10"
+                  placeholder="09XXXXXXXX"
+                  required
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                Must match the phone number already on file for your account. Your login code will be sent here by SMS.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                {t('login_email')}
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="input-field pl-10"
+                  placeholder="admin@school.com"
+                  required
+                />
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">

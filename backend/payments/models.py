@@ -780,6 +780,17 @@ class PlatformFeeSettings(models.Model):
         max_digits=6, decimal_places=2, default=2.00,
         help_text="Developer usage fee (ETB) charged per verified REGISTRATION (one-time) payment."
     )
+    # ✅ NEW (requested): the platform subscription fee — a flat ETB
+    # amount per ACTIVE student per month, covering hosting/infrastructure
+    # (Render, Neon, Cloudinary, Vercel) and ongoing system access —
+    # separate from the per-payment developer usage fee above. Same
+    # "snapshot, don't rewrite the past" philosophy: see
+    # PlatformSubscriptionCharge below, which locks in the rate and
+    # student count for each month once computed.
+    platform_subscription_fee_per_student = models.DecimalField(
+        max_digits=6, decimal_places=2, default=25.00,
+        help_text="Platform subscription fee (ETB) charged per active student, per month."
+    )
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         'auth.User', on_delete=models.SET_NULL, null=True, blank=True,
@@ -798,7 +809,37 @@ class PlatformFeeSettings(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"Platform fees: {self.monthly_payment_fee} ETB/monthly, {self.registration_payment_fee} ETB/registration"
+        return f"Platform fees: {self.monthly_payment_fee} ETB/monthly, {self.registration_payment_fee} ETB/registration, {self.platform_subscription_fee_per_student} ETB/student/month"
+
+
+class PlatformSubscriptionCharge(models.Model):
+    """
+    ✅ NEW (requested): one row per school per calendar month — the
+    platform subscription fee (per-active-student) accrued for that
+    month. Snapshots student_count and rate_per_student at the moment
+    it's first computed for that month, and is never recalculated after
+    — same reasoning as Payment.platform_fee_amount: a later rate change
+    or a student leaving/joining mid-month must not silently rewrite
+    what a school already owes for a month that's already underway.
+
+    Created lazily by get_or_create_current_month_charge() (see
+    payments/services/subscription_billing_service.py) the first time
+    anyone asks for a school's fee summary in a given month — no
+    scheduled job required, low risk to add.
+    """
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='subscription_charges')
+    month = models.DateField(help_text="First day of the billing month, e.g. 2026-09-01")
+    student_count = models.PositiveIntegerField()
+    rate_per_student = models.DecimalField(max_digits=6, decimal_places=2)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('school', 'month')
+        ordering = ['-month']
+
+    def __str__(self):
+        return f"{self.school.name} — {self.month.strftime('%Y-%m')}: {self.student_count} students x {self.rate_per_student} = {self.amount} ETB"
 
 
 class PlatformFeeSettlement(models.Model):

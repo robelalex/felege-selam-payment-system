@@ -386,17 +386,26 @@ function AdminAccountSummary() {
       {/* ==================== DEVELOPER FEE SUMMARY ==================== */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100">
-          <h2 className="text-base font-semibold text-gray-900">Developer Usage Fee</h2>
+          <h2 className="text-base font-semibold text-gray-900">Platform & Developer Fees</h2>
           <p className="text-xs text-gray-500 mt-1">
             {/* ✅ FIXED: was hardcoded "5 ETB / 2 ETB" text — now reads the
                 live rate set by the super admin, so a rate change shows up
                 here automatically instead of silently going stale. */}
-            A small amount is tracked for each payment processed through this system:
+            One combined balance covering system access (hosting/infrastructure) and per-payment usage:
             {feeSummary?.current_rates
-              ? ` ${fmt(feeSummary.current_rates.monthly_payment_fee)} ETB per monthly payment, ${fmt(feeSummary.current_rates.registration_payment_fee)} ETB per registration payment.`
+              ? ` ${fmt(feeSummary.current_rates.platform_subscription_fee_per_student)} ETB per active student per month, plus ${fmt(feeSummary.current_rates.monthly_payment_fee)} ETB per monthly tuition payment and ${fmt(feeSummary.current_rates.registration_payment_fee)} ETB per registration payment.`
               : ' rate set by the platform.'}
           </p>
         </div>
+
+        {!feeLoading && !feeError && feeSummary && Number(feeSummary.subscription_total_accrued) > 0 && (
+          <div className="px-6 py-3 bg-slate-50 border-b border-gray-100 flex items-center justify-between">
+            <p className="text-xs text-slate-600">
+              Platform subscription so far: <strong>{fmt(feeSummary.subscription_total_accrued)} ETB</strong> —
+              see the month-by-month breakdown below.
+            </p>
+          </div>
+        )}
 
         {feeLoading ? (
           <div className="p-8 flex justify-center"><RefreshCw className="h-6 w-6 animate-spin text-gray-300" /></div>
@@ -570,6 +579,40 @@ function AdminAccountSummary() {
                           </tr>
                         );
                       })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {feeSummary.subscription_breakdown && feeSummary.subscription_breakdown.length > 0 && (
+              <div className="border-t border-gray-100">
+                <div className="px-6 py-3 bg-gray-50">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                    <TrendingUp className="h-3.5 w-3.5" /> Platform Subscription — Monthly Breakdown
+                  </h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-gray-400 uppercase">
+                        <th className="px-6 py-2 font-medium">Month</th>
+                        <th className="px-6 py-2 font-medium">Active Students</th>
+                        <th className="px-6 py-2 font-medium">Rate</th>
+                        <th className="px-6 py-2 font-medium text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {feeSummary.subscription_breakdown.map((row) => (
+                        <tr key={row.month}>
+                          <td className="px-6 py-3 font-medium text-gray-800">{row.month}</td>
+                          <td className="px-6 py-3 text-gray-600">{row.student_count} students</td>
+                          <td className="px-6 py-3 text-gray-600">{fmt(row.rate_per_student)} ETB/student</td>
+                          <td className="px-6 py-3 text-right font-semibold text-gray-900">
+                            {row.student_count} x {fmt(row.rate_per_student)} = {fmt(row.amount)} ETB
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>

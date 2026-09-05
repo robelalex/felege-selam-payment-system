@@ -98,7 +98,39 @@ class ReminderViewSet(viewsets.ViewSet):
         students = Student.objects.filter(student_id__in=student_ids, school_id=school_id)
         if students.count() != len(student_ids):
             return Response({'error': 'Some students do not belong to your school'}, status=403)
-        
+
+        # ✅ NEW (requested, scaling audit item 5): this is the REAL live
+        # endpoint (routed via payments/urls.py's router, at
+        # /reminders/send/) — confirmed by tracing Python's actual import
+        # resolution, since payments/views.py (a separate flat file) has
+        # a second, dead ReminderViewSet that's never loaded. A school
+        # selecting a small number of students still gets instant
+        # results, exactly as before. A LARGE batch now queues instead
+        # of blocking this HTTP request. See send_bulk_reminders_async
+        # in tasks.py. Threshold conservative on purpose: render.yaml
+        # currently runs --workers 1, so even a "medium" batch can eat
+        # up the only available worker for a while.
+        BULK_THRESHOLD = 50
+        if len(student_ids) > BULK_THRESHOLD:
+            from django_q.tasks import async_task
+            task_id = async_task(
+                'payments.tasks.send_bulk_reminders_async',
+                student_ids, month, custom_message, academic_year, school_id,
+                request.user.id,
+            )
+            return Response({
+                'queued': True,
+                'task_id': task_id,
+                'total_queued': len(student_ids),
+                'success': True,
+                'sent': 0,
+                'failed': 0,
+                'message': (
+                    f"{len(student_ids)} reminders queued and sending in the background — "
+                    f"this is a large batch, so results won't appear instantly here."
+                ),
+            }, status=202)
+
         service = ReminderService()
         results = service.send_reminders(
             student_ids, 
@@ -406,12 +438,38 @@ def send_reminders(request):
     if not school_id:
         return Response({'error': 'No school associated with this account'}, status=400)
     
-    service = ReminderService()
     student_ids = request.data.get('student_ids', [])
     month = request.data.get('month')
     custom_message = request.data.get('message', '')
     academic_year = request.data.get('academic_year')
-    
+
+    # ✅ NEW (requested, scaling audit item 5): a school selecting a
+    # small number of students (a typical late-payer follow-up) still
+    # gets instant results, exactly as before. A LARGE batch (e.g. "send
+    # to all 2,000 unpaid students") now queues instead of blocking this
+    # HTTP request — see send_bulk_reminders_async in tasks.py for why.
+    # Threshold is deliberately conservative: with --workers 1 in
+    # render.yaml, even a "medium" batch can eat up the only available
+    # worker for a while.
+    BULK_THRESHOLD = 50
+    if len(student_ids) > BULK_THRESHOLD:
+        from django_q.tasks import async_task
+        task_id = async_task(
+            'payments.tasks.send_bulk_reminders_async',
+            student_ids, month, custom_message, academic_year, school_id,
+            request.user.id,
+        )
+        return Response({
+            'queued': True,
+            'task_id': task_id,
+            'total_queued': len(student_ids),
+            'message': (
+                f"{len(student_ids)} reminders queued and sending in the background — "
+                f"this is a large batch, so results won't appear instantly here."
+            ),
+        }, status=202)
+
+    service = ReminderService()
     results = service.send_reminders(
         student_ids, 
         month, 

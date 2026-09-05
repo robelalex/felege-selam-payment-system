@@ -1,4 +1,5 @@
 # backend/payments/views/slip_views.py
+from decimal import Decimal
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -62,6 +63,18 @@ def upload_slip(request):
 
         if not all([student_id, deadline_id, amount, slip_image]):
             return Response({'error': 'Missing required fields'}, status=400)
+
+        # ✅ NEW (requested, scaling audit item 4): payment slip uploads had
+        # no size cap at all — a raw, uncompressed phone photo could go
+        # straight to Cloudinary with nothing stopping it. Same 5MB limit
+        # already proven for student photos (students/views.py), applied
+        # here too, checked BEFORE anything else touches the file.
+        MAX_SLIP_SIZE = 5 * 1024 * 1024  # 5MB
+        if slip_image.size > MAX_SLIP_SIZE:
+            return Response(
+                {'error': f'Slip image must be smaller than 5MB (yours is {slip_image.size / (1024*1024):.1f}MB). Please compress or re-photograph it.'},
+                status=400,
+            )
 
         student = Student.objects.get(student_id=student_id)
         deadline = PaymentDeadline.objects.get(id=deadline_id)
@@ -362,6 +375,29 @@ def verify_slip(request, slip_id):
                     transaction_reference=ref_for_check, status='verified'
                 ).exclude(student=slip.student, deadline=slip.deadline).exists()
 
+            # ✅ NEW (requested): the manual-review path was the one gap
+            # where a slip's declared amount was never checked against
+            # what's actually owed before marking the whole deadline
+            # paid — the automated Verify.ET path already does this (see
+            # process_verify_et_response). Same approach here: warn, do
+            # not block — a school splitting a bulk transfer, or a
+            # legitimate partial payment, is a real case a human needs
+            # to be able to approve on purpose.
+            amount_mismatch_warning = None
+            try:
+                from ..services.fee_override_service import get_effective_deadline_amount
+                expected_amount = get_effective_deadline_amount(slip.student, slip.deadline)
+                declared_amount = Decimal(str(slip.amount))
+                if abs(declared_amount - Decimal(str(expected_amount))) > Decimal('1.0'):
+                    amount_mismatch_warning = (
+                        f"Declared amount ({slip.amount} ETB) does not match what's owed for "
+                        f"this deadline ({expected_amount} ETB). Confirm this is a legitimate "
+                        f"partial payment or fee adjustment before verifying — this will mark "
+                        f"the full deadline as paid regardless of the amount."
+                    )
+            except Exception:
+                pass  # never let this check block a real verification
+
             slip.status = 'verified'
             slip.verified_by = request.user
             slip.verified_at = timezone.now()
@@ -395,15 +431,22 @@ def verify_slip(request, slip_id):
                     verified_at=timezone.now(),
                 )
 
+            warnings = []
             if reference_reused_elsewhere:
+                warnings.append(
+                    f"This transaction reference ({ref_for_check}) was already used "
+                    f"to verify a payment for a different student/deadline. Please "
+                    f"double-check this wasn't verified in error."
+                )
+            if amount_mismatch_warning:
+                warnings.append(amount_mismatch_warning)
+
+            if warnings:
                 return Response({
                     'success': True,
                     'status': slip.status,
-                    'warning': (
-                        f"This transaction reference ({ref_for_check}) was already used "
-                        f"to verify a payment for a different student/deadline. Please "
-                        f"double-check this wasn't verified in error."
-                    ),
+                    'warnings': warnings,
+                    'warning': warnings[0],  # kept for any older caller expecting a single string
                 })
 
         elif action == 'reject':

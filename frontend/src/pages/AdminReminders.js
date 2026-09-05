@@ -222,13 +222,25 @@ const selectAll = () => {
         message: message
       }, { headers: getAuthHeader() });
 
-      setResult({
-        success: true,
-        type: 'sms',
-        sent: response.data.successful || 0,
-        failed: response.data.failed || 0,
-        message: `✅ Successfully sent ${response.data.successful || 0} SMS reminders! ${response.data.failed > 0 ? `(${response.data.failed} failed)` : ''}`
-      });
+      // ✅ NEW: large batches now come back as { queued: true, ... }
+      // instead of instant results — show that clearly rather than
+      // "Successfully sent 0 reminders!" which would be misleading.
+      if (response.data.queued) {
+        setResult({
+          success: true,
+          type: 'sms',
+          queued: true,
+          message: `⏳ ${response.data.total_processed} reminders queued — sending in the background now.`
+        });
+      } else {
+        setResult({
+          success: true,
+          type: 'sms',
+          sent: response.data.successful || 0,
+          failed: response.data.failed || 0,
+          message: `✅ Successfully sent ${response.data.successful || 0} SMS reminders! ${response.data.failed > 0 ? `(${response.data.failed} failed)` : ''}`
+        });
+      }
       
       setSelectedStudents([]);
       setMessage('');
