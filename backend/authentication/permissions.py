@@ -146,8 +146,19 @@ class IsParentOfStudentOrCanManage(permissions.BasePermission):
                 return True
 
         profile = getattr(request.user, 'profile', None)
-        if profile and profile.role == 'parent' and obj.parent_email:
-            return obj.parent_email.strip().lower() == request.user.email.strip().lower()
+        if profile and profile.role == 'parent':
+            if obj.parent_email and request.user.email:
+                if obj.parent_email.strip().lower() == request.user.email.strip().lower():
+                    return True
+            # ✅ NEW: a parent who logged in by phone (see
+            # parent_login_step1's phone path) has no email on their
+            # account at all — the email check above can never match
+            # for them, even for their own real child. Match by phone
+            # instead, the same way that login path identified them in
+            # the first place.
+            if obj.parent_phone and getattr(profile, 'phone', ''):
+                if obj.parent_phone.strip() == profile.phone.strip():
+                    return True
 
         return False
 
@@ -172,9 +183,16 @@ class IsSameSchoolOrOwnParent(permissions.BasePermission):
 
         profile = getattr(request.user, 'profile', None)
         if profile and profile.role == 'parent':
-            return bool(obj.parent_email) and (
-                obj.parent_email.strip().lower() == request.user.email.strip().lower()
-            )
+            if obj.parent_email and request.user.email:
+                if obj.parent_email.strip().lower() == request.user.email.strip().lower():
+                    return True
+            # ✅ NEW: same phone-based match as IsParentOfStudentOrCanManage
+            # above — a phone-login parent has no email on their account
+            # at all, so the email check can never match for them.
+            if obj.parent_phone and getattr(profile, 'phone', ''):
+                if obj.parent_phone.strip() == profile.phone.strip():
+                    return True
+            return False
 
         if is_super_admin(request.user):
             return True
