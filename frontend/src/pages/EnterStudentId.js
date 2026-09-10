@@ -24,7 +24,7 @@ function EnterStudentId() {
     }
 
     const session = getParentSession();
-    setParentEmail(session.email);
+    setParentEmail(session.email || session.phone || '');
   }, [navigate]);
 
   const handleSubmit = async (e) => {
@@ -39,13 +39,25 @@ function EnterStudentId() {
       if (response.data) {
         const student = response.data;
         const parentSession = getParentSession();
-        
-        if (!parentSession || student.parent_email !== parentSession.email) {
-          setError(`This student ID (${studentId}) is not linked to ${parentSession?.email || 'your account'}. Please contact your school.`);
-          setLoading(false);
+
+        // ✅ FIX: the backend (search_by_id + IsParentOfStudentOrCanManage)
+        // already verifies server-side that this parent owns this student —
+        // matching by email OR phone, whichever they logged in with. If
+        // that check fails, the request 404s and we never reach this code
+        // at all (caught below in the .catch block).
+        //
+        // The old code repeated the check here by comparing
+        // student.parent_email to parentSession.email. But a parent who
+        // logs in by PHONE gets parentSession.email set to '' (see
+        // ParentLogin.js) — which can never equal a real parent_email, so
+        // this comparison always failed and blocked every phone-login
+        // parent from their own, correctly-linked child. Removed; the
+        // server check above is the real, trustworthy source of truth.
+        if (!parentSession) {
+          navigate('/parent/login');
           return;
         }
-        
+
         localStorage.setItem('selectedStudent', JSON.stringify(student));
         localStorage.setItem('isParent', 'true');
         

@@ -460,6 +460,21 @@ def verify_chapa_payment(request):
                     finalize_receipt(payment)
                     payment.save()
                     _send_payment_confirmation(payment)
+                # ✅ FIX (money-safety): a 'failed'/'cancelled' answer from
+                # Chapa's own verify API was never being written back onto
+                # the Payment row — only 'success' ever updated anything.
+                # That left genuinely failed/abandoned transactions stuck
+                # at 'pending' forever in the database, showing as
+                # perpetually "pending" to both the parent and the school
+                # admin even though Chapa already knows it didn't go
+                # through. A pending payment should only ever be moved to
+                # 'failed' here, never a 'verified' one — a payment already
+                # confirmed paid must never be silently downgraded by a
+                # later, possibly stale, poll.
+                elif chapa_status in ('failed', 'cancelled', 'declined') and payment.status == 'pending':
+                    payment.status = 'failed'
+                    payment.save(update_fields=['status'])
+                    logger.info(f"❌ Payment marked failed via verify poll: {tx_ref} (chapa_status={chapa_status})")
 
                 receipt_token = str(payment.receipt_token) if payment.receipt_token else None
                 return JsonResponse({
