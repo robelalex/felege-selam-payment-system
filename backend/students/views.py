@@ -162,13 +162,28 @@ class StudentViewSet(viewsets.ModelViewSet):
         if self.action in ('registration_status', 'parent_upload_photo', 'parent_upload_document'):
             return [IsAuthenticated(), IsParentOfStudentOrCanManage()]
 
-        # ✅ SECURITY FIX: these three are read-only per-student detail
-        # endpoints used by BOTH the parent portal AND several staff
-        # views (e.g. the admin dashboard's Class Details breakdown) that
-        # aren't limited to registrars. Same-school staff keep read
-        # access as before; a parent is now restricted to their own
-        # child instead of any student by ID.
-        if self.action in ('payment_history', 'pending_payments', 'pending_slips', 'child_record'):
+        # ✅ SECURITY FIX: these read-only per-student detail endpoints are
+        # used by BOTH the parent portal AND several staff views (e.g. the
+        # admin dashboard's Class Details breakdown) that aren't limited to
+        # registrars. Same-school staff keep read access as before; a
+        # parent is now restricted to their own child instead of any
+        # student by ID.
+        # ✅ BUG FIX: 'retrieve' now goes through this same object-level
+        # check instead of falling through to the plain IsAuthenticated()
+        # default below. Previously a parent's access to
+        # GET /students/<id>/ was gated ONLY by get_queryset()'s school_id
+        # filter (see below) — fine for staff, but a parent's
+        # UserProfile.school_id is just whichever of their children
+        # happened to come back first the last time they requested an OTP.
+        # A parent with children at more than one school would pass
+        # search_by_id (which correctly checks parent_email/phone, not
+        # school) for a child at School B, then get a 404 loading the
+        # dashboard for that same child because their cached school_id
+        # still pointed at School A. IsSameSchoolOrOwnParent checks actual
+        # ownership (parent_email/parent_phone match) instead of a cached
+        # school guess, so this now works regardless of which school the
+        # child is at.
+        if self.action in ('retrieve', 'payment_history', 'pending_payments', 'pending_slips', 'child_record'):
             return [IsAuthenticated(), IsSameSchoolOrOwnParent()]
 
         if self.action in (
@@ -196,11 +211,45 @@ class StudentViewSet(viewsets.ModelViewSet):
         school_id = get_verified_school_id(self.request)
         user = self.request.user
 
+        # Detail-by-ID actions identify their target by pk already, so a
+        # blanket school/year pre-filter isn't needed to find the row —
+        # it's only there as a scoping guard. See the two blocks below for
+        # why each one gets special-cased for these actions specifically.
+        DETAIL_ACTIONS_SKIP_YEAR_FILTER = {
+            'retrieve', 'pending_slips', 'child_record', 'payment_history',
+            'pending_payments', 'registration_status',
+            'parent_upload_photo', 'parent_upload_document',
+            'upload_document', 'delete_document', 'review_document',
+        }
+        skip_year_filter = getattr(self, 'action', None) in DETAIL_ACTIONS_SKIP_YEAR_FILTER
+
+        # ✅ BUG FIX: a parent's UserProfile.school_id is just whichever of
+        # their children happened to come back first the last time they
+        # requested an OTP (authentication.views.parent_login_step1) — not
+        # necessarily the school of the specific child they're viewing
+        # right now. A parent with children at more than one school would
+        # pass search_by_id (which checks parent_email/parent_phone
+        # ownership, not school) for a child at School B, then get a 404
+        # loading that same child's dashboard here, because this queryset
+        # was unconditionally filtered down to their cached School A. For
+        # these same detail-by-ID actions, a parent's real authorization
+        # is the object-level parent_email/parent_phone ownership check in
+        # IsSameSchoolOrOwnParent (see get_permissions above) — so the
+        # school_id filter is skipped for parents specifically here, and
+        # that permission class is what actually gates access instead.
+        # Staff/admins are NOT included in this skip — they stay scoped to
+        # their own school exactly as before; only a parent's own cached
+        # school_id was ever the wrong signal to gate on.
+        profile = getattr(user, 'profile', None)
+        is_parent = getattr(profile, 'role', None) == 'parent'
+        skip_school_filter_for_parent = is_parent and skip_year_filter
+
         # ✅ Super admins see all, school admins see only their school
-        if not is_super_admin(user) and school_id:
-            queryset = queryset.filter(school_id=school_id)
-        elif school_id:
-            queryset = queryset.filter(school_id=school_id)
+        if not skip_school_filter_for_parent:
+            if not is_super_admin(user) and school_id:
+                queryset = queryset.filter(school_id=school_id)
+            elif school_id:
+                queryset = queryset.filter(school_id=school_id)
 
         # Filter by academic year
         # ✅ BUG FIX: this year filter is only meaningful for the STUDENT
@@ -223,16 +272,6 @@ class StudentViewSet(viewsets.ModelViewSet):
         # GET /api/students/64/pending_slips/ 500'd in production while
         # working locally — the two databases have slightly different
         # academic_year text for that student, not different code.
-        # Detail-by-ID actions identify their target by pk already, so
-        # they skip this filter entirely; only list-style actions
-        # (default DRF `list`, bulk exports, etc.) need it.
-        DETAIL_ACTIONS_SKIP_YEAR_FILTER = {
-            'retrieve', 'pending_slips', 'child_record', 'payment_history',
-            'pending_payments', 'registration_status',
-            'parent_upload_photo', 'parent_upload_document',
-            'upload_document', 'delete_document', 'review_document',
-        }
-        skip_year_filter = getattr(self, 'action', None) in DETAIL_ACTIONS_SKIP_YEAR_FILTER
 
         year_id = self.request.query_params.get('academic_year_id')
         year_param = self.request.query_params.get('academic_year')
