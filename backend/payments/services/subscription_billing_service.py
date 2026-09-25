@@ -27,21 +27,41 @@ def get_or_create_current_month_charge(school):
     Returns this school's PlatformSubscriptionCharge for the current
     calendar month, creating it on first access.
 
-    ✅ Snapshotted on creation and never updated afterwards — if a
-    student is added/removed later in the month, or the super admin
-    changes the rate, THIS month's already-created charge stays exactly
-    as it was first computed. That's deliberate: it mirrors how
-    Payment.platform_fee_amount already behaves, so a school's bill for
-    a month that's already underway can't silently move on them.
+    ✅ CHANGED (Jimma feedback, 2026-09-25): while the month is still the
+    CURRENT month, this row is now live — it's recomputed against
+    whatever rate is in PlatformFeeSettings and however many active
+    students the school has, every time it's read. Previously it was
+    snapshotted once on first creation and never touched again, which
+    meant a super admin correcting the rate mid-month (e.g. 25 -> 40)
+    had no visible effect until next month, while the summary text
+    right above the breakdown table (which reads the rate straight from
+    PlatformFeeSettings) updated immediately — the two numbers disagreed
+    on-screen for the rest of the month. Since a balance for a month
+    that hasn't ended yet was never "final" in the first place, there's
+    nothing to protect by freezing it early.
+
+    A month's row ONLY stops being touched once it is no longer the
+    current month (i.e. once the calendar rolls over past it) — from
+    that point on this function never queries or writes it again, so
+    every PAST month stays exactly as it was on the day it closed. That
+    preserves the original guarantee (a school's bill for a month
+    that's already over never silently changes) while fixing the part
+    that was actually confusing (a month still in progress not
+    reflecting a rate the super admin just changed).
     """
     month = _first_of_month()
-    existing = PlatformSubscriptionCharge.objects.filter(school=school, month=month).first()
-    if existing:
-        return existing
-
     rate = PlatformFeeSettings.get_current().platform_subscription_fee_per_student
     student_count = Student.objects.filter(school=school, status='active').count()
     amount = rate * student_count
+
+    existing = PlatformSubscriptionCharge.objects.filter(school=school, month=month).first()
+    if existing:
+        if existing.rate_per_student != rate or existing.student_count != student_count:
+            existing.rate_per_student = rate
+            existing.student_count = student_count
+            existing.amount = amount
+            existing.save(update_fields=['rate_per_student', 'student_count', 'amount'])
+        return existing
 
     try:
         return PlatformSubscriptionCharge.objects.create(
@@ -50,8 +70,15 @@ def get_or_create_current_month_charge(school):
         )
     except IntegrityError:
         # Rare race: two requests hit this in the same instant — the
-        # unique_together already saved one, just return it.
-        return PlatformSubscriptionCharge.objects.get(school=school, month=month)
+        # unique_together already saved one, just refresh and return it
+        # rather than leaving it at whichever value won the race.
+        existing = PlatformSubscriptionCharge.objects.get(school=school, month=month)
+        if existing.rate_per_student != rate or existing.student_count != student_count:
+            existing.rate_per_student = rate
+            existing.student_count = student_count
+            existing.amount = amount
+            existing.save(update_fields=['rate_per_student', 'student_count', 'amount'])
+        return existing
 
 
 def get_subscription_summary(school):

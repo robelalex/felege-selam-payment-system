@@ -783,10 +783,10 @@ class PlatformFeeSettings(models.Model):
     # ✅ NEW (requested): the platform subscription fee — a flat ETB
     # amount per ACTIVE student per month, covering hosting/infrastructure
     # (Render, Neon, Cloudinary, Vercel) and ongoing system access —
-    # separate from the per-payment developer usage fee above. Same
-    # "snapshot, don't rewrite the past" philosophy: see
-    # PlatformSubscriptionCharge below, which locks in the rate and
-    # student count for each month once computed.
+    # separate from the per-payment developer usage fee above. See
+    # PlatformSubscriptionCharge below: a month's rate/student count
+    # stays live and reflects this setting until that month ends, then
+    # locks in place — a past month is never rewritten.
     platform_subscription_fee_per_student = models.DecimalField(
         max_digits=6, decimal_places=2, default=25.00,
         help_text="Platform subscription fee (ETB) charged per active student, per month."
@@ -816,11 +816,19 @@ class PlatformSubscriptionCharge(models.Model):
     """
     ✅ NEW (requested): one row per school per calendar month — the
     platform subscription fee (per-active-student) accrued for that
-    month. Snapshots student_count and rate_per_student at the moment
-    it's first computed for that month, and is never recalculated after
-    — same reasoning as Payment.platform_fee_amount: a later rate change
-    or a student leaving/joining mid-month must not silently rewrite
-    what a school already owes for a month that's already underway.
+    month.
+
+    ✅ CHANGED (2026-09-25): while `month` is still the CURRENT calendar
+    month, student_count/rate_per_student/amount are kept live — they're
+    recomputed against PlatformFeeSettings and the school's current
+    active-student count every time get_or_create_current_month_charge()
+    is called, so a super admin correcting the rate mid-month is
+    reflected immediately instead of only from next month onward. Once
+    the calendar rolls past a given month, that row is never queried or
+    written by that function again, so a CLOSED month's figures are
+    still permanently locked in — same reasoning as
+    Payment.platform_fee_amount: what a school already owes for a month
+    that's over must never silently change.
 
     Created lazily by get_or_create_current_month_charge() (see
     payments/services/subscription_billing_service.py) the first time
