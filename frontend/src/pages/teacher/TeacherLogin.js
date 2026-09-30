@@ -5,9 +5,9 @@
 // via StaffMemberViewSet.create_login already support this), but goes
 // through teacherApi so the session never touches the admin's tokens.
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Lock, Mail, ArrowRight, AlertCircle, Loader, Eye, EyeOff, Shield, School } from 'lucide-react';
-import { teacherLogin, verifyTeacherOtp, saveTeacherSession, extractError } from '../../services/teacherApi';
+import { useNavigate, Link } from 'react-router-dom';
+import { Lock, Mail, Phone, ArrowRight, AlertCircle, Loader, Eye, EyeOff, Shield, School } from 'lucide-react';
+import { teacherLogin, verifyTeacherOtp, teacherPhoneLogin, saveTeacherSession, extractError } from '../../services/teacherApi';
 import AuthSplitLayout from '../../components/Auth/AuthSplitLayout';
 
 function TeacherLogin() {
@@ -37,7 +37,21 @@ function TeacherLogin() {
     setLoading(true);
     setError('');
     try {
-      const response = await teacherLogin(otpMethod === 'sms' ? phone.trim() : email.trim(), password, otpMethod);
+      // ✅ CHANGED (requested): Phone tab now signs a teacher straight in
+      // with phone + password — no OTP step at all. Email tab below is
+      // completely unchanged (still email + password + OTP).
+      if (otpMethod === 'sms') {
+        const response = await teacherPhoneLogin(phone.trim(), password);
+        if (response.data.success) {
+          saveTeacherSession(response.data.user, response.data.access);
+          navigate('/teacher/dashboard');
+        } else {
+          setError(response.data.error || 'Invalid phone number or password');
+        }
+        return;
+      }
+
+      const response = await teacherLogin(email.trim(), password, 'email');
       if (response.data.success && response.data.requires_otp) {
         setUserId(response.data.user_id);
         setStep('otp');
@@ -72,11 +86,12 @@ function TeacherLogin() {
   };
 
   const handleResendOtp = async () => {
+    // Email only now — the phone path has no OTP step to land here from.
     if (resendTimer > 0) return;
     setLoading(true);
     setError('');
     try {
-      const response = await teacherLogin(otpMethod === 'sms' ? phone.trim() : email.trim(), password, otpMethod);
+      const response = await teacherLogin(email.trim(), password, 'email');
       if (response.data.success) {
         setUserId(response.data.user_id);
         setResendTimer(60);
@@ -202,7 +217,7 @@ function TeacherLogin() {
                 onClick={() => setOtpMethod('sms')}
                 className={`flex-1 py-2 rounded-lg text-sm font-medium border ${otpMethod === 'sms' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300'}`}
               >
-                Phone (SMS)
+                Phone
               </button>
             </div>
           </div>
@@ -211,7 +226,7 @@ function TeacherLogin() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                 <input
                   type="tel"
                   value={phone}
@@ -289,6 +304,12 @@ function TeacherLogin() {
               </>
             )}
           </button>
+
+          <p className="text-center text-sm text-gray-500">
+            <Link to="/teacher/forgot-password" className="text-primary-600 hover:text-primary-700 font-medium">
+              Forgot password?
+            </Link>
+          </p>
         </form>
       </div>
     </AuthSplitLayout>

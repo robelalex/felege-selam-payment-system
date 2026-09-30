@@ -10,9 +10,15 @@ urlpatterns = [
     path('login/', views.admin_login_step1, name='admin-login-step1'),
     path('verify/', views.admin_login_step2, name='admin-login-step2'),
     
-    # Parent Login with OTP
+    # Parent Login with OTP (email only, in practice — see phone-login below)
     path('parent/send-otp/', views.parent_login_step1, name='parent-send-otp'),
     path('parent/verify/', views.parent_login_step2, name='parent-verify-otp'),
+
+    # ✅ NEW: Parent phone login — no OTP, straight to Student ID entry
+    path('parent/phone-login/', views.parent_login_phone, name='parent-phone-login'),
+
+    # ✅ NEW: Teacher phone login — phone + password, no OTP
+    path('teacher/phone-login/', views.teacher_phone_login, name='teacher-phone-login'),
     
     # Password management
     path('forgot-password/', views.forgot_password, name='forgot-password'),

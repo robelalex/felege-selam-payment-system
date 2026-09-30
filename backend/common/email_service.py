@@ -432,12 +432,22 @@ def send_registration_confirmation_email(recipient_email, school_name, admin_fir
         return False, str(e)
 
 
-def send_reset_password_email(recipient_email, token):
+def send_reset_password_email(recipient_email, token, portal=None):
+    """
+    ✅ CHANGED (requested): added the optional `portal` param so the
+    teacher portal's new "Forgot Password" screen can send teachers back
+    to /teacher/reset-password (which then routes them on to
+    /teacher-login) instead of the admin reset page. Every existing
+    caller passes nothing, so the link is still exactly
+    /admin/reset-password?token=... as before — no behavior change for
+    the school-admin/staff forgot-password flow.
+    """
     frontend_url = getattr(
         settings, 'FRONTEND_URL',
         'https://felege-selam-payment-system.vercel.app'
     )
-    reset_link = f"{frontend_url}/admin/reset-password?token={token}"
+    reset_path = '/teacher/reset-password' if portal == 'teacher' else '/admin/reset-password'
+    reset_link = f"{frontend_url}{reset_path}?token={token}"
 
     html_message = f"""
     <!DOCTYPE html>

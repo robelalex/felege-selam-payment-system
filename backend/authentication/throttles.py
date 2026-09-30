@@ -19,8 +19,15 @@ class LoginRateThrottle(SimpleRateThrottle):
     scope = 'login'
 
     def get_cache_key(self, request, view):
+        # ✅ FIX: 'phone' added to the chain — the new phone-only login
+        # endpoints (parent phone login, teacher phone login) send neither
+        # 'email' nor 'user_id', so without this every request from every
+        # phone-login attempt fell through to the same shared per-IP
+        # bucket instead of being throttled per-account like every other
+        # login path already is.
         identifier = (
             request.data.get('email')
+            or request.data.get('phone')
             or request.data.get('user_id')
             or self.get_ident(request)
         )

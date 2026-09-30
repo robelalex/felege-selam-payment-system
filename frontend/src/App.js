@@ -65,6 +65,8 @@ import AdminActivityLog from './pages/AdminActivityLog';
 import ReceiptPage from './pages/ReceiptPage';
 // Teacher Portal — hidden routes, not linked from any nav/menu
 import TeacherLogin from './pages/teacher/TeacherLogin';
+import TeacherForgotPassword from './pages/teacher/TeacherForgotPassword';
+import TeacherResetPassword from './pages/teacher/TeacherResetPassword';
 import TeacherDashboard from './pages/teacher/TeacherDashboard';
 import TeacherGradebook from './pages/teacher/TeacherGradebook';
 import TeacherAttendance from './pages/teacher/TeacherAttendance';
@@ -580,6 +582,8 @@ function App() {
 
               {/* ========== TEACHER PORTAL — hidden, not linked from any nav ========== */}
               <Route path="/teacher-login" element={<TeacherLogin />} />
+              <Route path="/teacher/forgot-password" element={<TeacherForgotPassword />} />
+              <Route path="/teacher/reset-password" element={<TeacherResetPassword />} />
               <Route
                 path="/teacher/dashboard"
                 element={<TeacherProtectedRoute><TeacherDashboard /></TeacherProtectedRoute>}

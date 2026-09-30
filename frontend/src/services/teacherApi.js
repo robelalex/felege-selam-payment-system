@@ -25,7 +25,17 @@ const teacherApi = axios.create({
 });
 
 teacherApi.interceptors.request.use((config) => {
-  const isAuthEndpoint = config.url && (config.url.includes('/login/') || config.url.includes('/verify/'));
+  // ✅ Also excludes phone-login/forgot-password/reset-password — none of
+  // these should carry a possibly-stale Bearer token from a previous
+  // session (they're all AllowAny endpoints anyway, but a stale/expired
+  // token header is one more thing that could confuse a debug log).
+  const isAuthEndpoint = config.url && (
+    config.url.includes('/login/') ||
+    config.url.includes('/verify/') ||
+    config.url.includes('/phone-login/') ||
+    config.url.includes('/forgot-password/') ||
+    config.url.includes('/reset-password/')
+  );
   const token = localStorage.getItem('teacher_access_token');
   if (token && !isAuthEndpoint) {
     config.headers['Authorization'] = `Bearer ${token}`;
@@ -89,6 +99,21 @@ export const teacherLogin = (identifier, password, method = 'email') =>
     portal: 'teacher',
   });
 export const verifyTeacherOtp = (userId, otpCode) => teacherApi.post('/verify/', { user_id: userId, otp_code: otpCode, portal: 'teacher' });
+
+// ✅ NEW (requested): phone + password, no OTP — completely separate
+// from teacherLogin/verifyTeacherOtp above (which stays the email+OTP
+// path). Returns the same {success, access, refresh, user} shape as
+// verifyTeacherOtp's response, so saveTeacherSession works unchanged.
+export const teacherPhoneLogin = (phone, password) =>
+  teacherApi.post('/teacher/phone-login/', { phone, password });
+
+// ✅ NEW: forgot/reset password for the teacher portal. Same generic
+// backend endpoints the admin portal uses — portal: 'teacher' just
+// changes which page the emailed reset link points back to.
+export const teacherForgotPassword = (email) =>
+  teacherApi.post('/forgot-password/', { email, portal: 'teacher' });
+export const teacherResetPassword = (token, newPassword) =>
+  teacherApi.post('/reset-password/', { token, new_password: newPassword, confirm_password: newPassword });
 
 // ─── My classes ──────────────────────────────────────────────────────────
 export const getMyAssignments = () => teacherApi.get('/teacher/my-assignments/');

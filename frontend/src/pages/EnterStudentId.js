@@ -11,6 +11,10 @@ function EnterStudentId() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [parentEmail, setParentEmail] = useState('');
+  // ✅ NEW: phone-login parents skipped OTP entirely (see ParentLogin.js),
+  // so the trust checklist below needs to say something true for them
+  // too, instead of always claiming "verified with OTP code".
+  const [loggedInWithPhone, setLoggedInWithPhone] = useState(false);
 
   useEffect(() => {
     // ✅ FIX: was a raw truthiness check with no expiry — a session
@@ -25,6 +29,7 @@ function EnterStudentId() {
 
     const session = getParentSession();
     setParentEmail(session.email || session.phone || '');
+    setLoggedInWithPhone(!session.email && !!session.phone);
   }, [navigate]);
 
   const handleSubmit = async (e) => {

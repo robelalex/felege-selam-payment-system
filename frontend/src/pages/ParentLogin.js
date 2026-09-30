@@ -1,7 +1,7 @@
 // src/pages/ParentLogin.js
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mail, ArrowRight, AlertCircle, Loader, Shield, CheckCircle } from 'lucide-react';
+import { Mail, Phone, ArrowRight, AlertCircle, Loader, Shield, CheckCircle } from 'lucide-react';
 import api from '../services/api';
 
 function ParentLogin() {
@@ -30,10 +30,43 @@ function ParentLogin() {
     setLoading(true);
     setError('');
 
+    // ✅ CHANGED (requested): phone login no longer goes through OTP at
+    // all — one call straight to /parent/phone-login/, then on to the
+    // Student ID screen, same as email/OTP used to hand off. Email path
+    // below is completely unchanged.
+    if (loginMethod === 'phone') {
+      try {
+        const response = await api.post('/parent/phone-login/', { phone });
+
+        if (response.data.success) {
+          if (response.data.token) {
+            localStorage.setItem('parent_access_token', response.data.token);
+          }
+          if (response.data.refresh) {
+            localStorage.setItem('parent_refresh_token', response.data.refresh);
+          }
+          localStorage.setItem('parentSession', JSON.stringify({
+            email: '',
+            phone,
+            user_id: response.data.user_id,
+            verified: true,
+            verifiedAt: new Date().toISOString()
+          }));
+          navigate('/parent/enter-student-id');
+        } else {
+          setError(response.data.error || 'Failed to sign in');
+        }
+      } catch (err) {
+        console.error('Phone login error:', err);
+        setError(err.response?.data?.error || 'Phone number not found. Please check the number.');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     try {
-      const response = await api.post('/parent/send-otp/',
-        loginMethod === 'phone' ? { phone } : { email }
-      );
+      const response = await api.post('/parent/send-otp/', { email });
 
       if (response.data.success) {
         setUserId(response.data.user_id);
@@ -45,7 +78,7 @@ function ParentLogin() {
       }
     } catch (err) {
       console.error('Send OTP error:', err);
-      setError(err.response?.data?.error || (loginMethod === 'phone' ? 'Phone number not found. Please check the number.' : 'Email not found. Please check your email address.'));
+      setError(err.response?.data?.error || 'Email not found. Please check your email address.');
     } finally {
       setLoading(false);
     }
@@ -107,15 +140,14 @@ function ParentLogin() {
   };
 
   const handleResendOTP = async () => {
+    // ✅ Email only now — phone login no longer has an OTP step to resend.
     if (resendTimer > 0) return;
     
     setLoading(true);
     setError('');
     
     try {
-      const response = await api.post('/parent/send-otp/',
-        loginMethod === 'phone' ? { phone } : { email }
-      );
+      const response = await api.post('/parent/send-otp/', { email });
       
       if (response.data.success) {
         setResendTimer(60);
@@ -262,7 +294,7 @@ function ParentLogin() {
                   Phone Number
                 </label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                   <input
                     type="tel"
                     value={phone}
@@ -273,7 +305,7 @@ function ParentLogin() {
                   />
                 </div>
                 <p className="text-sm text-gray-500 mt-2">
-                  We'll send a 6-digit verification code by SMS to this number — use the same number the school has on file for you.
+                  Use the same number the school has on file for you. Next you'll enter your child's Student ID.
                 </p>
               </div>
             ) : (
@@ -315,29 +347,44 @@ function ParentLogin() {
               {loading ? (
                 <>
                   <Loader className="h-5 w-5 animate-spin" />
-                  Sending Code...
+                  {loginMethod === 'phone' ? 'Checking...' : 'Sending Code...'}
                 </>
               ) : (
                 <>
-                  Send Verification Code
+                  {loginMethod === 'phone' ? 'Continue' : 'Send Verification Code'}
                   <ArrowRight className="h-5 w-5" />
                 </>
               )}
             </button>
 
             <div className="border-t pt-4">
-              <div className="flex items-center gap-3 text-sm text-gray-500">
-                <CheckCircle className="h-4 w-4 text-green-500" />
-                <span>One-time code sent to your email</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm text-gray-500 mt-2">
-                <CheckCircle className="h-4 w-4 text-green-500" />
-                <span>Code expires in 10 minutes</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm text-gray-500 mt-2">
-                <CheckCircle className="h-4 w-4 text-green-500" />
-                <span>Your information is encrypted</span>
-              </div>
+              {loginMethod === 'phone' ? (
+                <>
+                  <div className="flex items-center gap-3 text-sm text-gray-500">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <span>You'll enter your child's Student ID next</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm text-gray-500 mt-2">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <span>Your information is encrypted</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3 text-sm text-gray-500">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <span>One-time code sent to your email</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm text-gray-500 mt-2">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <span>Code expires in 10 minutes</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm text-gray-500 mt-2">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <span>Your information is encrypted</span>
+                  </div>
+                </>
+              )}
             </div>
           </form>
         </div>

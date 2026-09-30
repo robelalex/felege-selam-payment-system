@@ -17,6 +17,13 @@ from django.contrib.auth.hashers import make_password, check_password
 import uuid
 import random
 import string
+import logging
+
+# ✅ NEW: full exception detail (Afro Message HTTP errors, "SMS not
+# configured", etc.) goes here — server-side logs only, a developer's
+# tool — never straight into a Response an end user sees. See
+# _sms_failure_response() below.
+logger = logging.getLogger(__name__)
 
 from .serializers import (
     RegisterSerializer, LoginSerializer, UserSerializer, 
@@ -137,6 +144,87 @@ def send_otp_via_email(email, otp_code, school_name=None, school_id=None):
     except Exception as e:
         print(f"❌ Failed to send OTP email to {email}: {e}")
         return False
+
+
+def _sms_failure_response(context, phone, raw_message):
+    """
+    ✅ NEW (requested, "make my system feel like a business, not a
+    school project"): an SMS send failure (Afro Message not configured,
+    an expired/invalid API key, a raw HTTP error from their API, low
+    wallet balance, etc.) used to go straight into the login error
+    banner verbatim — e.g. "Could not send the code by SMS (SMS not
+    configured for school: X. Please add Afro Message API Key in School
+    Settings...)". That's an internal/developer message, not something
+    a parent or teacher trying to log in should ever see.
+
+    The full detail is still fully preserved — just server-side, in the
+    logs, where it's actually useful to a developer — while the person
+    logging in gets one short, calm, non-technical sentence.
+    """
+    logger.error(f"[OTP SMS] {context} failed for phone={phone}: {raw_message}")
+    return Response({
+        'success': False,
+        'error': "We couldn't send the code by SMS right now. Please try the Email tab instead, or contact your school if this keeps happening.",
+    }, status=500)
+
+
+def _build_login_success_response(request, user):
+    """
+    ✅ NEW: the final "you're in" response — resolves the school
+    (logo/name for the sidebar), the real granular role, issues JWTs,
+    and also completes the Django session login. Factored out of
+    admin_login_step2 so a login path that skips OTP entirely (e.g.
+    teacher_phone_login below) still produces byte-for-byte the same
+    response shape the frontend already knows how to handle, instead of
+    a second, slightly-different copy of this logic drifting out of
+    sync over time.
+    """
+    auth_login(request, user)
+    request.session.save()
+
+    profile = user.profile
+    school_info = None
+    try:
+        from schools.models import SchoolAdminProfile, School
+        school = None
+        school_admin_profile = SchoolAdminProfile.objects.filter(user=user, is_active=True).first()
+        if school_admin_profile:
+            school = School.objects.get(id=school_admin_profile.school_id)
+        else:
+            school_id = getattr(profile, 'school_id', None)
+            if school_id:
+                school = School.objects.filter(id=school_id).first()
+        if school:
+            school_info = {
+                'id': school.id,
+                'name': school.name,
+                'code': school.code,
+                'logo': school.logo.url if school.logo else None
+            }
+    except Exception:
+        pass
+
+    refresh = RefreshToken.for_user(user)
+    from common.utils import get_effective_role
+    effective_role = get_effective_role(user) or profile.role
+
+    return Response({
+        'success': True,
+        'message': 'Login successful',
+        'access': str(refresh.access_token),
+        'refresh': str(refresh),
+        'user': {
+            'id': user.id,
+            'email': user.email,
+            'username': user.username,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'role': effective_role,
+            'is_super_admin': effective_role == 'super_admin',
+            'is_school_admin': effective_role == 'school_admin',
+            'school': school_info
+        }
+    })
 
 
 def get_school_name_for_otp(school_id):
@@ -355,11 +443,10 @@ def admin_login_step1(request):
             # person explicitly logged in with their phone and needs to
             # know it failed (e.g. school's SMS balance is low) so they
             # can switch to the email tab themselves rather than wait
-            # for a code that never arrives.
-            return Response({
-                'success': False,
-                'error': f"Could not send the code by SMS ({sms_result.get('message', 'unknown error')}). Please try the Email tab instead.",
-            }, status=500)
+            # for a code that never arrives. The REASON it failed stays
+            # in the server logs, not in what they see — see
+            # _sms_failure_response().
+            return _sms_failure_response('Admin/staff login OTP', phone, sms_result.get('message', 'unknown error'))
 
         return Response({
             'success': True,
@@ -451,69 +538,93 @@ def admin_login_step2(request):
     profile.otp_created_at = None
     reset_otp_attempts(profile)
     profile.save()
-    
-    auth_login(request, user)
-    request.session.save()
-    
-    school_info = None
-    try:
-        from schools.models import SchoolAdminProfile, School
-        school = None
-
-        # 1. Preferred: SchoolAdminProfile
-        school_admin_profile = SchoolAdminProfile.objects.filter(user=user, is_active=True).first()
-        if school_admin_profile:
-            school = School.objects.get(id=school_admin_profile.school_id)
-        else:
-            # 2. ✅ FIX: fall back to UserProfile.school_id — without this,
-            # any account without a SchoolAdminProfile row (super_admin
-            # accounts, or staff logins resolved only through UserProfile)
-            # got school_info = None on login. That meant the sidebar's
-            # localStorage cache never received the school's logo/name at
-            # login time, so it kept showing the generic icon even after
-            # the logo was successfully saved in School Settings — this
-            # mirrors the same SchoolAdminProfile-only bug fixed in the
-            # SMS balance/reminder endpoints.
-            school_id = getattr(profile, 'school_id', None)
-            if school_id:
-                school = School.objects.filter(id=school_id).first()
-
-        if school:
-            school_info = {
-                'id': school.id,
-                'name': school.name,
-                'code': school.code,
-                'logo': school.logo.url if school.logo else None
-            }
-    except Exception:
-        pass
-    
-    refresh = RefreshToken.for_user(user)
 
     # ✅ Same fix as get_current_user: profile.role is always 'staff' for
     # any StaffMemberViewSet.create_login account (teacher, registrar,
     # accountant...) — resolve the real granular role instead, so a
     # teacher logging in gets 'teacher' back, not the generic 'staff'.
-    from common.utils import get_effective_role
-    effective_role = get_effective_role(user) or profile.role
+    # (get_effective_role is called inside _build_login_success_response.)
+    return _build_login_success_response(request, user)
 
-    return Response({
-        'success': True,
-        'message': 'Login successful',
-        'access': str(refresh.access_token),
-        'refresh': str(refresh),
-        'user': {
-            'id': user.id,
-            'email': user.email,
-            'username': user.username,
-            'first_name': user.first_name,
-            'last_name': user.last_name,
-            'role': effective_role,
-            'is_super_admin': effective_role == 'super_admin',
-            'is_school_admin': effective_role == 'school_admin',
-            'school': school_info
-        }
-    })
+
+# ===== TEACHER PORTAL: PHONE + PASSWORD LOGIN, NO OTP =====
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([LoginRateThrottle])
+@csrf_exempt
+def teacher_phone_login(request):
+    """
+    ✅ NEW (requested): the teacher portal's Phone tab now logs a teacher
+    straight in with phone + password — no OTP step. The Email tab is
+    completely unchanged (still goes through admin_login_step1/step2
+    with portal='teacher', full email + password + OTP) — this endpoint
+    is only ever reached when the teacher explicitly picks Phone.
+
+    This is a deliberate, requested exception to "OTP everywhere":
+    unlike a parent (self-reported phone number, no other verification)
+    or a school admin (holds real money-movement/settings access), a
+    teacher's phone number here was entered by the SCHOOL ADMIN when
+    granting the login — not self-registered — and a teacher account has
+    no access to payments, bank details, or other students' financial
+    data. A wrong password still fully blocks access.
+
+    School admin (email OR phone) login is untouched — still
+    password + OTP either way, via admin_login_step1/step2.
+    """
+    phone = request.data.get('phone')
+    password = request.data.get('password')
+
+    if not phone or not password:
+        return Response({'error': 'Phone number and password are required'}, status=400)
+
+    from django.db.models import Q
+    try:
+        # Same phone lookup as admin_login_step1: match on either
+        # UserProfile.phone or StaffMember.phone, whichever is on file.
+        user = User.objects.exclude(profile__role='parent').filter(
+            Q(profile__phone=phone) | Q(staff_profile__phone=phone)
+        ).distinct().get()
+    except User.DoesNotExist:
+        return Response({'error': 'Invalid credentials'}, status=401)
+    except User.MultipleObjectsReturned:
+        return Response(
+            {'error': 'Multiple accounts are registered with this phone number. Please contact support.'},
+            status=409,
+        )
+
+    staff_profile = getattr(user, 'staff_profile', None)
+    if not staff_profile or staff_profile.role != 'teacher':
+        return Response({'error': 'This portal is for teacher accounts only.'}, status=403)
+
+    if not user.is_active:
+        return Response({'error': 'Account pending approval'}, status=401)
+
+    user = authenticate(username=user.username, password=password)
+    if not user:
+        return Response({'error': 'Invalid credentials'}, status=401)
+
+    if hasattr(user, 'profile') and not user.profile.is_email_verified:
+        return Response({'error': 'Please verify your email first'}, status=401)
+
+    # Same Service Agreement Section 4 enforcement as admin_login_step1.
+    # Deliberately NOT subject to admin_ip_restriction_enabled — teachers
+    # are already exempt from that check in the email/OTP path too.
+    profile = user.profile
+    school_id = getattr(profile, 'school_id', None)
+    if school_id:
+        from schools.models import School
+        school = School.objects.filter(id=school_id).first()
+        if school and school.is_access_suspended:
+            return Response({
+                'error': (
+                    "This school's SchoolPay Ethiopia subscription is not active. "
+                    "Please contact SchoolPay Ethiopia to reactivate access. "
+                    "Student and payment records are safe and have not been affected."
+                ),
+                'subscription_suspended': True,
+            }, status=402)
+
+    return _build_login_success_response(request, user)
 
 
 # ===== OTP 2FA: PARENT LOGIN WITH OTP ONLY =====
@@ -590,10 +701,7 @@ def parent_login_step1(request):
             sms_result = {'success': False, 'message': str(e)}
 
         if not sms_result.get('success'):
-            return Response({
-                'success': False,
-                'error': f"Could not send the code by SMS ({sms_result.get('message', 'unknown error')}). Please try email instead.",
-            }, status=500)
+            return _sms_failure_response('Parent login OTP', phone, sms_result.get('message', 'unknown error'))
 
         return Response({
             'success': True,
@@ -717,6 +825,79 @@ def parent_login_step2(request):
     return Response({
         'success': True,
         'message': 'OTP verified successfully. Please enter your student ID.',
+        'user_id': user.id,
+        'token': str(refresh.access_token),
+        'refresh': str(refresh),
+    })
+
+
+# ===== PARENT PORTAL: PHONE LOGIN, NO OTP =====
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([LoginRateThrottle])
+@authentication_classes([])
+@csrf_exempt
+def parent_login_phone(request):
+    """
+    ✅ NEW (requested): parent phone-number login no longer sends an OTP
+    at all — enter the phone number, land straight on the Student ID
+    screen, same as the flow worked before OTP was added for parents.
+    Email login is completely unchanged (parent_login_step1/step2 above)
+    — still email + OTP, exactly as before.
+
+    Deliberate exception to "OTP everywhere": to reach anything real, a
+    parent here still has to clear TWO real checks — a phone number the
+    SCHOOL already has on file against a specific enrolled student
+    (this lookup), AND that exact student's ID on the next screen
+    (students.search_by_id, permission-checked server-side against this
+    same phone). An OTP on top of that wasn't blocking anything a wrong
+    phone number couldn't already fail on, while adding SMS cost and a
+    failure point (see _sms_failure_response — this is exactly the kind
+    of dependency being removed from the parent phone path).
+    """
+    phone = request.data.get('phone')
+    if not phone:
+        return Response({'error': 'Phone number is required'}, status=400)
+
+    from students.models import Student
+    students = Student.objects.filter(parent_phone=phone)
+    if not students.exists():
+        return Response({'error': 'No student found with this phone number'}, status=404)
+
+    student_school_id = students.first().school_id
+
+    # Same username scheme as the phone branch of parent_login_step1, so
+    # a parent who already has an account there (or in the old flow)
+    # resolves to the exact same User, not a duplicate.
+    digits = ''.join(ch for ch in phone if ch.isdigit())
+    username = f"parent_phone_{digits}"
+    user, created = User.objects.get_or_create(
+        username=username,
+        defaults={'email': '', 'is_active': True}
+    )
+    if created:
+        UserProfile.objects.create(
+            user=user, role='parent', is_email_verified=True,
+            school_id=student_school_id, phone=phone,
+        )
+    else:
+        profile = user.profile
+        update_fields = []
+        if profile.school_id != student_school_id:
+            profile.school_id = student_school_id
+            update_fields.append('school_id')
+        if profile.phone != phone:
+            profile.phone = phone
+            update_fields.append('phone')
+        if update_fields:
+            profile.save(update_fields=update_fields)
+
+    auth_login(request, user)
+    refresh = RefreshToken.for_user(user)
+
+    return Response({
+        'success': True,
+        'message': 'Please enter your student ID.',
         'user_id': user.id,
         'token': str(refresh.access_token),
         'refresh': str(refresh),
@@ -910,7 +1091,17 @@ def forgot_password(request):
         }, status=status.HTTP_400_BAD_REQUEST)
     
     email = serializer.validated_data['email']
-    
+
+    # ✅ NEW (requested): teacher portal now has its own "Forgot
+    # Password" screen. This endpoint was already generic (any account
+    # found by email, admin/staff/teacher alike) — the only thing
+    # missing was which portal's reset-password page the emailed link
+    # should point back to. Optional and additive: when 'portal' isn't
+    # sent at all (every existing caller — AdminLogin's ForgotPassword
+    # page), send_reset_password_email defaults to exactly the same
+    # /admin/reset-password link it always has.
+    portal = request.data.get('portal')
+
     try:
         user = User.objects.filter(email=email).first()
         if user and hasattr(user, 'profile'):
@@ -919,7 +1110,7 @@ def forgot_password(request):
             user.profile.save()
             
             from common.email_service import send_reset_password_email
-            success, message = send_reset_password_email(email, str(user.profile.reset_password_token))
+            success, message = send_reset_password_email(email, str(user.profile.reset_password_token), portal=portal)
             if not success:
                 print(f"Failed to send reset email: {message}")
         
