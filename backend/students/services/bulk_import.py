@@ -90,6 +90,13 @@ class BulkImportService:
         phone_str = str(phone).strip()
         
         # If it's 9 digits, add back the leading zero
+        # Excel phones: remove '.0', spaces, '+', and accept 251 prefix
+        if phone_str.endswith('.0'):
+            phone_str = phone_str[:-2]
+        phone_str = phone_str.replace(' ', '').replace('-', '').lstrip('+')
+        if phone_str.startswith('251') and len(phone_str) == 12:
+            phone_str = '0' + phone_str[3:]
+        # If it's 9 digits, add back the leading zero
         if len(phone_str) == 9 and phone_str.isdigit():
             phone_str = '0' + phone_str
         
@@ -112,10 +119,16 @@ class BulkImportService:
         """Process uploaded Excel file"""
         try:
             # Read Excel file
-            df = pd.read_excel(file, sheet_name='Students')
+            try:
+                df = pd.read_excel(file, sheet_name='Students')
+            except ValueError:
+                if hasattr(file, 'seek'):
+                    file.seek(0)
+                df = pd.read_excel(file, sheet_name=0)
             
             # Convert to list of dictionaries
-            records = df.to_dict('records')
+                        # Empty cells would be saved as the text 'nan'. Make them ''.
+            df = df.fillna('')
             self.results['total'] = len(records)
             
             for idx, record in enumerate(records, start=2):

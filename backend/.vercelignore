@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+media/
+db.sqlite3
+staticfiles_build/
+render.yaml
+render-build.sh
+build.sh

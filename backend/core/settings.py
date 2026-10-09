@@ -31,6 +31,7 @@ ALLOWED_HOSTS = [
     '10.146.175.12',
     '10.141.130.95',
     '.onrender.com',
+    '.vercel.app',
     'felege-selam-api.onrender.com',
     'felege-selam-payment-system.onrender.com',
     'testserver',
@@ -369,3 +370,11 @@ if not DEBUG:
     WHITENOISE_ROOT = STATIC_ROOT
     if not os.path.exists(STATIC_ROOT):
         os.makedirs(STATIC_ROOT, exist_ok=True)
+
+        # ===== VERCEL (serverless) MODE =====
+# Only active on Vercel. Render and local development are unchanged.
+if os.getenv('VERCEL'):
+    DATABASES['default']['CONN_MAX_AGE'] = 0
+    DATABASES['default']['CONN_HEALTH_CHECKS'] = False
+    Q_CLUSTER['sync'] = True
+    Q_CLUSTER['workers'] = 1
