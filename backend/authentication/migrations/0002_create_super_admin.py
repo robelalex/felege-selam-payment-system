@@ -1,7 +1,8 @@
 # backend/authentication/migrations/0002_create_super_admin.py
+import os
+
 from django.db import migrations
 from django.contrib.auth.hashers import make_password
-
 def create_super_admin(apps, schema_editor):
     User = apps.get_model('auth', 'User')
     UserProfile = apps.get_model('authentication', 'UserProfile')
@@ -11,7 +12,7 @@ def create_super_admin(apps, schema_editor):
         super_admin = User.objects.create(
             username='robelalex',
             email='robelalex95@gmail.com',
-            password=make_password('Ru1744/15robel'),
+            password=make_password(os.environ.get('INITIAL_SUPERADMIN_PASSWORD')),
             is_superuser=True,
             is_staff=True,
             is_active=True,

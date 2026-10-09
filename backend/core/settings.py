@@ -378,3 +378,4 @@ if os.getenv('VERCEL'):
     DATABASES['default']['CONN_HEALTH_CHECKS'] = False
     Q_CLUSTER['sync'] = True
     Q_CLUSTER['workers'] = 1
+    DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS'] = True
