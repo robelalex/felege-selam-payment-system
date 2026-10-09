@@ -15,7 +15,7 @@
 
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://felege-selam-payment-system.onrender.com/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://schoolpay-ethiopia-api.vercel.app/api';
 
 const teacherApi = axios.create({
   baseURL: API_BASE_URL,

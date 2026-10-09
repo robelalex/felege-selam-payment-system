@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
-const API_BASE = "https://felege-selam-payment-system.onrender.com";
+const API_BASE = "https://schoolpay-ethiopia-api.vercel.app";
 
 const STATUS_MESSAGES = {
   not_found: "Receipt not found. It may not exist, or the payment isn't confirmed yet.",

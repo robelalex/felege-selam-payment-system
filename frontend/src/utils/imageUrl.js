@@ -20,7 +20,7 @@ export const getMediaUrl = (path) => {
     return `http://127.0.0.1:8000${path.startsWith('/') ? path : `/${path}`}`;
   }
 
-  const backendUrl = process.env.REACT_APP_API_URL || 'https://felege-selam-payment-system.onrender.com';
+  const backendUrl = process.env.REACT_APP_API_URL || 'https://schoolpay-ethiopia-api.vercel.app';
   const root = backendUrl.replace(/\/api\/?$/, '');
   return `${root}${path.startsWith('/') ? path : `/${path}`}`;
 };

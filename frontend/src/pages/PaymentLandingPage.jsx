@@ -8,7 +8,7 @@ import { useParams } from "react-router-dom";
 // trailing /api, which this file's callers append manually, so it's
 // stripped back off here.
 const API_BASE = (
-  process.env.REACT_APP_API_URL || "https://felege-selam-payment-system.onrender.com/api"
+  process.env.REACT_APP_API_URL || "https://schoolpay-ethiopia-api.vercel.app/api"
 ).replace(/\/api\/?$/, "");
 
 const STATUS_MESSAGES = {
