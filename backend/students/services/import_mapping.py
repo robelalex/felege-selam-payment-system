@@ -61,3 +61,18 @@ SKIPPED_PATTERNS = [r'^nationalid$']
 # A sheet must map at least these fields to be accepted as the student list
 # (this is how the importer ignores helper sheets such as the form's 'List').
 REQUIRED_FIELDS = ['first_name', 'grade']
+
+# ---------------------------------------------------------------------------
+# WHICH VALUES MUST EXIST ON EVERY ROW (mandatory vs optional)
+# Everything not listed here is optional: used when present, ignored when empty.
+# To make a column mandatory add its field name below (for example
+# 'parent_phone', 'father_name', 'gender', 'date_of_birth'); to make a column
+# optional again, remove it. 'monthly_fee' is handled by the upload screen.
+# ---------------------------------------------------------------------------
+REQUIRED_VALUES = ['first_name', 'grade']
+
+# How a real Excel date cell is turned into text. Excel's default date format
+# shows the month first (a US-locale Excel), which is the order the person
+# typed, so 'month_first' reproduces exactly what they see. Use 'day_first'
+# if your files come from a day-first Excel.
+EXCEL_DATE_ORDER = 'month_first'

@@ -22,7 +22,8 @@ from django.db import IntegrityError, transaction
 from schools.models import School
 from students.models import Student
 from .import_mapping import (
-    EXTRA_PATTERNS, FIELD_PATTERNS, REQUIRED_FIELDS, SKIPPED_PATTERNS,
+    EXCEL_DATE_ORDER, EXTRA_PATTERNS, FIELD_PATTERNS, REQUIRED_FIELDS,
+    REQUIRED_VALUES, SKIPPED_PATTERNS,
 )
 
 BATCH_SIZE = 200
@@ -78,7 +79,10 @@ def clean_text(value):
         if value.is_integer():
             return str(int(value))
     if isinstance(value, (datetime, date)):
-        return value.strftime('%d/%m/%Y')
+        # No zero-padding, same order as the person typed / sees (see settings).
+        if EXCEL_DATE_ORDER == 'day_first':
+            return f"{value.day}/{value.month}/{value.year}"
+        return f"{value.month}/{value.day}/{value.year}"
     return re.sub(r'\s+', ' ', str(value)).strip()
 
 
@@ -266,6 +270,17 @@ class BulkImportService:
         self.results['ignored_columns'] = ignored
         self.results['total'] = len(df)
 
+        # ---- mandatory columns that the file does not even have ----
+        missing_cols = [f for f in REQUIRED_VALUES if f not in field_map and f != 'monthly_fee']
+        if missing_cols:
+            names = ', '.join(f.replace('_', ' ') for f in missing_cols)
+            return {
+                'error': f"This file has no column for: {names}. These are marked mandatory "
+                         f"in students/services/import_mapping.py (REQUIRED_VALUES).",
+                'total': len(df), 'success': 0,
+                'errors': [f"Missing mandatory column(s): {names}"],
+            }
+
         # ---- fee source (nothing is hard-coded: column, per-grade, or default) ----
         fee_column = field_map.get('monthly_fee')
         default_fee = parse_money(options.get('default_monthly_fee'))
@@ -332,6 +347,10 @@ class BulkImportService:
             grade, gerr = parse_grade(get(row, 'grade'))
             if gerr:
                 problems.append(gerr)
+
+            for f in REQUIRED_VALUES:
+                if f not in ('first_name', 'grade', 'monthly_fee') and not clean_text(get(row, f)):
+                    problems.append(f"{f.replace('_', ' ').capitalize()} is required")
 
             phone, phone_ok = normalize_phone(get(row, 'parent_phone'))
             if not phone_ok:

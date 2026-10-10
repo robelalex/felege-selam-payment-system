@@ -20,6 +20,22 @@ import {
 import api from '../../services/api';
 import { getMediaUrl } from '../../utils/imageUrl';
 
+// Optional details from the Ministry registration form. They are kept in the
+// student's "extra_info" record, so adding a field here needs no database change.
+const MINISTRY_FIELDS = [
+  { key: 'age', label: 'Age', type: 'number' },
+  { key: 'enrolment_status', label: 'Enrolment status', type: 'text', placeholder: 'e.g. New entrant, Promoted, Transfer' },
+  { key: 'entry_year', label: 'Entry year', type: 'number' },
+  { key: 'program', label: 'Program', type: 'text' },
+  { key: 'shift', label: 'Shift', type: 'text', placeholder: 'e.g. Full-day' },
+  { key: 'language', label: 'Language (medium of instruction)', type: 'text' },
+  { key: 'orphan', label: 'Orphan', type: 'yesno' },
+  { key: 'disability_status', label: 'Disability status', type: 'text' },
+  { key: 'can_go_home_alone', label: 'Can go home alone', type: 'yesno' },
+  { key: 'transport_assistant_name', label: 'Name of transport assistant', type: 'text' },
+  { key: 'transport_assistant_phone', label: 'Transport assistant phone', type: 'text' },
+];
+
 const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -58,6 +74,11 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
     house_number: editStudent?.house_number || '',
     status: editStudent?.status || 'active'
   });
+
+  // Optional Ministry-form details. Starts from everything already stored, so
+  // imported values that have no input here (e.g. organisation unit) are kept.
+  const [extraInfo, setExtraInfo] = useState(editStudent?.extra_info || {});
+  const setExtra = (key, value) => setExtraInfo(prev => ({ ...prev, [key]: value }));
 
   // ✅ NEW: enrollment documents (birth certificate, leaving certificate, etc.)
   // selected right here in the form, uploaded automatically right after the
@@ -221,6 +242,10 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
       studentData.append('mother_name', formData.mother_name || '');
       studentData.append('gender', formData.gender || '');
       studentData.append('date_of_birth', formData.date_of_birth || '');
+      const cleanExtra = Object.fromEntries(
+        Object.entries(extraInfo).filter(([, v]) => v !== '' && v !== null && v !== undefined)
+      );
+      studentData.append('extra_info', JSON.stringify(cleanExtra));
       studentData.append('grade', parseInt(formData.grade));
       studentData.append('section', formData.section || '');
       studentData.append('academic_year', formData.academic_year);
@@ -471,6 +496,40 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
                 </div>
               </div>
             </div>
+
+            {/* Optional Ministry-form details */}
+            <details className="rounded-lg border border-gray-200 p-4" open={Object.keys(extraInfo).length > 0}>
+              <summary className="cursor-pointer text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <User className="h-5 w-5 text-primary-600" />
+                More Student Details (optional)
+              </summary>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                {MINISTRY_FIELDS.map((f) => (
+                  <div key={f.key}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
+                    {f.type === 'yesno' ? (
+                      <select
+                        value={extraInfo[f.key] === true ? 'yes' : extraInfo[f.key] === false ? 'no' : ''}
+                        onChange={(e) => setExtra(f.key, e.target.value === '' ? '' : e.target.value === 'yes')}
+                        className="input-field"
+                      >
+                        <option value="">Not specified</option>
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                      </select>
+                    ) : (
+                      <input
+                        type={f.type === 'number' ? 'number' : 'text'}
+                        value={extraInfo[f.key] ?? ''}
+                        onChange={(e) => setExtra(f.key, f.type === 'number' && e.target.value !== '' ? Number(e.target.value) : e.target.value)}
+                        placeholder={f.placeholder || ''}
+                        className="input-field"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
 
             {/* Academic Information */}
             <div>
