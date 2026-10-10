@@ -573,7 +573,7 @@ class PaymentInitiateView(APIView):
                 last_name="User",
                 tx_ref=f"PL-{record.id.hex[:8]}",
                 callback_url="https://felege-selam-payment-system.onrender.com/api/chapa/webhook/",
-                return_url=f"https://felege-selam-payment-system.vercel.app/payment/success?tx_ref=PL-{record.id.hex[:8]}",
+                return_url=f"https://jschools.vercel.app/payment/success?tx_ref=PL-{record.id.hex[:8]}",
             )
 
             if result.get("success"):

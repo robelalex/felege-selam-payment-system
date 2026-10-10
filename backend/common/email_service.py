@@ -217,7 +217,7 @@ class SchoolEmailService:
 class PaymentLinkService:
     """Generate payment links for parent portal"""
     
-    FRONTEND_URL = getattr(settings, 'FRONTEND_URL', 'https://felege-selam-payment-system.vercel.app')
+    FRONTEND_URL = getattr(settings, 'FRONTEND_URL', 'https://jschools.vercel.app')
     
     @classmethod
     def generate_payment_link(cls, student_id, deadline_id, amount, student_name=None):
@@ -309,7 +309,7 @@ def send_approval_notification(recipient_email, school_name):
     <body style="font-family: Arial, sans-serif; text-align: center; padding: 20px;">
         <h2>Congratulations!</h2>
         <p>Your school <strong>{school_name}</strong> has been approved.</p>
-        <a href="https://felege-selam-payment-system.vercel.app/admin/login"
+        <a href="https://jschools.vercel.app/admin/login"
            style="background: #4F46E5; color: white; padding: 10px 20px;
                   text-decoration: none; border-radius: 5px;">
             Login Here
@@ -391,7 +391,7 @@ def send_registration_confirmation_email(recipient_email, school_name, admin_fir
     """
     frontend_url = getattr(
         settings, 'FRONTEND_URL',
-        'https://felege-selam-payment-system.vercel.app'
+        'https://jschools.vercel.app'
     )
     verify_link = f"{frontend_url}/verify-email/{token}"
 
@@ -444,7 +444,7 @@ def send_reset_password_email(recipient_email, token, portal=None):
     """
     frontend_url = getattr(
         settings, 'FRONTEND_URL',
-        'https://felege-selam-payment-system.vercel.app'
+        'https://jschools.vercel.app'
     )
     reset_path = '/teacher/reset-password' if portal == 'teacher' else '/admin/reset-password'
     reset_link = f"{frontend_url}{reset_path}?token={token}"
@@ -700,7 +700,7 @@ def send_deadline_reminder_email(recipient_email, student, deadline, school, pay
         
         # Generate secure anti-spoofing token (same function used by SMS)
         token, record = generate_payment_token(payment, student.parent_phone, channel="email")
-        payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
+        payment_link = f"https://jschools.vercel.app/pay/{token}"
     
     # Format due date
     due_date_str = deadline.due_date.strftime('%B %d, %Y') if deadline.due_date else "as soon as possible"

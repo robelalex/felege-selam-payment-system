@@ -711,7 +711,7 @@ class ReminderService:
 
                 frontend_url = getattr(
                     dj_settings, 'FRONTEND_URL',
-                    'https://felege-selam-payment-system.vercel.app'
+                    'https://jschools.vercel.app'
                 )
 
                 sms_sent = False

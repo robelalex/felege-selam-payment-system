@@ -195,7 +195,7 @@ class PaymentInitiateView(NoCacheAPIView):
             first_name="Parent",
             last_name="User",
             callback_url="https://felege-selam-payment-system.onrender.com/api/chapa/webhook/",
-            return_url_base="https://felege-selam-payment-system.vercel.app/payment/success",
+            return_url_base="https://jschools.vercel.app/payment/success",
         )
 
         if result.get("success"):

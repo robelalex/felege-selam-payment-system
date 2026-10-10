@@ -81,7 +81,7 @@ def _run_bulk_reminder_batch(school, deadline, students, custom_message):
                 payment_obj.amount = effective_amount
                 payment_obj.save(update_fields=['amount'])
             token, record = generate_payment_token(payment_obj, student.parent_phone, channel="sms")
-            payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
+            payment_link = f"https://jschools.vercel.app/pay/{token}"
 
             # Build message
             if custom_message:
@@ -269,7 +269,7 @@ class MultiSchoolSendPaymentReminderView(APIView):
                 payment_obj.amount = effective_amount
                 payment_obj.save(update_fields=['amount'])
             token, record = generate_payment_token(payment_obj, student.parent_phone, channel="sms")
-            payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
+            payment_link = f"https://jschools.vercel.app/pay/{token}"
             
             # Create bilingual message with payment link
             # ✅ FIX: display_label -> "Registration Fee" for registration

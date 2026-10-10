@@ -9,7 +9,7 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-FRONTEND_URL = getattr(settings, 'FRONTEND_URL', 'https://felege-selam-payment-system.vercel.app')
+FRONTEND_URL = getattr(settings, 'FRONTEND_URL', 'https://jschools.vercel.app')
 
 
 def finalize_receipt(payment):

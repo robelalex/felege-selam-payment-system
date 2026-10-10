@@ -6,7 +6,7 @@ class PaymentLinkService:
     """Generate payment links for parent portal"""
     
     # Your frontend URL
-    FRONTEND_URL = getattr(settings, 'FRONTEND_URL', 'https://felege-selam-payment-system.vercel.app')
+    FRONTEND_URL = getattr(settings, 'FRONTEND_URL', 'https://jschools.vercel.app')
     
     @classmethod
     def generate_payment_link(cls, student_id, deadline_id, amount, student_name=None):

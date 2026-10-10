@@ -412,7 +412,7 @@ class MultiSchoolSMSService:
             # No pre-sent code. The parent gets the code ONLY when they click the link.
             message = (
                 f"{school_name}: Payment due. Click to pay securely:\n"
-                f"https://felege-selam-payment-system.vercel.app/pay/{token}\n\n"
+                f"https://jschools.vercel.app/pay/{token}\n\n"
                 f"⚠️ For your safety: A code will be sent to your phone when you click. "
                 f"Never share this code with anyone calling you. Valid 6 hours."
             )

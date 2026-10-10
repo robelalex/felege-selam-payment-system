@@ -213,7 +213,7 @@ def initiate_chapa_payment(request):
         if platform == 'mobile':
             return_url_base = 'https://felege-selam-payment-system.onrender.com/api/chapa/mobile-redirect/'
         else:
-            return_url_base = 'https://felege-selam-payment-system.vercel.app/payment/success'
+            return_url_base = 'https://jschools.vercel.app/payment/success'
 
         # ✅ Unified checkout — same function the reminder-link flow uses.
         # Generates tx_ref, saves it onto the Payment row, THEN calls Chapa.

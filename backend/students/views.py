@@ -107,7 +107,7 @@ def _send_registration_reminder_email(student):
     from django.core.mail import send_mail
     from django.conf import settings
 
-    frontend_url = getattr(settings, 'FRONTEND_URL', 'https://felege-selam-payment-system.vercel.app')
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'https://jschools.vercel.app')
     login_link = f"{frontend_url}/parent-login"
     school_name = student.school.name
 

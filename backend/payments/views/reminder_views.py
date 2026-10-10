@@ -340,7 +340,7 @@ class ReminderViewSet(viewsets.ViewSet):
                     payment_obj.save(update_fields=['amount'])
 
                 token, record = generate_payment_token(payment_obj, student.parent_phone, channel="email")
-                payment_link = f"https://felege-selam-payment-system.vercel.app/pay/{token}"
+                payment_link = f"https://jschools.vercel.app/pay/{token}"
             
             # ✅ NEW: Use SchoolEmailService instead of global send_mail
             try:
