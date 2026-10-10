@@ -42,6 +42,8 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
     last_name: editStudent?.last_name || '',
     father_name: editStudent?.father_name || '',
     mother_name: editStudent?.mother_name || '',
+    gender: editStudent?.gender || '',
+    date_of_birth: editStudent?.date_of_birth || '',
     grade: editStudent?.grade || 1,
     section: editStudent?.section || '',
     academic_year: editStudent?.academic_year || '',
@@ -217,6 +219,8 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
       studentData.append('last_name', formData.last_name);
       studentData.append('father_name', formData.father_name || '');
       studentData.append('mother_name', formData.mother_name || '');
+      studentData.append('gender', formData.gender || '');
+      studentData.append('date_of_birth', formData.date_of_birth || '');
       studentData.append('grade', parseInt(formData.grade));
       studentData.append('section', formData.section || '');
       studentData.append('academic_year', formData.academic_year);
@@ -431,6 +435,37 @@ const StudentRegistrationForm = ({ onClose, onSuccess, editStudent }) => {
                     name="mother_name"
                     value={formData.mother_name}
                     onChange={handleChange}
+                    className="input-field"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Gender
+                  </label>
+                  <select
+                    name="gender"
+                    value={formData.gender}
+                    onChange={handleChange}
+                    className="input-field"
+                  >
+                    <option value="">Not specified</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Date of Birth
+                  </label>
+                  <input
+                    type="text"
+                    name="date_of_birth"
+                    value={formData.date_of_birth}
+                    onChange={handleChange}
+                    placeholder="e.g. 15/8/2008 (as recorded)"
+                    maxLength={20}
                     className="input-field"
                   />
                 </div>

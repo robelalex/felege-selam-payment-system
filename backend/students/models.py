@@ -64,6 +64,21 @@ class Student(models.Model):
         validators=[MinValueValidator(0)]
     )
 
+    # ===== Fields from the Ministry student registration form =====
+    # All optional, so existing students and existing forms keep working.
+    GENDER_CHOICES = [('Male', 'Male'), ('Female', 'Female')]
+    gender = models.CharField(max_length=10, choices=GENDER_CHOICES, blank=True, default='')
+    # Stored exactly as recorded (the Ministry form uses Ethiopian-calendar
+    # dates such as 15/8/2008), so no calendar conversion can corrupt it.
+    date_of_birth = models.CharField(
+        max_length=20, blank=True, default='',
+        help_text="As recorded, e.g. 15/8/2008 (Ethiopian calendar)"
+    )
+    # Everything else from the form (program, shift, disability status,
+    # orphan, language, transport assistant, ...) lives here, so a changed
+    # form never needs a new database column.
+    extra_info = models.JSONField(default=dict, blank=True)
+
     city = models.CharField(max_length=100, default="Jimma")
     subcity = models.CharField(max_length=100, blank=True)
     kebele = models.CharField(max_length=50, blank=True)

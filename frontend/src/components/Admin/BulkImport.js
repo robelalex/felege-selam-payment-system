@@ -20,6 +20,13 @@ function BulkImport({ onClose, onSuccess }) {
   const [results, setResults] = useState(null);
   const [step, setStep] = useState('upload'); // upload, processing, results
 
+  // Optional settings. Needed only when the file has no fee column
+  // (for example the Ministry registration form). Nothing is hard-coded.
+  const [defaultFee, setDefaultFee] = useState('');
+  const [academicYear, setAcademicYear] = useState('');
+  const [feeByGrade, setFeeByGrade] = useState({});
+  const [showGradeFees, setShowGradeFees] = useState(false);
+
   const onDrop = useCallback((acceptedFiles) => {
     setFile(acceptedFiles[0]);
   }, []);
@@ -61,6 +68,12 @@ function BulkImport({ onClose, onSuccess }) {
 
     const formData = new FormData();
     formData.append('file', file);
+    if (String(defaultFee).trim()) formData.append('default_monthly_fee', String(defaultFee).trim());
+    if (String(academicYear).trim()) formData.append('academic_year', String(academicYear).trim());
+    const gradeFees = Object.fromEntries(
+      Object.entries(feeByGrade).filter(([, v]) => String(v).trim() !== '')
+    );
+    if (Object.keys(gradeFees).length > 0) formData.append('fee_by_grade', JSON.stringify(gradeFees));
 
     try {
       // ✅ FIXED: Using api instance with custom headers for form data
@@ -143,9 +156,10 @@ function BulkImport({ onClose, onSuccess }) {
                 <div className="flex items-start gap-3">
                   <FileSpreadsheet className="h-6 w-6 text-blue-600 flex-shrink-0 mt-1" />
                   <div>
-                    <h3 className="font-semibold text-blue-900">Step 1: Download Template</h3>
+                    <h3 className="font-semibold text-blue-900">Step 1: Prepare your file (optional)</h3>
                     <p className="text-sm text-blue-700 mt-1">
-                      Start by downloading our Excel template. It contains the correct format and instructions.
+                      You can upload the Ministry student registration form exactly as it is.
+                      Columns are matched by their names, so no changes are needed. Or download our template.
                     </p>
                     <button
                       onClick={downloadTemplate}
@@ -167,6 +181,54 @@ function BulkImport({ onClose, onSuccess }) {
                     <p className="text-sm text-gray-600 mt-1">
                       Fill the template with your student data and upload it here.
                     </p>
+
+                    <div className="mt-4 rounded-lg border border-gray-200 bg-white p-3">
+                      <p className="text-sm font-medium text-gray-800">
+                        Fees and year <span className="font-normal text-gray-500">(needed only if the file has no fee column)</span>
+                      </p>
+                      <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label className="text-xs text-gray-600">
+                          Default monthly fee (birr)
+                          <input
+                            type="number" min="0" value={defaultFee}
+                            onChange={(e) => setDefaultFee(e.target.value)}
+                            placeholder="e.g. 200"
+                            className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                          />
+                        </label>
+                        <label className="text-xs text-gray-600">
+                          Academic year (optional)
+                          <input
+                            type="text" value={academicYear}
+                            onChange={(e) => setAcademicYear(e.target.value)}
+                            placeholder="Leave empty to use the current year"
+                            className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                          />
+                        </label>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowGradeFees(!showGradeFees)}
+                        className="mt-2 text-xs text-primary-600 hover:underline"
+                      >
+                        {showGradeFees ? 'Hide fees per grade' : 'Different fee for some grades?'}
+                      </button>
+                      {showGradeFees && (
+                        <div className="mt-2 grid grid-cols-4 gap-2">
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((g) => (
+                            <label key={g} className="text-xs text-gray-600">
+                              Grade {g}
+                              <input
+                                type="number" min="0" value={feeByGrade[g] || ''}
+                                onChange={(e) => setFeeByGrade({ ...feeByGrade, [g]: e.target.value })}
+                                placeholder={defaultFee || 'fee'}
+                                className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
 
                     <div
                       {...getRootProps()}
@@ -225,11 +287,11 @@ function BulkImport({ onClose, onSuccess }) {
               <div className="bg-yellow-50 rounded-lg p-4">
                 <h4 className="font-semibold text-yellow-800 mb-2">Important Notes:</h4>
                 <ul className="text-sm text-yellow-700 space-y-1 list-disc list-inside">
-                  <li>Do NOT modify the column headers</li>
-                  <li>Required fields: First Name, Last Name, Grade, Parent Phone</li>
-                  <li>Grade must be between 1 and 12</li>
-                  <li>Phone format: 0912345678</li>
-                  <li>Maximum 1000 students per file</li>
+                  <li>The Ministry registration form is accepted as it is (columns are matched by name)</li>
+                  <li>Required: First Name and Grade (written as 3 or Grade-3)</li>
+                  <li>Phone numbers like 912345678 or +251912345678 are fixed automatically</li>
+                  <li>Importing the same file twice will not create duplicates</li>
+                  <li>Up to about 1000 students per file</li>
                 </ul>
               </div>
             </div>
@@ -271,8 +333,22 @@ function BulkImport({ onClose, onSuccess }) {
                   {results.success > 0 && (
                     <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                       <p className="text-green-700">
-                        ✅ Successfully imported {results.success} students with auto-generated IDs!
+                        ✅ Successfully imported {results.success} students.
                       </p>
+                    </div>
+                  )}
+
+                  {/* Warnings (imported, but worth a look) */}
+                  {results.warnings && results.warnings.length > 0 && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <h4 className="font-semibold text-yellow-800 mb-2">
+                        Imported, but please check ({results.warnings.length}):
+                      </h4>
+                      <div className="max-h-32 overflow-y-auto">
+                        {results.warnings.map((w, i) => (
+                          <p key={i} className="text-sm text-yellow-700 py-0.5">{w}</p>
+                        ))}
+                      </div>
                     </div>
                   )}
 

@@ -644,7 +644,14 @@ class StudentViewSet(viewsets.ModelViewSet):
                 return Response({'error': 'School not identified. Please contact administrator.'}, status=400)
 
             service = BulkImportService(school.id)
-            results = service.process_file(file)
+            # Optional settings typed on the upload screen (fee, year, ...).
+            options = {
+                'default_monthly_fee': request.data.get('default_monthly_fee'),
+                'fee_by_grade': request.data.get('fee_by_grade'),
+                'academic_year': request.data.get('academic_year'),
+                'default_section': request.data.get('default_section'),
+            }
+            results = service.process_file(file, options)
 
             return Response(results)
 
