@@ -107,7 +107,7 @@ def _send_registration_reminder_email(student):
     from django.core.mail import send_mail
     from django.conf import settings
 
-    frontend_url = getattr(settings, 'FRONTEND_URL', 'https://jschools.vercel.app')
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'https://felege-selam-payment-system.vercel.app')
     login_link = f"{frontend_url}/parent-login"
     school_name = student.school.name
 
@@ -280,27 +280,10 @@ class StudentViewSet(viewsets.ModelViewSet):
 
         year_value = None if skip_year_filter else (year_id or year_id_alt or year_alt or year_param)
 
-        # 🔎 DIAGNOSTIC: show exactly what academic_year strings actually
-        # exist on this school's students BEFORE we filter by year, so a
-        # mismatch (e.g. "2018" vs "2018 E.C." vs blank) is provable from
-        # one log line instead of guessed at.
-        existing_years = list(queryset.values_list('academic_year', flat=True).distinct())
-        print(f"📚 DEBUG - academic_year values actually on {queryset.count()} students "
-              f"for this school BEFORE year filter: {existing_years}")
-
         if year_value:
             try:
                 try:
                     year = AcademicYear.objects.get(id=int(year_value))
-                    # 🔎 DIAGNOSTIC: the two strings PRINT identically but
-                    # the filter still returns 0 — that pattern means an
-                    # invisible character difference (different space type,
-                    # stray whitespace, etc). Compare raw bytes to prove it.
-                    print(f"📚 DEBUG - AcademicYear.name bytes: {year.name.encode('utf-8')!r} (len={len(year.name)})")
-                    for v in existing_years:
-                        if v:
-                            match = (v == year.name)
-                            print(f"📚 DEBUG - student value bytes: {v.encode('utf-8')!r} (len={len(v)}) — matches AcademicYear.name: {match}")
                     queryset = queryset.filter(academic_year=year.name)
                     print(f"📚 Filtered by AcademicYear ID {year_value}: {year.name}")
                 except (ValueError, AcademicYear.DoesNotExist):
@@ -324,9 +307,16 @@ class StudentViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(enrollment_date__lte=end_date)
 
         queryset = queryset.order_by('grade', 'first_name')
-        print(f"📚 Total students after filtering: {queryset.count()}")
 
-        return queryset
+        # Load each student's school and documents together with the students
+        # (one query each). Before, the list asked the database separately for
+        # every student's school and documents - ~1,000 questions for 538
+        # students, which is what made the dashboard take minutes.
+        from django.db.models import Prefetch
+        from .models import StudentDocument
+        return queryset.select_related('school').prefetch_related(
+            Prefetch('documents', queryset=StudentDocument.objects.select_related('academic_year'))
+        )
 
     def list(self, request, *args, **kwargs):
         """Override list to ensure school filtering is applied"""

@@ -78,7 +78,6 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 print(f"💰 Academic year: {academic_year.name}")
 
                 queryset = queryset.filter(deadline__academic_year=academic_year)
-                print(f"💰 Payment count after year filter: {queryset.count()}")
 
             except AcademicYear.DoesNotExist:
                 print("💰 Academic year not found for this school - returning empty")
@@ -87,7 +86,19 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 print(f"💰 Invalid year_id: {year_id}")
                 return Payment.objects.none()
 
-        return queryset
+        # Load the related student, school, deadline, year and slip together,
+        # and every student's active fee exceptions in ONE query. The
+        # serializer used to ask the database ~6 separate questions per payment.
+        from django.db.models import Prefetch
+        from payments.models import StudentFeeOverride
+        override_qs = StudentFeeOverride.objects.filter(is_active=True)
+        if not override_qs.ordered:
+            override_qs = override_qs.order_by('pk')
+        return queryset.select_related(
+            'student', 'student__school', 'deadline', 'deadline__academic_year', 'slip'
+        ).prefetch_related(
+            Prefetch('student__fee_overrides', queryset=override_qs, to_attr='_active_overrides')
+        )
 
     def list(self, request, *args, **kwargs):
         print("💰 ===== PAYMENT LIST CALLED =====")

@@ -99,7 +99,10 @@ def _registration_deadline_of_year(student, deadline):
     ).first()
 
 
-def get_effective_deadline_amount(student, deadline):
+_UNSET = object()
+
+
+def get_effective_deadline_amount(student, deadline, override=_UNSET):
     """
     Returns the Decimal amount this student actually owes for this
     specific PaymentDeadline, accounting for an active fee override.
@@ -128,7 +131,11 @@ def get_effective_deadline_amount(student, deadline):
       calendar-first monthly deadline instead, so it's never silently
       lost.
     """
-    override = get_active_override(student, deadline.academic_year)
+    # Callers that process many students at once (reports) can load all
+    # overrides in ONE query and pass each student's here (None = no
+    # override). Everyone else keeps the original one-lookup behaviour.
+    if override is _UNSET:
+        override = get_active_override(student, deadline.academic_year)
 
     if deadline.deadline_type == 'registration':
         # A full waiver takes over the registration deadline itself; a

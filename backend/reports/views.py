@@ -79,10 +79,12 @@ def dashboard_stats(request):
     paid_set = set(verified_qs.values_list('student_id', 'deadline_id'))
 
     pending_students_count = 0
+    # Fetch the active student ids once (not once per overdue deadline).
+    active_student_ids = list(students.filter(status='active').values_list('id', flat=True))
     for deadline in deadlines:
         if deadline.due_date and deadline.due_date < today:
-            for student in students.filter(status='active'):
-                if (student.id, deadline.id) not in paid_set:
+            for student_id in active_student_ids:
+                if (student_id, deadline.id) not in paid_set:
                     pending_students_count += 1
                     break
 
@@ -193,17 +195,32 @@ def pending_payments_report(request):
 
     today = date.today()
 
+    # select_related('school'): the student's display name needs the school's
+    # naming convention - without this it was one extra query per student.
     students = Student.objects.filter(
         school_id=school_id,
         status='active',
         academic_year=academic_year.name
-    )
+    ).select_related('school')
 
-    deadlines = PaymentDeadline.objects.filter(
+    deadlines = list(PaymentDeadline.objects.filter(
         school_id=school_id,
         academic_year=academic_year,
         is_active=True
+    ).select_related('academic_year'))
+
+    # All fee exceptions for this school/year in ONE query (was one query for
+    # every student x overdue month). Same rule as before: first active
+    # override per student.
+    from payments.models import StudentFeeOverride
+    override_qs = StudentFeeOverride.objects.filter(
+        student__school_id=school_id, academic_year=academic_year, is_active=True
     )
+    if not override_qs.ordered:
+        override_qs = override_qs.order_by('pk')
+    override_by_student = {}
+    for ov in override_qs:
+        override_by_student.setdefault(ov.student_id, ov)
 
     verified_qs = Payment.objects.filter(
         student__school_id=school_id,
@@ -227,13 +244,18 @@ def pending_payments_report(request):
 
             if is_overdue and is_unpaid:
                 # ✅ Fee exceptions (Jimma request #1)
-                effective_amount = get_effective_deadline_amount(student, deadline)
+                effective_amount = get_effective_deadline_amount(
+                    student, deadline, override=override_by_student.get(student.id)
+                )
                 if effective_amount <= 0:
                     continue
                 student_pending.append({
                     'month': deadline.month,
+                    # A one-time registration deadline has no month (NULL) - the
+                    # old code crashed here with a 500 error for such deadlines.
                     'month_name': (
-                        months[deadline.month - 1]
+                        'Registration' if deadline.month is None
+                        else months[deadline.month - 1]
                         if deadline.month <= len(months)
                         else f"Month {deadline.month}"
                     ),

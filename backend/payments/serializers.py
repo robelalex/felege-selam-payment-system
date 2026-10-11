@@ -151,6 +151,12 @@ class PaymentSerializer(serializers.ModelSerializer):
         try:
             if not obj.deadline or not obj.deadline.academic_year:
                 return None
+            # Use the exceptions the list view already loaded (see
+            # PaymentViewSet.get_queryset); otherwise look them up one by one.
+            preloaded = getattr(obj.student, '_active_overrides', None)
+            if preloaded is not None:
+                year_id = obj.deadline.academic_year_id
+                return next((o for o in preloaded if o.academic_year_id == year_id), None)
             return obj.student.fee_overrides.filter(
                 academic_year=obj.deadline.academic_year, is_active=True
             ).first()
