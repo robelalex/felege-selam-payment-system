@@ -47,11 +47,6 @@ function AcademicsSetup() {
   const [homeTeacher, setHomeTeacher] = useState('');
 
   const [assessmentTypes, setAssessmentTypes] = useState([]);
-  const [newAssessmentName, setNewAssessmentName] = useState('');
-  const [newAssessmentMaxScore, setNewAssessmentMaxScore] = useState(100);
-  const [newAssessmentWeight, setNewAssessmentWeight] = useState('');
-  const [newAssessmentTerm, setNewAssessmentTerm] = useState('');
-  const [newAssessmentGrade, setNewAssessmentGrade] = useState(''); // '' = All Grades
 
   const [terms, setTerms] = useState([]);
   const [newTermName, setNewTermName] = useState('');
@@ -289,33 +284,6 @@ function AcademicsSetup() {
   };
 
   // ===== Assessment Types =====
-  const handleCreateAssessment = async (e) => {
-    e.preventDefault();
-    if (!newAssessmentName.trim() || !currentYear?.id) return;
-    setSaving(true);
-    setError('');
-    try {
-      await api.post('/assessment-types/', {
-        academic_year: currentYear.id,
-        term: newAssessmentTerm || null,
-        name: newAssessmentName.trim(),
-        grade: newAssessmentGrade === '' ? null : parseInt(newAssessmentGrade),
-        max_score: newAssessmentMaxScore,
-        weight_percent: newAssessmentWeight === '' ? null : newAssessmentWeight,
-      });
-      setSuccess(`"${newAssessmentName}" added`);
-      setNewAssessmentName('');
-      setNewAssessmentMaxScore(100);
-      setNewAssessmentWeight('');
-      setNewAssessmentGrade('');
-      fetchAll();
-    } catch (err) {
-      setError(err.response?.data?.name?.[0] || err.response?.data?.error || 'Failed to add assessment');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleDeleteAssessment = async (id, name) => {
     if (!window.confirm(`Remove "${name}"? Marks already entered for it are kept, but teachers won't be able to grade new ones under it.`)) return;
     try {
@@ -323,7 +291,7 @@ function AcademicsSetup() {
       setSuccess(`"${name}" removed`);
       fetchAll();
     } catch (err) {
-      setError('Failed to remove assessment');
+      setError(err.response?.data?.error || 'Failed to remove assessment');
     }
   };
 
@@ -639,63 +607,15 @@ function AcademicsSetup() {
           {/* ===== ASSESSMENTS TAB ===== */}
           {activeTab === 'assessments' && (
             <div className="space-y-4">
-              <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-1 flex items-center gap-2">
-                  <Plus className="h-5 w-5 text-primary-600" />
-                  Create an Assessment
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 md:p-6">
+                <h2 className="text-lg font-semibold text-blue-900 mb-1 flex items-center gap-2">
+                  <ClipboardList className="h-5 w-5" />
+                  Teachers create their own assignments
                 </h2>
-                <p className="text-sm text-gray-500 mb-4">
-                  This is what teachers pick from when entering marks — e.g. "Mid Term Exam", "Final Exam", "Quiz 1".
-                  Nothing shows up for teachers to grade until at least one exists here.
-                </p>
-                <form onSubmit={handleCreateAssessment} className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
-                  <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                    <input
-                      type="text" value={newAssessmentName} onChange={(e) => setNewAssessmentName(e.target.value)}
-                      className="input-field" placeholder="e.g., Mid Term Exam" required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Term</label>
-                    <select value={newAssessmentTerm} onChange={(e) => setNewAssessmentTerm(e.target.value)} className="input-field">
-                      <option value="">No term (ungrouped)</option>
-                      {terms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Grade</label>
-                    <select value={newAssessmentGrade} onChange={(e) => setNewAssessmentGrade(e.target.value)} className="input-field">
-                      <option value="">All Grades</option>
-                      {ALL_GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Out of</label>
-                    <input
-                      type="number" min="1" value={newAssessmentMaxScore}
-                      onChange={(e) => setNewAssessmentMaxScore(e.target.value)}
-                      className="input-field" required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Weight % (optional)</label>
-                    <input
-                      type="number" min="0" max="100" value={newAssessmentWeight}
-                      onChange={(e) => setNewAssessmentWeight(e.target.value)}
-                      className="input-field" placeholder="e.g., 40"
-                    />
-                  </div>
-                  <button type="submit" disabled={saving || !currentYear} className="btn-primary flex items-center justify-center gap-2 tap-target sm:col-span-6">
-                    {saving ? <Loader className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                    Add Assessment
-                  </button>
-                </form>
-                {!currentYear && (
-                  <p className="text-sm text-amber-600 mt-3">Set an academic year first (Academic Years) before adding assessments.</p>
-                )}
-                <p className="text-xs text-gray-400 mt-3">
-                  Not every class is assessed the same way — pick a grade so this only shows up for that class's teachers, or leave it as "All Grades" if every class uses it.
+                <p className="text-sm text-blue-800">
+                  Each subject teacher creates the assignments, quizzes and exams for the subject and class they
+                  teach, directly in their gradebook, and enters marks against them. You don't need to create
+                  anything here - this list lets you see what teachers have set up.
                 </p>
               </div>
 
@@ -704,8 +624,10 @@ function AcademicsSetup() {
                   <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
                     <tr>
                       <th className="text-left px-4 py-3">Name</th>
+                      <th className="text-left px-4 py-3">Subject</th>
+                      <th className="text-left px-4 py-3">Teacher</th>
                       <th className="text-left px-4 py-3">Term</th>
-                      <th className="text-left px-4 py-3">Grade</th>
+                      <th className="text-left px-4 py-3">Class</th>
                       <th className="text-left px-4 py-3">Out of</th>
                       <th className="text-left px-4 py-3">Weight</th>
                       <th className="text-right px-4 py-3">Action</th>
@@ -713,13 +635,15 @@ function AcademicsSetup() {
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {assessmentTypes.length === 0 && (
-                      <tr><td colSpan={6} className="text-center text-gray-400 py-8">No assessments yet — add your first one above.</td></tr>
+                      <tr><td colSpan={8} className="text-center text-gray-400 py-8">No assignments yet - teachers create them in their gradebook.</td></tr>
                     )}
                     {assessmentTypes.map((a) => (
                       <tr key={a.id}>
                         <td className="px-4 py-3 font-medium text-gray-800">{a.name}</td>
+                        <td className="px-4 py-3 text-gray-500">{a.subject_name || 'All subjects'}</td>
+                        <td className="px-4 py-3 text-gray-500">{a.created_by_name || 'School-wide (older)'}</td>
                         <td className="px-4 py-3 text-gray-500">{a.term_name || 'Ungrouped'}</td>
-                        <td className="px-4 py-3 text-gray-500">{a.grade ? `Grade ${a.grade}` : 'All Grades'}</td>
+                        <td className="px-4 py-3 text-gray-500">{a.grade ? `Grade ${a.grade}${a.section ? ' ' + a.section : ''}` : 'All Grades'}</td>
                         <td className="px-4 py-3 text-gray-500">{a.max_score}</td>
                         <td className="px-4 py-3 text-gray-500">{a.weight_percent ? `${a.weight_percent}%` : '—'}</td>
                         <td className="px-4 py-3 text-right">

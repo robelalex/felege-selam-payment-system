@@ -117,6 +117,26 @@ class AssessmentType(models.Model):
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         help_text="Optional — how much this counts toward the final grade (e.g. Final Exam = 40%). Leave blank if not using weighted grading yet."
     )
+    # ===== Teacher-owned assignments =====
+    # Each subject teacher creates their own assignments/quizzes/exams for the
+    # subject, grade and section they teach (the school admin does not know how
+    # every teacher evaluates). All three are optional, so every assessment
+    # created before this existed (subject empty, created_by empty) keeps
+    # working exactly as it did, for every subject.
+    subject = models.ForeignKey(
+        Subject, on_delete=models.CASCADE, related_name='assessment_types',
+        null=True, blank=True,
+        help_text="The subject this assignment belongs to (empty = every subject)"
+    )
+    section = models.CharField(
+        max_length=10, blank=True, default='',
+        help_text="The section it applies to (empty = the whole grade)"
+    )
+    created_by = models.ForeignKey(
+        'staff.StaffMember', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='created_assessments',
+        help_text="The teacher who created it (empty = created before teachers could)"
+    )
     order = models.IntegerField(default=0, help_text="Controls display order")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -136,7 +156,10 @@ class AssessmentType(models.Model):
             # registered separately per grade within the same term, since
             # assessment types are now class(grade)-based.
             models.UniqueConstraint(
-                fields=['school', 'academic_year', 'term', 'name', 'grade'],
+                # subject / section / created_by added so two teachers can each
+                # have their own "Quiz 1" for the same grade and term.
+                fields=['school', 'academic_year', 'term', 'name', 'grade',
+                        'subject', 'section', 'created_by'],
                 condition=models.Q(is_active=True),
                 name='unique_active_assessment_type_per_term',
             )

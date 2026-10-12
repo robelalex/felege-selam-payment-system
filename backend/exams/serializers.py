@@ -24,12 +24,26 @@ class TermSerializer(serializers.ModelSerializer):
 
 class AssessmentTypeSerializer(serializers.ModelSerializer):
     term_name = serializers.CharField(source='term.name', read_only=True, default=None)
+    subject_name = serializers.CharField(source='subject.name', read_only=True, default=None)
+    created_by_name = serializers.CharField(source='created_by.full_name', read_only=True, default=None)
+    # True when the logged-in teacher created this assignment (so the screen
+    # can offer Edit/Remove only on their own).
+    is_mine = serializers.SerializerMethodField()
 
     class Meta:
         model = AssessmentType
         # ✅ Added 'grade' — assessment types are now class(grade)-based (null = all grades)
-        fields = ['id', 'school', 'academic_year', 'term', 'term_name', 'name', 'grade', 'max_score', 'weight_percent', 'order', 'is_active', 'created_at']
-        read_only_fields = ['school']
+        # ✅ Added subject/section/created_by — assignments now belong to the
+        # teacher who created them (see AssessmentTypeViewSet).
+        fields = ['id', 'school', 'academic_year', 'term', 'term_name', 'name', 'grade',
+                  'subject', 'subject_name', 'section', 'created_by', 'created_by_name', 'is_mine',
+                  'max_score', 'weight_percent', 'order', 'is_active', 'created_at']
+        read_only_fields = ['school', 'created_by']
+
+    def get_is_mine(self, obj):
+        request = self.context.get('request')
+        staff = getattr(getattr(request, 'user', None), 'staff_profile', None) if request else None
+        return bool(staff and obj.created_by_id == staff.id)
 
 
 class MarkSerializer(serializers.ModelSerializer):

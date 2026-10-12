@@ -1,5 +1,6 @@
 # exams/views.py
 from rest_framework import viewsets, serializers as drf_serializers
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -186,22 +187,28 @@ class SemesterViewSet(viewsets.ModelViewSet):
 
 
 class AssessmentTypeViewSet(viewsets.ModelViewSet):
-    """School-defined gradable events (Mid Term, Final, Quiz 1...).
-    Admin/registrar manage the list; teachers need read access too,
-    since picking an assessment type is the first step of entering marks."""
+    """Assignments / quizzes / exams that marks are entered against.
+
+    Each SUBJECT TEACHER creates their own, for the subject, grade and section
+    they teach - the school admin does not know how every teacher evaluates
+    their students. The admin can see the list but cannot create or edit.
+    Assessments that existed before this rule (created_by empty) stay usable
+    by every teacher exactly as before."""
     serializer_class = AssessmentTypeSerializer
     permission_classes = [IsAuthenticated]
 
-    def get_permissions(self):
-        if self.action in ('create', 'update', 'partial_update', 'destroy'):
-            return [IsAuthenticated(), CanManageAcademics()]
-        return [IsAuthenticated()]
+    def _sees_everything(self):
+        """School admins and academic managers see every assignment; a
+        teacher sees only their own plus the older school-wide ones."""
+        return _is_admin(self.request) or CanManageAcademics().has_permission(self.request, self)
 
     def get_queryset(self):
         school_id = get_verified_school_id(self.request)
         if not school_id:
             return AssessmentType.objects.none()
-        queryset = AssessmentType.objects.filter(school_id=school_id, is_active=True)
+        queryset = AssessmentType.objects.filter(
+            school_id=school_id, is_active=True
+        ).select_related('term', 'subject', 'created_by')
         year_id = self.request.query_params.get('academic_year_id')
         if year_id:
             queryset = queryset.filter(academic_year_id=year_id)
@@ -209,11 +216,8 @@ class AssessmentTypeViewSet(viewsets.ModelViewSet):
         if term_id:
             queryset = queryset.filter(term_id=term_id)
 
-        # ✅ NEW: optional ?grade= filter — assessment types are now
-        # class(grade)-based. Not passing this param keeps the old behavior
-        # (every active assessment type for the year/term), so existing
-        # callers (e.g. the Flutter app's mark entry screen before it's
-        # updated to pass grade) keep working unchanged.
+        # Optional ?grade= filter (null = every grade). Not passing it keeps
+        # the old behaviour, so existing callers keep working unchanged.
         grade = self.request.query_params.get('grade')
         if grade:
             try:
@@ -222,22 +226,98 @@ class AssessmentTypeViewSet(viewsets.ModelViewSet):
                 )
             except ValueError:
                 pass
+
+        subject_id = self.request.query_params.get('subject_id')
+        if subject_id:
+            queryset = queryset.filter(models.Q(subject_id=subject_id) | models.Q(subject__isnull=True))
+        section = self.request.query_params.get('section')
+        if section:
+            queryset = queryset.filter(models.Q(section='') | models.Q(section=section))
+
+        # A teacher sees their own assignments plus the older school-wide ones.
+        staff = _get_staff_profile(self.request)
+        if staff and not self._sees_everything():
+            queryset = queryset.filter(models.Q(created_by=staff) | models.Q(created_by__isnull=True))
         return queryset
+
+    def create(self, request, *args, **kwargs):
+        if _is_admin(request) or not _get_staff_profile(request):
+            return Response(
+                {'error': 'Assignments are created by each subject teacher in their own gradebook, '
+                          'not by the school admin.'},
+                status=403,
+            )
+        return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         school_id = get_verified_school_id(self.request)
         if not school_id:
             raise drf_serializers.ValidationError({"error": "Could not resolve your school"})
-        academic_year = serializer.validated_data.get('academic_year')
+        staff = _get_staff_profile(self.request)
+        data = serializer.validated_data
+
+        academic_year = data.get('academic_year')
         if academic_year and academic_year.school_id != school_id:
             raise drf_serializers.ValidationError({"error": "Academic year does not belong to your school"})
-        term = serializer.validated_data.get('term')
-        if term and term.school_id != school_id:
+        term = data.get('term')
+        if not term:
+            raise drf_serializers.ValidationError({"error": "Choose the term this assignment belongs to"})
+        if term.school_id != school_id:
             raise drf_serializers.ValidationError({"error": "Term does not belong to your school"})
-        serializer.save(school_id=school_id)
+
+        subject, grade, section = data.get('subject'), data.get('grade'), data.get('section', '')
+        if not subject or not grade:
+            raise drf_serializers.ValidationError({"error": "Choose the subject and grade this assignment is for"})
+        if subject.school_id != school_id:
+            raise drf_serializers.ValidationError({"error": "Subject does not belong to your school"})
+        if not _teacher_owns_subject(staff, subject.id, grade, section, academic_year.name):
+            raise PermissionDenied("You are not assigned to teach this subject/grade/section")
+
+        # A clear message instead of a database error when the same teacher
+        # reuses a name for the same class and term.
+        if AssessmentType.objects.filter(
+            school_id=school_id, academic_year=academic_year, term=term, grade=grade,
+            subject=subject, section=section, created_by=staff, is_active=True,
+            name__iexact=data.get('name', '').strip(),
+        ).exists():
+            raise drf_serializers.ValidationError(
+                {"error": "You already have an assignment with this name for this class and term"}
+            )
+
+        serializer.save(school_id=school_id, created_by=staff)
+
+    def perform_update(self, serializer):
+        obj = serializer.instance
+        staff = _get_staff_profile(self.request)
+        if _is_admin(self.request) or not staff or obj.created_by_id != staff.id:
+            raise PermissionDenied("Only the teacher who created this assignment can change it")
+        data = serializer.validated_data
+        # Where an assignment belongs is fixed once created; only its name,
+        # maximum score and order can change.
+        for fixed in ('subject', 'grade', 'section', 'term', 'academic_year'):
+            data.pop(fixed, None)
+        new_max = data.get('max_score')
+        if new_max is not None and new_max != obj.max_score and \
+                Mark.objects.filter(assessment_type=obj, score__isnull=False).exists():
+            raise drf_serializers.ValidationError(
+                {"error": "Marks are already entered, so the maximum score can no longer be changed."}
+            )
+        serializer.save()
 
     def destroy(self, request, *args, **kwargs):
         obj = self.get_object()
+        staff = _get_staff_profile(request)
+        is_owner = bool(staff and obj.created_by_id == staff.id)
+        if not (is_owner or _is_admin(request)):
+            raise PermissionDenied("Only the teacher who created this assignment can remove it")
+        # Teacher-created assignments cannot be removed once marks exist (it
+        # would hide marks that still count). The older school-wide ones keep
+        # their previous behaviour.
+        if obj.created_by_id and Mark.objects.filter(assessment_type=obj, score__isnull=False).exists():
+            return Response(
+                {'error': 'Marks are already entered for this assignment, so it cannot be removed.'},
+                status=400,
+            )
         obj.is_active = False
         obj.save(update_fields=['is_active'])
         return Response({'success': True})
@@ -294,6 +374,10 @@ class MarkViewSet(viewsets.ModelViewSet):
         if not _is_admin(request):
             if not staff or not _teacher_owns_subject(staff, subject_id, int(grade), section, assessment_type.academic_year.name):
                 return Response({'error': 'You are not assigned to teach this subject/grade/section'}, status=403)
+            if assessment_type.created_by_id and assessment_type.created_by_id != staff.id:
+                return Response({'error': 'This assignment belongs to another teacher'}, status=403)
+        if assessment_type.subject_id and str(assessment_type.subject_id) != str(subject_id):
+            return Response({'error': 'This assignment belongs to a different subject'}, status=400)
 
         students = Student.objects.filter(school_id=school_id, grade=grade, status='active')
         if section:
@@ -353,6 +437,10 @@ class MarkViewSet(viewsets.ModelViewSet):
         if not is_admin:
             if not staff or not _teacher_owns_subject(staff, subject_id, int(grade), section, assessment_type.academic_year.name):
                 return Response({'error': 'You are not assigned to teach this subject/grade/section'}, status=403)
+            if assessment_type.created_by_id and assessment_type.created_by_id != staff.id:
+                return Response({'error': 'This assignment belongs to another teacher'}, status=403)
+        if assessment_type.subject_id and str(assessment_type.subject_id) != str(subject_id):
+            return Response({'error': 'This assignment belongs to a different subject'}, status=400)
 
         saved, skipped_locked, errors = 0, 0, []
 
@@ -488,8 +576,15 @@ class MarkViewSet(viewsets.ModelViewSet):
         if not allowed:
             return Response({'error': 'You do not have access to this class'}, status=403)
 
+        # Only the assignments that belong to THIS class and subject: the
+        # teacher's own for this subject/grade/section, plus the older
+        # school-wide ones (subject/grade/section left empty).
         assessment_types = list(
-            AssessmentType.objects.filter(school_id=school_id, term_id=term_id, is_active=True).order_by('order', 'name')
+            AssessmentType.objects.filter(school_id=school_id, term_id=term_id, is_active=True)
+            .filter(models.Q(grade__isnull=True) | models.Q(grade=int(grade)))
+            .filter(models.Q(subject__isnull=True) | models.Q(subject_id=subject_id))
+            .filter(models.Q(section='') | models.Q(section=section))
+            .order_by('order', 'name')
         )
 
         students = Student.objects.filter(school_id=school_id, grade=grade, status='active')

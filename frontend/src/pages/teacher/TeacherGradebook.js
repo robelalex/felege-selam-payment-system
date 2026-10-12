@@ -10,6 +10,7 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader, RefreshCw, Check, X as XIcon, Undo2 } from 'lucide-react';
 import {
   getTerms, getGradebook, saveMarks, submitMarks, submitStudent, homeroomDecide, extractError,
+  createAssessment, deleteAssessment,
 } from '../../services/teacherApi';
 
 const statusColor = (status) => ({
@@ -43,6 +44,13 @@ function TeacherGradebook() {
   const [assessmentTypes, setAssessmentTypes] = useState([]);
   const [students, setStudents] = useState([]);
   const [scores, setScores] = useState({}); // key: `${studentId}:${assessmentTypeId}` -> string
+
+  // Teachers create their own assignments (name + what it is out of).
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newMax, setNewMax] = useState(100);
+  const [creating, setCreating] = useState(false);
+  const [notice, setNotice] = useState('');
 
   const loadGradebook = useCallback(async (termId) => {
     if (!termId) return;
@@ -100,6 +108,46 @@ function TeacherGradebook() {
     loadTerms();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [academicYearId]);
+
+  const handleCreateAssignment = async (e) => {
+    e.preventDefault();
+    if (!newName.trim() || !selectedTermId) return;
+    setCreating(true);
+    setError('');
+    setNotice('');
+    try {
+      await createAssessment({
+        academic_year: Number(academicYearId),
+        term: selectedTermId,
+        subject: Number(subjectId),
+        grade: Number(grade),
+        section,
+        name: newName.trim(),
+        max_score: newMax,
+      });
+      setNotice(`"${newName.trim()}" added`);
+      setNewName('');
+      setNewMax(100);
+      setShowAddForm(false);
+      await loadGradebook(selectedTermId);
+    } catch (err) {
+      setError(extractError(err, 'Could not add the assignment.'));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleRemoveAssignment = async (a) => {
+    if (!window.confirm(`Remove "${a.name}"? You can only remove it while no marks are entered for it.`)) return;
+    setError('');
+    setNotice('');
+    try {
+      await deleteAssessment(a.id);
+      await loadGradebook(selectedTermId);
+    } catch (err) {
+      setError(extractError(err, 'Could not remove the assignment.'));
+    }
+  };
 
   const columnFor = (student, assessmentTypeId) =>
     student.columns?.[assessmentTypeId] ?? student.columns?.[String(assessmentTypeId)];
@@ -241,6 +289,58 @@ function TeacherGradebook() {
               </div>
             )}
 
+            {notice && (
+              <div className="bg-green-50 border-l-4 border-green-500 p-3 rounded mb-4">
+                <p className="text-green-700 text-sm">{notice}</p>
+              </div>
+            )}
+
+            {!isHomeroomView && terms.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-gray-900">My assignments</p>
+                    <p className="text-xs text-gray-500">
+                      Create the assignments, quizzes and exams you give this class, then enter marks for each.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddForm((v) => !v)}
+                    className="btn-primary whitespace-nowrap"
+                  >
+                    {showAddForm ? 'Cancel' : '+ Add assignment'}
+                  </button>
+                </div>
+                {showAddForm && (
+                  <form onSubmit={handleCreateAssignment} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end mt-4">
+                    <div className="sm:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                      <input
+                        type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
+                        className="input-field" placeholder="e.g., Quiz 1, Homework 2, Mid Exam" required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Out of</label>
+                      <input
+                        type="number" min="1" value={newMax} onChange={(e) => setNewMax(e.target.value)}
+                        className="input-field" required
+                      />
+                    </div>
+                    <button type="submit" disabled={creating} className="btn-primary sm:col-span-3">
+                      {creating ? 'Adding...' : 'Add assignment'}
+                    </button>
+                  </form>
+                )}
+                {assessmentTypes.length === 0 && !showAddForm && (
+                  <p className="text-sm text-amber-600 mt-3">
+                    No assignments yet for this term. Tap "+ Add assignment" to create your first one.
+                  </p>
+                )}
+              </div>
+            )}
+
             {terms.length === 0 ? (
               <p className="text-center text-gray-500 py-16">
                 No terms have been set up yet. Ask your school admin to create one in Academics Setup.
@@ -257,7 +357,18 @@ function TeacherGradebook() {
                       <th className="text-left px-4 py-3 font-semibold text-gray-700">Student</th>
                       {assessmentTypes.map((a) => (
                         <th key={a.id} className="px-3 py-3 font-semibold text-gray-700 text-center whitespace-nowrap">
-                          {a.name}<br /><span className="font-normal text-xs">(/ {a.max_score})</span>
+                          {a.name}
+                          {!isHomeroomView && a.is_mine && (
+                            <button
+                              type="button"
+                              title="Remove this assignment"
+                              onClick={() => handleRemoveAssignment(a)}
+                              className="ml-1 text-gray-400 hover:text-red-600"
+                            >
+                              <XIcon className="inline h-3 w-3" />
+                            </button>
+                          )}
+                          <br /><span className="font-normal text-xs">(/ {a.max_score})</span>
                         </th>
                       ))}
                       <th className="px-3 py-3 font-semibold text-gray-700 text-center">Total</th>

@@ -15,7 +15,7 @@
 
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://schoolpay-ethiopia-api.vercel.app/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://felege-selam-payment-system.onrender.com/api';
 
 const teacherApi = axios.create({
   baseURL: API_BASE_URL,
@@ -121,6 +121,11 @@ export const getClassAssignments = (grade) => teacherApi.get('/class-assignments
 
 // ─── Terms / assessment types ───────────────────────────────────────────
 export const getTerms = (academicYearId) => teacherApi.get('/terms/', { params: { academic_year_id: academicYearId } });
+
+// Assignments / quizzes / exams are created by each subject teacher for the
+// subject, grade and section they teach (the school admin no longer does).
+export const createAssessment = (payload) => teacherApi.post('/assessment-types/', payload);
+export const deleteAssessment = (id) => teacherApi.delete(`/assessment-types/${id}/`);
 
 // ✅ Item 7 — semester groupings (quarter-structure schools only). An
 // empty list back is expected/normal for a semester-structure school.
